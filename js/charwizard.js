@@ -10,6 +10,7 @@ import {CharWizardUi} from "./charwizard/cw-ui.js";
 export const CW = {
 	ABILITIES: ["str", "dex", "con", "int", "wis", "cha"],
 	ABIL_FULL: {str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma"},
+	ABIL_NAME_TO_ABV: {strength: "str", dexterity: "dex", constitution: "con", intelligence: "int", wisdom: "wis", charisma: "cha"},
 	STANDARD_ARRAY: [15, 14, 13, 12, 10, 8],
 	POINT_BUY_COST: {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9},
 	POINT_BUY_BUDGET: 27,
@@ -163,7 +164,39 @@ export class CharState {
 			.map(([lv, c]) => ({level: +lv, featUid: c.featUid}));
 	}
 
-	finalAbility (abv) { return (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv]; }
+	// Parse a feature's text for "Your X [and Y] score(s) increase(s) by N" (e.g. Primal Champion)
+	_featureAbilityIncrease (feature) {
+		const out = {};
+		const text = JSON.stringify(feature?.entries || "").toLowerCase();
+		const re = /your ([a-z ,]+?) scores? (?:increase|raise)s? by (\d+)/g;
+		let m;
+		while ((m = re.exec(text)) !== null) {
+			const amount = parseInt(m[2], 10);
+			m[1].split(/\s*,\s*|\s+and\s+/).map(s => s.trim()).forEach(n => {
+				const abv = CW.ABIL_NAME_TO_ABV[n];
+				if (abv) out[abv] = Math.max(out[abv] || 0, amount);
+			});
+		}
+		return out;
+	}
+
+	// Ability increases from class/subclass features gained so far (outside ASIs/feats)
+	classFeatureAbilityBonuses () {
+		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
+		const addFrom = (featuresByLevel) => {
+			(featuresByLevel || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => {
+				if (!f?.name) return;
+				const lvl = f.level || (ix + 1);
+				if (lvl > this.level) return;
+				Object.entries(this._featureAbilityIncrease(f)).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
+			}));
+		};
+		addFrom(this.classEnt?.classFeatures);
+		addFrom(this.subclassEnt?.subclassFeatures);
+		return out;
+	}
+
+	finalAbility (abv) { return (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv]; }
 	abilityMod (abv) { return CW.mod(this.finalAbility(abv)); }
 
 	pointBuySpent () {

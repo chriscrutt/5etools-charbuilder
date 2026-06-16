@@ -25,7 +25,6 @@ export class CharWizardUi {
 			{id: "background", label: "Background", done: () => !!st.backgroundUid, render: (el) => this._renderStepBackground(el)},
 			{id: "abilities", label: "Abilities", done: () => true, render: (el) => this._renderStepAbilities(el)},
 		];
-		if (st.asiLevels().length) steps.push({id: "asi", label: "ASI & Feats", done: () => true, render: (el) => this._renderStepAsi(el)});
 		steps.push({id: "skills", label: "Skills & Gear", done: () => true, render: (el) => this._renderStepSkills(el)});
 		if (st.isCaster()) steps.push({id: "spells", label: "Spells", done: () => true, render: (el) => this._renderStepSpells(el)});
 		steps.push({id: "review", label: "Review", done: () => true, render: (el) => this._renderStepReview(el)});
@@ -33,6 +32,7 @@ export class CharWizardUi {
 	}
 
 	render () {
+		const scrollTop = this._eleRoot.scrollTop || 0;
 		this._eleRoot.empty();
 		const steps = this._steps();
 		if (this._ixStep >= steps.length) this._ixStep = steps.length - 1;
@@ -68,6 +68,8 @@ export class CharWizardUi {
 		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`
 			.onn("click", () => { if (!isLast) { this._ixStep++; this.render(); } });
 		ee(wrp)`<div class="cw__footer no-print">${btnBack}${btnNext}</div>`;
+
+		if (scrollTop) this._eleRoot.scrollTop = scrollTop;
 	}
 
 	_getToolbarButtons () {
@@ -310,25 +312,33 @@ export class CharWizardUi {
 		});
 	}
 
-	/* ----- Step: Abilities ----- */
+	/* ----- Step: Abilities (incl. racial bonuses, ASIs & feats — so totals are complete) ----- */
 	_renderStepAbilities (el) {
 		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
 
+		ee(wrp)`<p class="ve-muted ve-small">Set your base scores, then apply racial bonuses, ASIs, and feats below — the totals on the cards update live.</p>`;
+
+		// 1) base score method + editable cards (cards show the grand total)
 		const methods = [["pointbuy", "Point Buy"], ["array", "Standard Array"], ["manual", "Manual / Rolled"]];
-		const selWrp = ee`<div class="ve-btn-group ve-mb-3"></div>`.appendTo(wrp);
+		const selWrp = ee`<div class="ve-btn-group ve-mb-2"></div>`.appendTo(wrp);
 		methods.forEach(([id, lbl]) => {
-			const b = ee`<button class="ve-btn ${st.abilityMethod === id ? "ve-btn-primary" : "ve-btn-default"}">${lbl}</button>`
-				.onn("click", () => { st.abilityMethod = id; this._initAbilitiesForMethod(); this._save(); this.render(); });
-			b.appendTo(selWrp);
+			ee`<button class="ve-btn ${st.abilityMethod === id ? "ve-btn-primary" : "ve-btn-default"}">${lbl}</button>`
+				.onn("click", () => { st.abilityMethod = id; this._initAbilitiesForMethod(); this._save(); this.render(); })
+				.appendTo(selWrp);
 		});
-
-		// racial ability bonuses (fixed / choose / weighted; supports multi-option races)
-		this._renderRacialAbility(wrp);
-
 		if (st.abilityMethod === "pointbuy") this._renderPointBuy(wrp);
 		else if (st.abilityMethod === "array") this._renderStandardArray(wrp);
 		else this._renderManual(wrp);
+
+		// 2) racial bonuses
+		ee(wrp)`<hr class="hr-2 ve-mt-3">`;
+		this._renderRacialAbility(wrp);
+
+		// 3) ASIs & feats (merged here so the totals above reflect them)
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Ability Score Improvements &amp; Feats</h4>`;
+		if (st.asiLevels().length) this._renderStepAsi(wrp);
+		else ee(wrp)`<div class="ve-muted ve-small">${st.classUid ? `No Ability Score Improvements available at level ${st.level} (the first is usually level 4).` : "Choose a class first."}</div>`;
 	}
 
 	/* ----- Racial ability bonuses (fixed / choose / weighted; multi-option) ----- */
@@ -406,16 +416,23 @@ export class CharWizardUi {
 
 	_abilityCard (abv, inner) {
 		const st = this._state;
-		const racial = st.racialBonuses()[abv];
 		const base = st.abilitiesBase[abv];
-		const total = base == null ? null : base + racial;
+		const racial = st.racialBonuses()[abv];
+		const asi = st.asiBonuses()[abv];
+		const clsf = st.classFeatureAbilityBonuses()[abv];
+		const total = base == null ? null : st.finalAbility(abv);
 		const mod = total == null ? null : CW.mod(total);
+		const parts = [];
+		if (base != null) parts.push(`base ${base}`);
+		if (racial) parts.push(`${CW.fmtMod(racial)} race`);
+		if (asi) parts.push(`${CW.fmtMod(asi)} ASI`);
+		if (clsf) parts.push(`${CW.fmtMod(clsf)} class`);
 		return ee`<div class="cw__abil">
 			<div class="cw__abil-name">${abv}</div>
 			${inner}
 			<div class="cw__abil-score">${total == null ? "—" : total}</div>
 			<div class="cw__abil-mod">${mod == null ? "" : CW.fmtMod(mod)}</div>
-			<div class="cw__abil-sub">${base == null ? "" : `base ${base}${racial ? ` ${CW.fmtMod(racial)} racial` : ""}`}</div>
+			<div class="cw__abil-sub">${base == null ? "" : parts.join(" ")}</div>
 		</div>`;
 	}
 
