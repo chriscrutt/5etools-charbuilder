@@ -138,17 +138,23 @@ export class CharWizardUi {
 	}
 
 	/* ----- generic chip multi-picker (updates in place, no full re-render) ----- */
-	_renderChipPicker (wrp, {items, getValue, getLabel, getTitle = null, arr, max, counterEle = null, gridStyle = "display:flex;flex-wrap:wrap;gap:4px"}) {
+	_renderChipPicker (wrp, {items, getValue, getLabel, getTitle = null, arr, max, counterEle = null, gridStyle = "display:flex;flex-wrap:wrap;gap:4px", disabledFn = null}) {
 		const grid = ee`<div style="${gridStyle}"></div>`.appendTo(wrp);
 		const refresh = () => {
 			const atMax = arr.length >= max;
-			[...grid.querySelectorAll("input[type=checkbox]")].forEach(inp => { if (!inp.checked) inp.disabled = atMax; });
+			[...grid.querySelectorAll("label")].forEach(lbl => {
+				const inp = lbl.querySelector("input"); if (!inp) return;
+				const lockedReason = lbl.dataset.lockedReason;
+				inp.disabled = !!lockedReason || (!inp.checked && atMax);
+			});
 			if (counterEle) counterEle.txt(`${arr.length}/${max}`);
 		};
 		items.forEach(item => {
 			const val = getValue(item);
 			const isChosen = arr.includes(val);
-			const chip = ee`<label class="cw__chip" style="cursor:pointer" title="${(getTitle ? getTitle(item) : "").qq()}">${getLabel(item)} <input type="checkbox" ${isChosen ? "checked" : ""}></label>`;
+			const lock = disabledFn ? disabledFn(item) : null; // string reason or null
+			const chip = ee`<label class="cw__chip ${lock ? "cw__chip--locked" : ""}" style="cursor:${lock ? "not-allowed" : "pointer"}" title="${(lock || (getTitle ? getTitle(item) : "")).qq()}">${getLabel(item)}${lock ? " ✓" : ""} <input type="checkbox" ${isChosen ? "checked" : ""}></label>`;
+			if (lock) chip.dataset.lockedReason = lock;
 			const input = chip.querySelector("input");
 			input.addEventListener("change", () => {
 				if (input.checked) { if (arr.length < max) arr.push(val); else input.checked = false; } else { const i = arr.indexOf(val); if (i >= 0) arr.splice(i, 1); }
@@ -578,8 +584,17 @@ export class CharWizardUi {
 		if (!st.classEnt) ee(wrp)`<p class="ve-muted">Choose a class first.</p>`;
 		else if (meta) {
 			const counter = ee`<span class="ve-muted">${st.classSkillChoices.length}/${meta.count}</span>`;
-			ee(wrp)`<p class="ve-muted">From <b>${st.classEnt.name}</b>: choose ${meta.count} (${counter}).</p>`;
-			this._renderChipPicker(wrp, {items: meta.from, getValue: s => s, getLabel: s => CW.skillName(s), arr: st.classSkillChoices, max: meta.count, counterEle: counter});
+			ee(wrp)`<p class="ve-muted">From <b>${st.classEnt.name}</b>: choose ${meta.count} (${counter}). <span class="ve-small">Skills you already have are locked — pick different ones so nothing is wasted.</span></p>`;
+			const already = st.fixedSkillProfs();
+			this._renderChipPicker(wrp, {
+				items: meta.from,
+				getValue: s => s,
+				getLabel: s => CW.skillName(s),
+				arr: st.classSkillChoices,
+				max: meta.count,
+				counterEle: counter,
+				disabledFn: s => already.has(s) ? "Already proficient (from background, race, or class)" : null,
+			});
 		} else ee(wrp)`<p class="ve-muted">No class skill choices.</p>`;
 
 		// background fixed skills

@@ -214,7 +214,27 @@ export class CharState {
 		const avg = Math.floor(faces / 2) + 1;
 		let hp = faces + conMod; // level 1: max
 		for (let lv = 2; lv <= this.level; ++lv) hp += avg + conMod;
+		hp += this.hpBonusPerLevel() * this.level; // Tough, Dwarven Toughness, etc.
 		return Math.max(this.level, hp);
+	}
+
+	// Per-level bonus HP from race traits / feats / features (Tough +2, Dwarven Toughness +1, …)
+	hpBonusPerLevel () {
+		const parse = (entries) => {
+			const text = JSON.stringify(entries || "").toLowerCase();
+			if (!/hit point maximum increases/.test(text)) return 0;
+			if (/twice your level/.test(text)) return 2; // Tough
+			let m = text.match(/increases by (\d+)[^.]*?(?:every time you gain a level|whenever you (?:gain|reach) a (?:new )?level|per (?:\w+ )?level)/);
+			if (m) return parseInt(m[1], 10);
+			m = text.match(/additional (\d+) hit points?/);
+			return m ? parseInt(m[1], 10) : 0;
+		};
+		let perLevel = parse(this.raceEnt?.entries);
+		this.featsTaken().forEach(({featUid}) => { perLevel += parse(this._data.feats.find(x => CW.uid(x) === featUid)?.entries); });
+		const addF = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) perLevel += parse(f?.entries); }));
+		addF(this.classEnt?.classFeatures);
+		addF(this.subclassEnt?.subclassFeatures);
+		return perLevel;
 	}
 
 	saveProfs () {
@@ -222,21 +242,19 @@ export class CharState {
 		return new Set(c?.proficiency || []); // e.g. ["str","con"]
 	}
 
-	// Skill proficiencies: fixed from background + chosen from class (and any fixed class skills)
-	skillProfs () {
+	// Skill proficiencies granted *outside* the class choice (background + race + fixed class skills)
+	fixedSkillProfs () {
 		const out = new Set();
-		const bg = this.backgroundEnt;
-		(bg?.skillProficiencies || []).forEach(grp => {
-			Object.entries(grp).forEach(([k, v]) => { if (v === true && CW.skillAbil(k) != null) out.add(k); });
-		});
+		const addGrps = (grps) => (grps || []).forEach(grp => { if (grp && typeof grp === "object" && !grp.choose) Object.entries(grp).forEach(([k, v]) => { if (v === true && CW.skillAbil(k) != null) out.add(k); }); });
+		addGrps(this.backgroundEnt?.skillProficiencies);
+		addGrps(this.raceEnt?.skillProficiencies);
+		addGrps(this.classEnt?.startingProficiencies?.skills);
+		return out;
+	}
+
+	skillProfs () {
+		const out = this.fixedSkillProfs();
 		this.classSkillChoices.forEach(s => out.add(s));
-		// fixed (non-choose) class skills
-		const cls = this.classEnt;
-		(cls?.startingProficiencies?.skills || []).forEach(grp => {
-			if (grp && typeof grp === "object" && !grp.choose) {
-				Object.entries(grp).forEach(([k, v]) => { if (v === true) out.add(k); });
-			}
-		});
 		return out;
 	}
 
@@ -367,6 +385,12 @@ export class CharState {
 			const clsName = this.classEnt?.name;
 			// Monk Unarmored Defense requires no shield; Barbarian allows a shield
 			if (clsName === "Barbarian") { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (clsName === "Monk" && !this.isShieldEffective()) { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
+			// race natural armor — use if it gives a higher (or equal) AC
+			const nat = this.naturalArmor();
+			if (nat) {
+				const natAc = nat.base + (nat.abil ? this.abilityMod(nat.abil) : 0);
+				if (natAc >= base) { base = natAc; how = `Natural Armor (${nat.base}${nat.abil ? ` + ${nat.abil.toUpperCase()}` : ""})`; }
+			}
 		}
 		if (this.isShieldEffective()) { base += 2; how += " + Shield"; }
 		return {ac: base, how};
@@ -380,7 +404,44 @@ export class CharState {
 	}
 	passivePerception () { return 10 + this.skillMod("perception"); }
 
-	speedString () { const r = this.raceEnt; return r?.speed != null ? Parser.getSpeedString(r, {styleHint: this._data.styleHint}) : "—"; }
+	// +N ft. speed from features gained (Barbarian Fast Movement, Monk Unarmored Movement, …)
+	speedBonusFromFeatures () {
+		let bonus = 0; const armored = !!this.armorEnt();
+		const addFrom = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => {
+			if (!f?.name || (f.level || (ix + 1)) > this.level) return;
+			const text = JSON.stringify(f.entries || "").toLowerCase();
+			const m = text.match(/speed increases by (\d+) ?(?:feet|ft)/);
+			if (!m) return;
+			const conditional = /(?:not|aren't|are not|no) wearing armor|wearing no armor/.test(text);
+			if (!conditional || !armored) bonus += parseInt(m[1], 10);
+		}));
+		addFrom(this.classEnt?.classFeatures);
+		addFrom(this.subclassEnt?.subclassFeatures);
+		return bonus;
+	}
+
+	speedString () {
+		const sp = this.raceEnt?.speed; if (sp == null) return "—";
+		const bonus = this.speedBonusFromFeatures();
+		const walk = (typeof sp === "number" ? sp : (sp.walk ?? 30)) + bonus;
+		const parts = [`${walk} ft.`];
+		if (typeof sp === "object") {
+			[["fly", "fly"], ["swim", "swim"], ["climb", "climb"], ["burrow", "burrow"]].forEach(([k, lbl]) => {
+				const v = sp[k]; if (v) parts.push(`${lbl} ${v === true ? walk : v} ft.`);
+			});
+		}
+		return parts.join(", ") + (bonus ? ` (incl. +${bonus} from features)` : "");
+	}
+
+	// Race natural armor (text-parsed): {base, abil} or null
+	naturalArmor () {
+		const text = JSON.stringify(this.raceEnt?.entries || "").toLowerCase();
+		let m = text.match(/(?:armor class|\bac\b)[^.]{0,40}?(\d{2}) \+ your (\w+) modifier/);
+		if (m) { const abv = CW.ABIL_NAME_TO_ABV[m[2]]; if (abv) return {base: parseInt(m[1], 10), abil: abv}; }
+		m = text.match(/(?:base ac|armor class)(?: is| of| equals) (\d{2})\b/);
+		if (m) return {base: parseInt(m[1], 10), abil: null};
+		return null;
+	}
 
 	size () { const r = this.raceEnt; return r?.size?.length ? Parser.sizeAbvToFull(r.size[0]) : "—"; }
 
