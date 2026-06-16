@@ -56,6 +56,21 @@
 .cw__sheet-section h4 { border-bottom: 1px solid rgba(127,127,127,.3); padding-bottom: 2px; margin-bottom: 6px; }
 .cw__chip { display: inline-block; padding: 1px 7px; margin: 2px; border-radius: 10px; background: rgba(0,107,196,.12); font-size: 12px; }
 
+/* Make <details> obviously expandable: rotating arrow + hover cue */
+#charwizard-main details > summary {
+	cursor: pointer; list-style: none; user-select: none;
+	padding: 2px 4px; border-radius: 3px;
+}
+#charwizard-main details > summary::-webkit-details-marker { display: none; }
+#charwizard-main details > summary::before {
+	content: "\25B6"; /* ▶ */
+	display: inline-block; width: 1em; margin-right: 4px;
+	font-size: .8em; opacity: .6; transition: transform .12s ease;
+}
+#charwizard-main details[open] > summary::before { transform: rotate(90deg); }
+#charwizard-main details > summary:hover { background: rgba(0,107,196,.12); }
+#charwizard-main details > summary:hover::before { opacity: 1; }
+
 /* Class progression table */
 .cw__class-tbl { border-collapse: collapse; margin: 6px 0; }
 .cw__class-tbl th, .cw__class-tbl td { padding: 2px 6px; border-bottom: 1px solid rgba(127,127,127,.18); text-align: center; white-space: nowrap; }

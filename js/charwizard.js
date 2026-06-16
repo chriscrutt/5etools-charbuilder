@@ -51,7 +51,9 @@ export class CharState {
 		this.backgroundUid = null;
 		this.abilityMethod = "pointbuy";
 		this.abilitiesBase = {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8};
-		this.raceAbilChoices = []; // for races with "choose" ability bonuses
+		this.raceAbilOption = 0; // which ability option (a/b/…) for multi-option races
+		this.raceAbilChoices = []; // simple "choose N" ability picks
+		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
 		this.classSkillChoices = [];
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
@@ -94,22 +96,34 @@ export class CharState {
 	}
 
 	/* ----- abilities ----- */
+	raceAbilityOptions () { return this.raceEnt?.ability || []; }
+	activeRaceAbilityOption () {
+		const opts = this.raceAbilityOptions();
+		if (!opts.length) return null;
+		return opts[Math.min(this.raceAbilOption || 0, opts.length - 1)] || null;
+	}
+
 	racialBonuses () {
 		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
-		const race = this.raceEnt;
-		if (!race?.ability?.length) return out;
-		const ab = race.ability[0];
-		Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number") out[k] = (out[k] || 0) + v; });
-		if (ab.choose) {
-			const amount = ab.choose.amount || 1;
-			this.raceAbilChoices.forEach(k => { if (out[k] != null) out[k] += amount; });
+		const ab = this.activeRaceAbilityOption();
+		if (!ab) return out;
+		// fixed bonuses
+		Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
+		const ch = ab.choose;
+		if (ch?.weighted) {
+			const weights = ch.weighted.weights || [];
+			(this.raceAbilWeighted || []).forEach((abv, i) => { if (abv && out[abv] != null && weights[i] != null) out[abv] += weights[i]; });
+		} else if (ch) {
+			const amount = ch.amount || 1;
+			(this.raceAbilChoices || []).forEach(k => { if (out[k] != null) out[k] += amount; });
 		}
 		return out;
 	}
 
+	// meta for a simple (non-weighted) "choose" option, else null
 	racialChooseMeta () {
-		const ab = this.raceEnt?.ability?.[0];
-		if (!ab?.choose) return null;
+		const ab = this.activeRaceAbilityOption();
+		if (!ab?.choose || ab.choose.weighted) return null;
 		return {from: ab.choose.from || CW.ABILITIES, count: ab.choose.count || 1, amount: ab.choose.amount || 1};
 	}
 
@@ -379,7 +393,9 @@ export class CharState {
 			backgroundUid: this.backgroundUid,
 			abilityMethod: this.abilityMethod,
 			abilitiesBase: this.abilitiesBase,
+			raceAbilOption: this.raceAbilOption,
 			raceAbilChoices: this.raceAbilChoices,
+			raceAbilWeighted: this.raceAbilWeighted,
 			classSkillChoices: this.classSkillChoices,
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
@@ -401,7 +417,9 @@ export class CharState {
 			backgroundUid: j.backgroundUid ?? null,
 			abilityMethod: j.abilityMethod ?? "pointbuy",
 			abilitiesBase: j.abilitiesBase ?? {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8},
+			raceAbilOption: j.raceAbilOption ?? 0,
 			raceAbilChoices: j.raceAbilChoices ?? [],
+			raceAbilWeighted: j.raceAbilWeighted ?? [],
 			classSkillChoices: j.classSkillChoices ?? [],
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
