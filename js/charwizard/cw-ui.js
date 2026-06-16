@@ -93,7 +93,7 @@ export class CharWizardUi {
 	}
 
 	/* ----- generic chooser (list + preview) ----- */
-	_renderChooser (eleBody, {entities, getSel, setSel, renderDetail, subtitle}) {
+	_renderChooser (eleBody, {entities, getSel, setSel, renderDetail, subtitle, onAfterSelect = null}) {
 		const wrp = ee`<div></div>`.appendTo(eleBody);
 		if (subtitle) ee(wrp)`<p class="ve-muted ve-mb-1">${subtitle}</p>`;
 		const body = ee`<div class="cw__body"></div>`.appendTo(wrp);
@@ -122,6 +122,7 @@ export class CharWizardUi {
 						.onn("click", () => {
 							setSel(uid);
 							this._save();
+							if (onAfterSelect) { onAfterSelect(); return; }
 							[...listWrp.children].forEach(c => c.classList.remove("cw__pick--sel"));
 							row.classList.add("cw__pick--sel");
 							renderDetailFor(uid);
@@ -191,7 +192,7 @@ export class CharWizardUi {
 			const sel = ee`<select class="ve-form-control" style="width:auto"><option value="">— ${(this._state.classEnt?.subclassTitle || "Subclass").qq()} —</option></select>`;
 			subs.forEach(sc => { const o = ee`<option value="${CW.uid(sc).qq()}">${sc.name} (${sc.source})</option>`; o.appendTo(sel); });
 			sel.val(this._state.subclassUid || "");
-			sel.onn("change", () => { this._state.subclassUid = sel.val() || null; this._save(); });
+			sel.onn("change", () => { this._state.subclassUid = sel.val() || null; this._save(); this.render(); });
 			ee(ctrl)`<label class="ve-flex-v-center" style="gap:6px">${this._state.classEnt?.subclassTitle || "Subclass"}: ${sel}</label>`;
 		} else if (this._state.classUid && subs.length) {
 			ee(ctrl)`<span class="ve-muted ve-small">${this._state.classEnt?.subclassTitle || "Subclass"} chosen at level ${gainLv}</span>`;
@@ -203,10 +204,12 @@ export class CharWizardUi {
 			getSel: () => this._state.classUid,
 			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; },
 			renderDetail: (col, cls) => this._renderClassDetail(col, cls),
+			onAfterSelect: () => this.render(),
 		});
 	}
 
 	_renderClassDetail (col, cls) {
+		const st = this._state;
 		const hd = cls.hd ? `d${cls.hd.faces}` : "—";
 		const saves = (cls.proficiency || []).map(a => CW.ABIL_FULL[a]).join(", ") || "—";
 		const sp = cls.startingProficiencies || {};
@@ -219,18 +222,77 @@ export class CharWizardUi {
 			<div><b>Weapons:</b> ${renderInline((sp.weapons || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>
 			<div><b>Skills:</b> ${skillsText.qq()}</div>
 			${cls.spellcastingAbility ? `<div><b>Spellcasting:</b> ${CW.ABIL_FULL[cls.spellcastingAbility]} (${cls.casterProgression || "?"} caster)</div>` : ""}
-			<hr class="hr-2">
-			<div><b>Features through level ${this._state.level}:</b></div>
-			${this._renderClassFeatureList(cls)}
 		</div>`;
+
+		// progression table (full 1-20 at-a-glance)
+		if ((cls.classTableGroups || []).length) {
+			const tblDet = ee`<details class="ve-mt-2"><summary class="ve-bold">Class progression table</summary></details>`.appendTo(col);
+			ee`<div style="overflow-x:auto">${this._classTableHtml(cls)}</div>`.appendTo(tblDet);
+		}
+
+		// full class features, up to current level + expandable for higher
+		ee(col)`<h4 class="ve-mt-2">Class Features</h4>`;
+		this._renderFeaturesFull(col, cls.classFeatures || [], st.level);
+
+		// subclass features (or a prompt to pick one)
+		const sc = st.subclassEnt;
+		const subs = st.subclassesForClass();
+		if (sc) {
+			ee(col)`<h4 class="ve-mt-2">${sc.name.qq()} <span class="ve-muted ve-small">(${(cls.subclassTitle || "Subclass").qq()})</span></h4>`;
+			this._renderFeaturesFull(col, sc.subclassFeatures || [], st.level);
+		} else if (subs.length) {
+			ee(col)`<p class="ve-muted ve-mt-2"><b>${(cls.subclassTitle || "Subclass")}s</b> (${subs.length}): ${subs.map(s => s.name).join(", ").qq()}.<br>Pick one above (available at level ${st.subclassGainLevel()}) to read its features here.</p>`;
+		}
 	}
 
-	_renderClassFeatureList (cls) {
-		const lines = [];
-		(cls.classFeatures || []).slice(0, this._state.level).forEach((lvFeats, ix) => {
-			(lvFeats || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant) lines.push(`<li><b>L${ix + 1}:</b> ${f.name.qq()}</li>`); });
+	// Collapsible full-text features, keyed by each feature's own level (works for class + subclass).
+	// Features <= curLevel shown; higher levels behind a button.
+	_renderFeaturesFull (col, featuresByLevel, curLevel) {
+		const all = [];
+		(featuresByLevel || []).forEach((lvArr, ix) => {
+			(lvArr || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant) all.push({...f, _lvl: f.level || (ix + 1)}); });
 		});
-		return `<ul class="ve-pl-4">${lines.join("")}</ul>`;
+		all.sort((a, b) => a._lvl - b._lvl);
+		const maxLv = all.length ? Math.max(...all.map(f => f._lvl)) : 20;
+		const renderInto = (target, f) => {
+			ee`<details style="margin:2px 0"><summary><b>L${f._lvl}:</b> ${f.name.qq()}</summary><div class="ve-pl-3 ve-small ve-mt-1">${renderEntries(f.entries)}</div></details>`.appendTo(target);
+		};
+		const upTo = all.filter(f => f._lvl <= curLevel);
+		const higher = all.filter(f => f._lvl > curLevel);
+		if (!upTo.length) ee(col)`<p class="ve-muted ve-small">No features through level ${curLevel}.</p>`;
+		upTo.forEach(f => renderInto(col, f));
+		if (higher.length) {
+			const btn = ee`<button class="ve-btn ve-btn-default ve-btn-xs ve-mt-1">Show higher-level features (L${curLevel + 1}–${maxLv})</button>`.appendTo(col);
+			const moreWrp = ee`<div></div>`.appendTo(col);
+			btn.onn("click", () => { btn.remove(); higher.forEach(f => renderInto(moreWrp, f)); });
+		}
+	}
+
+	// Build the class progression table (Level / Prof / Features / class-table columns + spell slots) as HTML.
+	_classTableHtml (cls) {
+		const cols = [];
+		(cls.classTableGroups || []).forEach(g => {
+			const rows = g.rowsSpellProgression || g.rows || [];
+			(g.colLabels || []).forEach((lbl, ci) => cols.push({lbl, rows, ci, title: g.title}));
+		});
+		const cell = (v) => {
+			if (v == null || v === "" || v === 0) return "—";
+			if (typeof v === "number") return `${v}`;
+			if (typeof v === "string") return renderInline(v);
+			if (v.entry != null) return renderInline(v.entry);
+			if (v.type === "bonus") return CW.fmtMod(v.value);
+			if (v.type === "bonusSpeed") return `+${v.value} ft.`;
+			if (v.value != null) return `${v.value}`;
+			return "—";
+		};
+		let html = `<table class="w-100 ve-small cw__class-tbl"><thead><tr><th>Level</th><th>Prof</th><th>Features</th>${cols.map(c => `<th>${renderInline(c.lbl)}</th>`).join("")}</tr></thead><tbody>`;
+		for (let lv = 1; lv <= 20; ++lv) {
+			const feats = (cls.classFeatures[lv - 1] || []).filter(f => f?.name && !f.isClassFeatureVariant).map(f => f.name.qq()).join(", ") || "—";
+			html += `<tr><td>${Parser.getOrdinalForm(lv)}</td><td>${CW.fmtMod(CW.profBonus(lv))}</td><td class="cw__class-tbl-feat">${feats}</td>`;
+			cols.forEach(c => { html += `<td>${cell(c.rows?.[lv - 1]?.[c.ci])}</td>`; });
+			html += `</tr>`;
+		}
+		return `${html}</tbody></table>`;
 	}
 
 	/* ----- Step: Background ----- */

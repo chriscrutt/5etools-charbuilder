@@ -56,4 +56,10 @@
 .cw__sheet-section h4 { border-bottom: 1px solid rgba(127,127,127,.3); padding-bottom: 2px; margin-bottom: 6px; }
 .cw__chip { display: inline-block; padding: 1px 7px; margin: 2px; border-radius: 10px; background: rgba(0,107,196,.12); font-size: 12px; }
 
+/* Class progression table */
+.cw__class-tbl { border-collapse: collapse; margin: 6px 0; }
+.cw__class-tbl th, .cw__class-tbl td { padding: 2px 6px; border-bottom: 1px solid rgba(127,127,127,.18); text-align: center; white-space: nowrap; }
+.cw__class-tbl th { border-bottom: 2px solid rgba(127,127,127,.4); position: sticky; top: 0; }
+.cw__class-tbl td.cw__class-tbl-feat { text-align: left; white-space: normal; min-width: 160px; }
+
 .cw__err { color: #b00; padding: 8px; }
