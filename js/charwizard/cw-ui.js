@@ -173,7 +173,7 @@ export class CharWizardUi {
 			subtitle: "Choose your character's species/race. Ability bonuses, speed, size, and traits come from here.",
 			entities: this._data.races,
 			getSel: () => this._state.raceUid,
-			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; },
+			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -210,7 +210,7 @@ export class CharWizardUi {
 			subtitle: "Choose your class. Hit dice, saving throws, proficiencies, features, and (if any) spellcasting come from here.",
 			entities: this._data.classData.classes,
 			getSel: () => this._state.classUid,
-			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; },
+			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; this._state.clearProfChoicesForSource("class"); },
 			renderDetail: (col, cls) => this._renderClassDetail(col, cls),
 			onAfterSelect: () => this.render(),
 		});
@@ -309,7 +309,7 @@ export class CharWizardUi {
 			subtitle: "Choose a background. It grants skill proficiencies, languages/tools, and starting equipment.",
 			entities: this._data.backgrounds,
 			getSel: () => this._state.backgroundUid,
-			setSel: (uid) => { this._state.backgroundUid = uid; },
+			setSel: (uid) => { this._state.backgroundUid = uid; this._state.clearProfChoicesForSource("bg"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.background.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -585,7 +585,7 @@ export class CharWizardUi {
 		else if (meta) {
 			const counter = ee`<span class="ve-muted">${st.classSkillChoices.length}/${meta.count}</span>`;
 			ee(wrp)`<p class="ve-muted">From <b>${st.classEnt.name}</b>: choose ${meta.count} (${counter}). <span class="ve-small">Skills you already have are locked — pick different ones so nothing is wasted.</span></p>`;
-			const already = st.fixedSkillProfs();
+			const already = new Set([...st.skillProfs()]); st.classSkillChoices.forEach(s => already.delete(s));
 			this._renderChipPicker(wrp, {
 				items: meta.from,
 				getValue: s => s,
@@ -593,7 +593,7 @@ export class CharWizardUi {
 				arr: st.classSkillChoices,
 				max: meta.count,
 				counterEle: counter,
-				disabledFn: s => already.has(s) ? "Already proficient (from background, race, or class)" : null,
+				disabledFn: s => already.has(s) ? "Already proficient (from background, race, or another choice)" : null,
 			});
 		} else ee(wrp)`<p class="ve-muted">No class skill choices.</p>`;
 
@@ -602,6 +602,9 @@ export class CharWizardUi {
 			const bg = st.backgroundEnt; return (bg?.skillProficiencies || []).some(g => g[s] === true);
 		});
 		if (bgSkills.length) ee(wrp)`<p><b>From background:</b> ${bgSkills.map(s => CW.skillName(s)).join(", ")}</p>`;
+
+		// Languages / tools / race+bg skill choices
+		this._renderProficiencyChoices(wrp);
 
 		// Defense / armor — you can only wear armor/shields you own (equip from the Inventory below)
 		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
@@ -717,6 +720,40 @@ export class CharWizardUi {
 		});
 		// background equipment as plain reference
 		if (bg) ee(wrp)`<div class="ve-mb-1"><span class="ve-muted ve-small">${bg.name}:</span> ${this._renderBgEquip(bg)}</div>`;
+	}
+
+	/* ----- choosable proficiencies (languages / tools / race+bg skill choices) ----- */
+	_renderProficiencyChoices (wrp) {
+		const st = this._state;
+		const groups = st.proficiencyChoiceGroups();
+		if (!groups.length) return;
+		ee(wrp)`<h4 class="ve-mt-3">Languages, Tools &amp; Other Choices</h4>`;
+		groups.forEach(g => {
+			if (!st.profChoices[g.key]) st.profChoices[g.key] = [];
+			const arr = st.profChoices[g.key];
+			const norm = (o) => g.type === "skill" ? o : `${o}`.toTitleCase();
+			const already = this._alreadyHasForGroup(g);
+			const counter = ee`<span class="ve-muted">${arr.length}/${g.count}</span>`;
+			ee(wrp)`<div class="ve-mt-2 ve-mb-1">${g.label.qq()} (${counter}):</div>`;
+			this._renderChipPicker(wrp, {
+				items: g.options,
+				getValue: o => norm(o),
+				getLabel: o => g.type === "skill" ? CW.skillName(o) : `${o}`.toTitleCase(),
+				arr,
+				max: g.count,
+				counterEle: counter,
+				disabledFn: o => already.has(norm(o)) ? "Already proficient" : null,
+				gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:200px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px",
+			});
+		});
+	}
+
+	_alreadyHasForGroup (g) {
+		const st = this._state;
+		const out = new Set();
+		const otherChoices = (type) => st.proficiencyChoiceGroups().filter(x => x.type === type && x.key !== g.key).forEach(x => (st.profChoices[x.key] || []).forEach(v => out.add(type === "tool" ? `${v}`.toTitleCase() : v)));
+		if (g.type === "skill") { st.fixedSkillProfs().forEach(s => out.add(s)); st.classSkillChoices.forEach(s => out.add(s)); otherChoices("skill"); } else if (g.type === "language") { st.fixedLanguages().forEach(l => out.add(l)); otherChoices("language"); } else { st.fixedTools().forEach(t => out.add(t)); otherChoices("tool"); }
+		return out;
 	}
 
 	_renderBgEquip (bg) {
@@ -841,11 +878,12 @@ export class CharWizardUi {
 		// proficiencies & languages
 		const awt = st.armorWeaponToolProfs();
 		const secP = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const tools = st.chosenTools();
 		ee(secP)`<h4>Proficiencies & Languages</h4>
 			<div><b>Armor:</b> ${renderInline(awt.armor.join(", ") || "—")}</div>
 			<div><b>Weapons:</b> ${renderInline(awt.weapons.join(", ") || "—")}</div>
-			${awt.tools.length ? `<div><b>Tools:</b> ${renderInline(awt.tools.join(", "))}</div>` : ""}
-			<div><b>Languages:</b> ${st.languages().join(", ") || "—"}</div>
+			${tools.length ? `<div><b>Tools:</b> ${tools.map(t => `${t}`.includes("{@") ? renderInline(t) : `${t}`.qq()).join(", ")}</div>` : ""}
+			<div><b>Languages:</b> ${st.chosenLanguages().map(l => `${l}`.qq()).join(", ") || "—"}</div>
 			${st.senses().length ? `<div><b>Senses:</b> ${st.senses().join(", ")}</div>` : ""}`;
 
 		// inventory

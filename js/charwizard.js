@@ -56,6 +56,7 @@ export class CharState {
 		this.raceAbilChoices = []; // simple "choose N" ability picks
 		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
 		this.classSkillChoices = [];
+		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
 		this.asiChoices = {}; // level -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
@@ -255,8 +256,89 @@ export class CharState {
 	skillProfs () {
 		const out = this.fixedSkillProfs();
 		this.classSkillChoices.forEach(s => out.add(s));
+		this.chosenForType("skill").forEach(s => out.add(s));
 		return out;
 	}
+
+	/* ----- choosable proficiencies: languages / tools / race+bg skill choices ----- */
+	_toolOptions (typeAbv) {
+		const seen = new Set();
+		return (this._data.items || [])
+			.filter(it => {
+				const t = `${it.type || ""}`.split("|")[0];
+				const ok = typeAbv === "ANY" ? ["AT", "INS", "GS", "T"].includes(t) : t === typeAbv;
+				return ok && !it.magic && (!it.rarity || it.rarity === "none");
+			})
+			.map(it => it.name)
+			.filter(n => { if (seen.has(n)) return false; seen.add(n); return true; })
+			.sort(SortUtil.ascSortLower);
+	}
+
+	// Returns [{key, type, label, options, count}] for every "choose N" proficiency the character has
+	proficiencyChoiceGroups () {
+		const groups = [];
+		const LSTD = Parser.LANGUAGES_STANDARD || []; const LALL = Parser.LANGUAGES_ALL || []; const LEXO = Parser.LANGUAGES_EXOTIC || [];
+		const addLang = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
+			let n = 0; let opts = null;
+			if (grp.anyStandard) { n = grp.anyStandard; opts = LSTD; } else if (grp.anyExotic) { n = grp.anyExotic; opts = LEXO; } else if (grp.any) { n = grp.any; opts = LALL; }
+			if (n) groups.push({key: `language:${srcKey}:${ix}`, type: "language", label: `${srcLabel}: choose ${n} language${n > 1 ? "s" : ""}`, options: opts, count: n});
+		});
+		const NUMW = {one: 1, two: 2, three: 3, four: 4, five: 5};
+		const CATABV = {"musical instrument": "INS", "artisan's tool": "AT", "artisans tool": "AT", "gaming set": "GS", "tool": "ANY"};
+		const addTool = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
+			// some class tool profs are free text, e.g. "three {@item musical instrument|phb} of your choice"
+			if (typeof grp === "string") {
+				const clean = `${grp}`.replace(/\{@\w+ ([^}|]+)(?:\|[^}]*)?\}/g, "$1").toLowerCase();
+				const m = clean.match(/(one|two|three|four|five|\d+) [^.]*?(musical instrument|artisan'?s tool|gaming set|tool)s? of your choice/);
+				if (m) { const n = NUMW[m[1]] || parseInt(m[1], 10) || 1; const cat = CATABV[m[2].replace("'", "")] || CATABV[m[2]] || "ANY"; groups.push({key: `tool:${srcKey}:${ix}`, type: "tool", label: `${srcLabel}: choose ${n} ${m[2]}${n > 1 ? "s" : ""}`, options: this._toolOptions(cat), count: n}); }
+				return;
+			}
+			if (typeof grp !== "object") return;
+			let n = 0; let opts = null; let what = "tool";
+			if (grp.choose?.from) { n = grp.choose.count || 1; opts = grp.choose.from.map(s => `${s}`); } else if (grp.anyArtisansTool) { n = grp.anyArtisansTool; opts = this._toolOptions("AT"); what = "artisan's tool"; } else if (grp.anyMusicalInstrument) { n = grp.anyMusicalInstrument; opts = this._toolOptions("INS"); what = "instrument"; } else if (grp.anyGamingSet) { n = grp.anyGamingSet; opts = this._toolOptions("GS"); what = "gaming set"; } else if (grp.anyTool) { n = grp.anyTool; opts = this._toolOptions("ANY"); }
+			if (n) groups.push({key: `tool:${srcKey}:${ix}`, type: "tool", label: `${srcLabel}: choose ${n} ${what}${n > 1 ? "s" : ""}`, options: opts, count: n});
+		});
+		const addSkill = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
+			if (grp?.choose?.from) groups.push({key: `skill:${srcKey}:${ix}`, type: "skill", label: `${srcLabel}: choose ${grp.choose.count || 1} skill${(grp.choose.count || 1) > 1 ? "s" : ""}`, options: grp.choose.from, count: grp.choose.count || 1});
+			else if (grp?.any) groups.push({key: `skill:${srcKey}:${ix}`, type: "skill", label: `${srcLabel}: choose ${grp.any} skill${grp.any > 1 ? "s" : ""}`, options: CW.skills(), count: grp.any});
+		});
+		addLang(this.raceEnt?.languageProficiencies, "race", "Race");
+		addLang(this.backgroundEnt?.languageProficiencies, "bg", "Background");
+		addTool(this.classEnt?.startingProficiencies?.tools, "class", this.classEnt?.name || "Class");
+		addTool(this.backgroundEnt?.toolProficiencies, "bg", "Background");
+		addSkill(this.raceEnt?.skillProficiencies, "race", "Race");
+		addSkill(this.backgroundEnt?.skillProficiencies, "bg", "Background");
+		return groups;
+	}
+
+	chosenForType (type) {
+		const out = new Set();
+		this.proficiencyChoiceGroups().filter(g => g.type === type).forEach(g => (this.profChoices[g.key] || []).forEach(v => out.add(v)));
+		return out;
+	}
+
+	// fixed (non-choose) languages from race + background
+	fixedLanguages () {
+		const out = new Set();
+		const add = (grps) => (grps || []).forEach(grp => Object.entries(grp).forEach(([k, v]) => { if (v === true) out.add(k.toTitleCase()); }));
+		add(this.raceEnt?.languageProficiencies); add(this.backgroundEnt?.languageProficiencies);
+		return out;
+	}
+	chosenLanguages () { const out = this.fixedLanguages(); this.chosenForType("language").forEach(l => out.add(l)); return [...out].sort(); }
+
+	// fixed (non-choose) tools from class + background
+	fixedTools () {
+		const out = new Set();
+		const add = (arr) => (arr || []).forEach(t => {
+			if (typeof t === "string") { if (/of your choice/i.test(t)) return; out.add(t.includes("{@") ? t : t.toTitleCase()); return; }
+			if (t && typeof t === "object" && !t.choose && !Object.keys(t).some(k => k.startsWith("any"))) Object.entries(t).forEach(([k, v]) => { if (v === true) out.add(k.toTitleCase()); });
+		});
+		add(this.classEnt?.startingProficiencies?.tools); add(this.backgroundEnt?.toolProficiencies);
+		return out;
+	}
+	chosenTools () { const out = this.fixedTools(); this.chosenForType("tool").forEach(t => out.add(`${t}`.toTitleCase())); return [...out].sort(); }
+
+	clearProfChoicesForSource (srcKey) { Object.keys(this.profChoices).forEach(k => { if (k.includes(`:${srcKey}:`)) delete this.profChoices[k]; }); }
 
 	classSkillChoiceMeta () {
 		const cls = this.classEnt;
@@ -552,6 +634,7 @@ export class CharState {
 			raceAbilChoices: this.raceAbilChoices,
 			raceAbilWeighted: this.raceAbilWeighted,
 			classSkillChoices: this.classSkillChoices,
+			profChoices: this.profChoices,
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
 			asiChoices: this.asiChoices,
@@ -576,6 +659,7 @@ export class CharState {
 			raceAbilChoices: j.raceAbilChoices ?? [],
 			raceAbilWeighted: j.raceAbilWeighted ?? [],
 			classSkillChoices: j.classSkillChoices ?? [],
+			profChoices: j.profChoices ?? {},
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
 			asiChoices: j.asiChoices ?? {},
