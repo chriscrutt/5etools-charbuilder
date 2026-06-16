@@ -248,9 +248,62 @@ export class CharState {
 	}
 
 	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0); }
-	skillMod (skill) { return this.abilityMod(CW.skillAbil(skill)) + (this.skillProfs().has(skill) ? this.profBonus : 0); }
 
-	armorEnt () { return this.armorUid ? (this._data.armors || []).find(a => CW.uid(a) === this.armorUid) || null : null; }
+	_hasFeature (name) {
+		const scan = (fbl) => (fbl || []).some((lvArr, ix) => (lvArr || []).some(f => f?.name === name && (f.level || (ix + 1)) <= this.level));
+		return scan(this.classEnt?.classFeatures) || scan(this.subclassEnt?.subclassFeatures);
+	}
+
+	// Half proficiency to ability checks not already proficient (Jack of All Trades / Remarkable Athlete)
+	halfProfMeta () {
+		if (this._hasFeature("Jack of All Trades")) return {amount: Math.floor(this.profBonus / 2), abilities: null, name: "Jack of All Trades"};
+		if (this._hasFeature("Remarkable Athlete")) return {amount: Math.ceil(this.profBonus / 2), abilities: new Set(["str", "dex", "con"]), name: "Remarkable Athlete"};
+		return null;
+	}
+
+	skillProfType (skill) {
+		if (this.skillProfs().has(skill)) return "full";
+		const hp = this.halfProfMeta();
+		if (hp && (hp.abilities === null || hp.abilities.has(CW.skillAbil(skill)))) return "half";
+		return "none";
+	}
+
+	skillMod (skill) {
+		const base = this.abilityMod(CW.skillAbil(skill));
+		const type = this.skillProfType(skill);
+		if (type === "full") return base + this.profBonus;
+		if (type === "half") return base + this.halfProfMeta().amount;
+		return base;
+	}
+
+	/* ----- armor: only wearable if owned; AC respects type + proficiency ----- */
+	_armorById (uid) { return uid ? (this._data.armors || []).find(a => CW.uid(a) === uid) || null : null; }
+	_hasInInventory (uid) { return this.inventory.some(r => r.uid === uid); }
+	hasShieldInInventory () { return this.inventory.some(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); }
+	inventoryArmors () { return this.inventory.map(r => this._armorById(r.uid)).filter(a => a && `${a.type || ""}`.split("|")[0] !== "S"); }
+
+	// worn armor entity, only if it is actually in the inventory
+	armorEnt () { return this.armorUid && this._hasInInventory(this.armorUid) ? this._armorById(this.armorUid) : null; }
+	isShieldEffective () { return this.isShield && this.hasShieldInInventory(); }
+
+	// armor categories the character is proficient with (from class; light/medium/heavy/shield)
+	armorProficiencies () {
+		const out = new Set();
+		(this.classEnt?.startingProficiencies?.armor || []).forEach(a => { const s = (typeof a === "string" ? a : a.proficiency || a.full || "").toLowerCase(); if (s) out.add(s); });
+		return out;
+	}
+	static _ARMOR_TYPE_TO_CAT = {LA: "light", MA: "medium", HA: "heavy", S: "shield"};
+	armorCategory (armorEnt) { return CharState._ARMOR_TYPE_TO_CAT[`${armorEnt?.type || ""}`.split("|")[0]] || null; }
+
+	// warnings for wearing armor/shields the character isn't proficient with
+	armorProficiencyWarnings () {
+		const out = [];
+		const profs = this.armorProficiencies();
+		const armor = this.armorEnt();
+		if (armor) { const cat = this.armorCategory(armor); if (cat && !profs.has(cat)) out.push(`Not proficient with ${cat} armor (${armor.name}): disadvantage on ability checks, saves, and attacks using Str or Dex, and you can't cast spells.`); }
+		if (this.isShieldEffective() && !profs.has("shield")) out.push(`Not proficient with shields: similar penalties apply while the shield is equipped.`);
+		return out;
+	}
 
 	/* ----- inventory ----- */
 	_resolveItem (name, source) {
@@ -264,7 +317,10 @@ export class CharState {
 		this.inventory.push({uid: uid || null, name, qty, equipped: false});
 	}
 
-	removeFromInventory (ix) { this.inventory.splice(ix, 1); }
+	removeFromInventory (ix) {
+		const [row] = this.inventory.splice(ix, 1);
+		if (row && row.uid === this.armorUid) this.armorUid = null; // un-wear armor that's no longer owned
+	}
 
 	// Resolve chosen class + background starting equipment into [{uid, name, qty}]
 	resolveStartingEquipment () {
@@ -309,14 +365,19 @@ export class CharState {
 			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name} + Dex`; }
 		} else {
 			const clsName = this.classEnt?.name;
-			if (clsName === "Barbarian") { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (clsName === "Monk") { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
+			// Monk Unarmored Defense requires no shield; Barbarian allows a shield
+			if (clsName === "Barbarian") { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (clsName === "Monk" && !this.isShieldEffective()) { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
 		}
-		if (this.isShield) { base += 2; how += " + Shield"; }
+		if (this.isShieldEffective()) { base += 2; how += " + Shield"; }
 		return {ac: base, how};
 	}
 
 	ac () { return this.acBreakdown().ac; }
-	initiative () { return this.abilityMod("dex"); }
+	initiative () {
+		const base = this.abilityMod("dex");
+		const hp = this.halfProfMeta();
+		return base + (hp && (hp.abilities === null || hp.abilities.has("dex")) ? hp.amount : 0);
+	}
 	passivePerception () { return 10 + this.skillMod("perception"); }
 
 	speedString () { const r = this.raceEnt; return r?.speed != null ? Parser.getSpeedString(r, {styleHint: this._data.styleHint}) : "—"; }

@@ -588,19 +588,22 @@ export class CharWizardUi {
 		});
 		if (bgSkills.length) ee(wrp)`<p><b>From background:</b> ${bgSkills.map(s => CW.skillName(s)).join(", ")}</p>`;
 
-		// Defense / armor
+		// Defense / armor — you can only wear armor/shields you own (equip from the Inventory below)
 		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
+		const invArmors = st.inventoryArmors();
 		const defWrp = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(wrp);
 		const armorSel = ee`<select class="ve-form-control ve-input-xs" style="max-width:280px"><option value="">No armor (unarmored)</option></select>`;
-		(this._data.armors || []).filter(a => `${a.type || ""}`.split("|")[0] !== "S").forEach(a => {
-			ee`<option value="${CW.uid(a).qq()}">${a.name} — AC ${a.ac || "?"} (${`${a.type || ""}`.split("|")[0]})</option>`.appendTo(armorSel);
-		});
-		armorSel.val(st.armorUid || "");
+		invArmors.forEach(a => { ee`<option value="${CW.uid(a).qq()}">${a.name} — AC ${a.ac || "?"} (${`${a.type || ""}`.split("|")[0]})</option>`.appendTo(armorSel); });
+		armorSel.val(st.armorEnt() ? st.armorUid : "");
 		armorSel.onn("change", () => { st.armorUid = armorSel.val() || null; this._save(); this.render(); });
-		const shieldCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="checkbox" ${st.isShield ? "checked" : ""}> Shield (+2)</label>`;
+		if (!invArmors.length) armorSel.attr("disabled", "true");
+		const hasShield = st.hasShieldInInventory();
+		const shieldCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer" title="${hasShield ? "" : "Add a shield to your inventory to use one"}"><input type="checkbox" ${st.isShieldEffective() ? "checked" : ""} ${hasShield ? "" : "disabled"}> Shield (+2)</label>`;
 		shieldCb.querySelector("input").addEventListener("change", (e) => { st.isShield = e.target.checked; this._save(); this.render(); });
 		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label>${shieldCb}`;
-		ee(wrp)`<div class="ve-mb-3"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
+		ee(wrp)`<div class="ve-mb-1"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
+		if (!invArmors.length && !hasShield) ee(wrp)`<div class="ve-muted ve-small ve-mb-2">Add armor or a shield to your inventory below to equip it.</div>`;
+		st.armorProficiencyWarnings().forEach(w => ee(wrp)`<div class="cw__err ve-small ve-mb-1"><span class="glyphicon glyphicon-warning-sign"></span> ${w.qq()}</div>`);
 
 		// Equipment choices (a)/(b)
 		ee(wrp)`<h4>Starting Equipment <span class="ve-muted ve-small">(choose options, then add to inventory)</span></h4>`;
@@ -704,14 +707,16 @@ export class CharWizardUi {
 	_renderBgEquip (bg) {
 		const eq = bg.startingEquipment;
 		if (!eq) return "—";
+		// build proper {@item ...} tags so items are clickable links (matching the Backgrounds page)
+		const fmtItem = (ref, display) => `{@item ${ref}${display ? `|${display}` : ""}}`;
 		try {
 			const parts = [];
 			eq.forEach(grp => {
 				const items = grp._ || grp.a || grp.b || [];
 				items.forEach(it => {
-					if (typeof it === "string") parts.push(renderInline(it));
-					else if (it.item) parts.push(renderInline(it.displayName || it.item));
-					else if (it.special) parts.push(`${it.quantity ? `${it.quantity} ` : ""}${it.special}`);
+					if (typeof it === "string") parts.push(renderInline(fmtItem(it)));
+					else if (it.item) parts.push(renderInline(fmtItem(it.item, it.displayName)) + (it.quantity > 1 ? ` ×${it.quantity}` : ""));
+					else if (it.special) parts.push(`${it.quantity ? `${it.quantity} ` : ""}${it.special}`.qq());
 				});
 			});
 			return parts.join(", ") || "—";
@@ -810,11 +815,12 @@ export class CharWizardUi {
 
 		// skills
 		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-		ee(secS)`<h4>Skills</h4>`;
+		const hpMeta = st.halfProfMeta();
+		ee(secS)`<h4>Skills ${hpMeta ? `<span class="ve-muted ve-small">(◐ = half proficiency from ${hpMeta.name.qq()})</span>` : ""}</h4>`;
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
+		const MARK = {full: "●", half: "◐", none: "○"};
 		CW.skills().sort().forEach(sk => {
-			const prof = st.skillProfs().has(sk);
-			ee(skillWrp)`<div style="break-inside:avoid">${prof ? "●" : "○"} ${CW.skillName(sk)} <span class="ve-muted">(${CW.ABILITIES.includes(CW.skillAbil(sk)) ? CW.skillAbil(sk) : ""})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b></div>`;
+			ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b></div>`;
 		});
 
 		// proficiencies & languages
