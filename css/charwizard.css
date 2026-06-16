@@ -1,0 +1,59 @@
+/* Character Wizard — local feature. Reuses 5etools utility/BEM classes where possible. */
+
+#charwizard-main { overflow-y: auto; }
+
+.cw__wrp { max-width: 1100px; margin: 0 auto; width: 100%; }
+
+/* Stepper */
+.cw__steps { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.cw__step {
+	flex: 1 1 0; min-width: 96px; padding: 6px 8px; text-align: center; cursor: pointer;
+	border: 1px solid rgba(127,127,127,.35); border-radius: 4px; background: rgba(127,127,127,.06);
+	font-size: 12px; user-select: none; position: relative;
+}
+.cw__step:hover { border-color: rgba(0,107,196,.6); }
+.cw__step--active { background: rgba(0,107,196,.18); border-color: #006bc4; font-weight: bold; }
+.cw__step--done::after { content: "\2713"; color: #2e8b57; margin-left: 4px; font-weight: bold; }
+.cw__step-num { display: inline-block; width: 18px; height: 18px; line-height: 18px; border-radius: 50%;
+	background: rgba(127,127,127,.25); margin-right: 4px; font-size: 11px; }
+.cw__step--active .cw__step-num { background: #006bc4; color: #fff; }
+
+/* Body layout: chooser list + preview */
+.cw__body { display: flex; gap: 12px; min-height: 320px; }
+.cw__col-list { flex: 0 0 280px; max-width: 280px; display: flex; flex-direction: column; }
+.cw__col-detail { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 4px 8px;
+	border: 1px solid rgba(127,127,127,.25); border-radius: 4px; }
+@media (max-width: 768px) { .cw__body { flex-direction: column; } .cw__col-list { flex-basis: auto; max-width: none; } }
+
+.cw__pick-list { overflow-y: auto; border: 1px solid rgba(127,127,127,.25); border-radius: 4px; flex: 1 1 auto; }
+.cw__pick {
+	padding: 5px 8px; cursor: pointer; border-bottom: 1px solid rgba(127,127,127,.15);
+	display: flex; justify-content: space-between; align-items: center; gap: 6px;
+}
+.cw__pick:hover { background: rgba(0,107,196,.08); }
+.cw__pick--sel { background: rgba(0,107,196,.16); font-weight: bold; }
+.cw__pick-src { font-size: 10px; opacity: .65; white-space: nowrap; }
+
+/* Footer nav */
+.cw__footer { display: flex; justify-content: space-between; margin-top: 12px; gap: 8px; }
+
+/* Ability score boxes */
+.cw__abil-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.cw__abil { border: 1px solid rgba(127,127,127,.3); border-radius: 6px; padding: 8px; width: 120px; text-align: center; }
+.cw__abil-name { font-weight: bold; text-transform: uppercase; font-size: 12px; }
+.cw__abil-score { font-size: 26px; font-weight: bold; line-height: 1; }
+.cw__abil-mod { font-size: 13px; opacity: .8; }
+.cw__abil-sub { font-size: 10px; opacity: .7; }
+
+/* Character sheet */
+.cw__sheet { border: 1px solid rgba(127,127,127,.3); border-radius: 6px; padding: 14px; background: rgba(127,127,127,.03); }
+.cw__sheet-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-bottom: 2px solid rgba(127,127,127,.3); padding-bottom: 8px; margin-bottom: 10px; }
+.cw__sheet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.cw__stat-box { border: 1px solid rgba(127,127,127,.25); border-radius: 6px; padding: 6px 8px; text-align: center; }
+.cw__stat-box .lbl { font-size: 10px; text-transform: uppercase; opacity: .7; }
+.cw__stat-box .val { font-size: 20px; font-weight: bold; }
+.cw__sheet-section { margin-top: 12px; }
+.cw__sheet-section h4 { border-bottom: 1px solid rgba(127,127,127,.3); padding-bottom: 2px; margin-bottom: 6px; }
+.cw__chip { display: inline-block; padding: 1px 7px; margin: 2px; border-radius: 10px; background: rgba(0,107,196,.12); font-size: 12px; }
+
+.cw__err { color: #b00; padding: 8px; }
