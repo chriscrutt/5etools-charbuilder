@@ -2,6 +2,9 @@ desktop.ini
 node_modules
 img
 
+# Claude Code agent config/memory (local tooling)
+.claude/
+
 # IntelliJ project files
 .idea/
 *.iml
