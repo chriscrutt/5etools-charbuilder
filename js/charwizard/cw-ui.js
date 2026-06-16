@@ -18,14 +18,16 @@ export class CharWizardUi {
 	_save () { this._fnSave?.(); }
 
 	_steps () {
+		const st = this._state;
 		const steps = [
-			{id: "race", label: "Species", done: () => !!this._state.raceUid, render: (el) => this._renderStepRace(el)},
-			{id: "class", label: "Class", done: () => !!this._state.classUid, render: (el) => this._renderStepClass(el)},
-			{id: "background", label: "Background", done: () => !!this._state.backgroundUid, render: (el) => this._renderStepBackground(el)},
+			{id: "race", label: "Species", done: () => !!st.raceUid, render: (el) => this._renderStepRace(el)},
+			{id: "class", label: "Class", done: () => !!st.classUid, render: (el) => this._renderStepClass(el)},
+			{id: "background", label: "Background", done: () => !!st.backgroundUid, render: (el) => this._renderStepBackground(el)},
 			{id: "abilities", label: "Abilities", done: () => true, render: (el) => this._renderStepAbilities(el)},
-			{id: "skills", label: "Skills & Gear", done: () => true, render: (el) => this._renderStepSkills(el)},
 		];
-		if (this._state.isCaster()) steps.push({id: "spells", label: "Spells", done: () => true, render: (el) => this._renderStepSpells(el)});
+		if (st.asiLevels().length) steps.push({id: "asi", label: "ASI & Feats", done: () => true, render: (el) => this._renderStepAsi(el)});
+		steps.push({id: "skills", label: "Skills & Gear", done: () => true, render: (el) => this._renderStepSkills(el)});
+		if (st.isCaster()) steps.push({id: "spells", label: "Spells", done: () => true, render: (el) => this._renderStepSpells(el)});
 		steps.push({id: "review", label: "Review", done: () => true, render: (el) => this._renderStepReview(el)});
 		return steps;
 	}
@@ -348,6 +350,93 @@ export class CharWizardUi {
 		});
 	}
 
+	/* ----- Step: ASI & Feats ----- */
+	_renderStepAsi (el) {
+		const st = this._state;
+		const wrp = ee`<div></div>`.appendTo(el);
+		const levels = st.asiLevels();
+		ee(wrp)`<p class="ve-muted">At level${levels.length > 1 ? "s" : ""} ${levels.join(", ")}, choose an Ability Score Improvement or a feat. Ability increases below are applied to your scores automatically.</p>`;
+		const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		levels.forEach(lv => {
+			if (!st.asiChoices[lv]) st.asiChoices[lv] = {type: "asi", plan: "one", inc: {}};
+			const ch = st.asiChoices[lv];
+			const card = ee`<div style="border:1px solid rgba(127,127,127,.3);border-radius:6px;padding:10px;margin-bottom:10px"></div>`.appendTo(wrp);
+			ee(card)`<div class="ve-flex-v-center" style="gap:12px"><b>Level ${lv}</b>${this._asiModeToggle(lv, ch)}</div>`;
+			const body = ee`<div class="ve-mt-2"></div>`.appendTo(card);
+			if (ch.type === "asi") this._renderAsiAbility(body, ch);
+			else this._renderAsiFeat(body, lv, ch, feats);
+		});
+	}
+
+	_asiModeToggle (lv, ch) {
+		const mk = (id, lbl) => ee`<button class="ve-btn ve-btn-xs ${ch.type === id ? "ve-btn-primary" : "ve-btn-default"}">${lbl}</button>`
+			.onn("click", () => {
+				if (ch.type === id) return;
+				this._state.asiChoices[lv] = id === "asi" ? {type: "asi", plan: "one", inc: {}} : {type: "feat", featUid: null, featAbilChoose: []};
+				this._save(); this.render();
+			});
+		return ee`<div class="ve-btn-group">${mk("asi", "Ability Scores")}${mk("feat", "Feat")}</div>`;
+	}
+
+	_renderAsiAbility (body, ch) {
+		const st = this._state;
+		const planSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="one">+2 to one ability</option><option value="two">+1 to two abilities</option></select>`;
+		planSel.val(ch.plan || "one");
+		planSel.onn("change", () => { ch.plan = planSel.val(); ch.inc = {}; this._save(); this.render(); });
+		ee(body)`<label class="ve-flex-v-center" style="gap:6px">Improvement ${planSel}</label>`;
+		const incKeys = Object.keys(ch.inc || {});
+		const mkAbilSel = (slotIx, amount) => {
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— ability —</option></select>`;
+			CW.ABILITIES.forEach(abv => { ee`<option value="${abv}">${CW.ABIL_FULL[abv]} (${st.finalAbility(abv)} → ${st.finalAbility(abv) + amount})</option>`.appendTo(sel); });
+			sel.val(incKeys[slotIx] || "");
+			sel.onn("change", () => {
+				const cur = [...incKeys]; cur[slotIx] = sel.val();
+				const inc = {};
+				if (ch.plan === "one") { if (cur[0]) inc[cur[0]] = 2; } else { if (cur[0]) inc[cur[0]] = (inc[cur[0]] || 0) + 1; if (cur[1]) inc[cur[1]] = (inc[cur[1]] || 0) + 1; }
+				ch.inc = inc; this._save(); this.render();
+			});
+			return sel;
+		};
+		const row = ee`<div class="ve-flex-v-center ve-mt-1" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(body);
+		if (ch.plan === "two") { mkAbilSel(0, 1).appendTo(row); mkAbilSel(1, 1).appendTo(row); } else mkAbilSel(0, 2).appendTo(row);
+		// cap warning
+		const over = CW.ABILITIES.filter(a => st.finalAbility(a) > 20);
+		if (over.length) ee(body)`<div class="cw__err ve-small">Note: ${over.map(a => a.toUpperCase()).join(", ")} now exceeds 20 (ASIs normally cap at 20).</div>`;
+	}
+
+	_renderAsiFeat (body, lv, ch, feats) {
+		const st = this._state;
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
+		feats.forEach(f => {
+			const uid = CW.uid(f);
+			const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.level !== lv);
+			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
+		});
+		sel.val(ch.featUid || "");
+		sel.onn("change", () => { ch.featUid = sel.val() || null; ch.featAbilChoose = []; this._save(); this.render(); });
+		ee(body)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>`;
+		if (!ch.featUid) return;
+		const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
+		if (!feat) return;
+		if (feat.prerequisite) {
+			let preHtml = ""; try { preHtml = Renderer.utils.prerequisite.getHtml(feat.prerequisite) || ""; } catch (e) { preHtml = ""; }
+			if (preHtml) ee(body)`<div class="ve-small ve-muted ve-mt-1">Prerequisite: ${preHtml}</div>`;
+		}
+		(feat.ability || []).forEach(ab => {
+			if (!ab.choose) {
+				const fixed = Object.entries(ab).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`);
+				if (fixed.length) ee(body)`<div class="ve-small ve-mt-1"><b>Grants:</b> ${fixed.join(", ")}</div>`;
+				return;
+			}
+			const cnt = ab.choose.count || 1;
+			ch.featAbilChoose = ch.featAbilChoose || [];
+			const counter = ee`<span class="ve-muted">${ch.featAbilChoose.length}/${cnt}</span>`;
+			ee(body)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
+			this._renderChipPicker(body, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: ch.featAbilChoose, max: cnt, counterEle: counter});
+		});
+		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(body);
+	}
+
 	/* ----- Step: Skills & Gear ----- */
 	_renderStepSkills (el) {
 		const st = this._state;
@@ -535,6 +624,18 @@ export class CharWizardUi {
 			${awt.tools.length ? `<div><b>Tools:</b> ${renderInline(awt.tools.join(", "))}</div>` : ""}
 			<div><b>Languages:</b> ${st.languages().join(", ") || "—"}</div>
 			${st.senses().length ? `<div><b>Senses:</b> ${st.senses().join(", ")}</div>` : ""}`;
+
+		// feats
+		const featList = st.featsTaken();
+		if (featList.length) {
+			const secFe = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secFe)`<h4>Feats</h4>`;
+			featList.forEach(({level, featUid}) => {
+				const feat = this._data.feats.find(f => CW.uid(f) === featUid);
+				if (!feat) return;
+				ee`<details style="margin:2px 0"><summary><b>${feat.name.qq()}</b> <span class="ve-muted ve-small">(L${level})</span></summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secFe);
+			});
+		}
 
 		// spellcasting
 		if (st.isCaster()) {

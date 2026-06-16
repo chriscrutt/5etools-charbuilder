@@ -49,6 +49,9 @@ export class CharState {
 		this.classSkillChoices = [];
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
+		this.asiChoices = {}; // level -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
+		this.armorUid = null; // equipped armor item "name|source"
+		this.isShield = false;
 	}
 
 	/* ----- entity lookups ----- */
@@ -103,7 +106,43 @@ export class CharState {
 		return {from: ab.choose.from || CW.ABILITIES, count: ab.choose.count || 1, amount: ab.choose.amount || 1};
 	}
 
-	finalAbility (abv) { return (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv]; }
+	// Levels (<= current) at which this class grants an Ability Score Improvement
+	asiLevels () {
+		const cls = this.classEnt; if (!cls?.classFeatures) return [];
+		const out = [];
+		for (let lv = 1; lv <= this.level; ++lv) {
+			const feats = cls.classFeatures[lv - 1] || [];
+			if (feats.some(f => f?.name && /^Ability Score Improvement/i.test(f.name))) out.push(lv);
+		}
+		return out;
+	}
+
+	// Total ability bonuses from ASIs + chosen feats (only for valid, in-range ASI levels)
+	asiBonuses () {
+		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
+		const valid = new Set(this.asiLevels());
+		Object.entries(this.asiChoices || {}).forEach(([lv, ch]) => {
+			if (!ch || !valid.has(+lv)) return;
+			if (ch.type === "asi" && ch.inc) Object.entries(ch.inc).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
+			else if (ch.type === "feat" && ch.featUid) {
+				const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
+				(feat?.ability || []).forEach(ab => {
+					Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
+					if (ab.choose) (ch.featAbilChoose || []).forEach(k => { if (out[k] != null) out[k] += (ab.choose.amount || 1); });
+				});
+			}
+		});
+		return out;
+	}
+
+	featsTaken () {
+		const valid = new Set(this.asiLevels());
+		return Object.entries(this.asiChoices || {})
+			.filter(([lv, c]) => valid.has(+lv) && c?.type === "feat" && c.featUid)
+			.map(([lv, c]) => ({level: +lv, featUid: c.featUid}));
+	}
+
+	finalAbility (abv) { return (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv]; }
 	abilityMod (abv) { return CW.mod(this.finalAbility(abv)); }
 
 	pointBuySpent () {
@@ -272,6 +311,9 @@ export class CharState {
 			classSkillChoices: this.classSkillChoices,
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
+			asiChoices: this.asiChoices,
+			armorUid: this.armorUid,
+			isShield: this.isShield,
 		};
 	}
 
@@ -290,6 +332,9 @@ export class CharState {
 			classSkillChoices: j.classSkillChoices ?? [],
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
+			asiChoices: j.asiChoices ?? {},
+			armorUid: j.armorUid ?? null,
+			isShield: j.isShield ?? false,
 		});
 	}
 }
