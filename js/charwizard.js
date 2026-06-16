@@ -24,6 +24,12 @@ export const CW = {
 	skillName (skill) { return skill.toTitleCase(); },
 
 	uid (ent) { return `${ent.name}|${ent.source}`; },
+
+	// split a class starting-equipment line like "(a) X or (b) Y" into ["X", "Y"]
+	splitEquipChoice (text) {
+		if (!/\([a-d]\)/.test(text)) return [text];
+		return text.split(/\s*\([a-d]\)\s*/).map(s => s.replace(/^\s*or\s+/i, "").replace(/,\s*$/, "").trim()).filter(Boolean);
+	},
 };
 
 /* -------------------------------------------------------------------------- */
@@ -50,8 +56,9 @@ export class CharState {
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
 		this.asiChoices = {}; // level -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
-		this.armorUid = null; // equipped armor item "name|source"
+		this.armorUid = null; // worn armor item "name|source" (drives AC)
 		this.isShield = false;
+		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
 	}
 
 	/* ----- entity lookups ----- */
@@ -198,6 +205,53 @@ export class CharState {
 
 	armorEnt () { return this.armorUid ? (this._data.armors || []).find(a => CW.uid(a) === this.armorUid) || null : null; }
 
+	/* ----- inventory ----- */
+	_resolveItem (name, source) {
+		const idx = this._data.itemIndex; const idxName = this._data.itemIndexByName;
+		if (source && idx?.has(`${name}|${source}`.toLowerCase())) return idx.get(`${name}|${source}`.toLowerCase());
+		return idxName?.get(`${name}`.toLowerCase()) || null;
+	}
+
+	addToInventory ({uid, name, qty = 1}) {
+		if (uid) { const ex = this.inventory.find(r => r.uid === uid); if (ex) { ex.qty += qty; return; } }
+		this.inventory.push({uid: uid || null, name, qty, equipped: false});
+	}
+
+	removeFromInventory (ix) { this.inventory.splice(ix, 1); }
+
+	// Resolve chosen class + background starting equipment into [{uid, name, qty}]
+	resolveStartingEquipment () {
+		const out = [];
+		const pushTag = (rawName, rawSource, displayFallback, qty = 1) => {
+			const it = this._resolveItem(`${rawName}`.trim(), `${rawSource || ""}`.trim());
+			if (it) out.push({uid: CW.uid(it), name: it.name, qty});
+			else out.push({uid: null, name: displayFallback || rawName, qty});
+		};
+		const addTagsFromString = (str) => {
+			const re = /\{@item ([^}]+)\}/g; let m;
+			while ((m = re.exec(str)) !== null) {
+				const parts = m[1].split("|");
+				pushTag(parts[0], parts[1], parts[2] || parts[0]);
+			}
+		};
+		const cls = this.classEnt;
+		(cls?.startingEquipment?.default || []).forEach((line, ix) => {
+			const opts = CW.splitEquipChoice(line);
+			const chosen = opts.length > 1 ? (opts[this.equipmentChoices[ix] ?? 0] || opts[0]) : line;
+			addTagsFromString(chosen);
+		});
+		const bg = this.backgroundEnt;
+		(bg?.startingEquipment || []).forEach(grp => {
+			const arr = grp._ || grp.a || grp.b || [];
+			arr.forEach(it => {
+				if (typeof it === "string") { const p = it.split("|"); pushTag(p[0], p[1], p[0]); } else if (it.item) { const p = `${it.item}`.split("|"); pushTag(p[0], p[1], it.displayName || p[0], it.quantity || 1); } else if (it.special) out.push({uid: null, name: it.special, qty: it.quantity || 1});
+			});
+		});
+		return out;
+	}
+
+	addStartingEquipmentToInventory () { this.resolveStartingEquipment().forEach(r => this.addToInventory(r)); }
+
 	acBreakdown () {
 		const dex = this.abilityMod("dex");
 		const armor = this.armorEnt();
@@ -332,6 +386,7 @@ export class CharState {
 			asiChoices: this.asiChoices,
 			armorUid: this.armorUid,
 			isShield: this.isShield,
+			inventory: this.inventory,
 		};
 	}
 
@@ -353,6 +408,7 @@ export class CharState {
 			asiChoices: j.asiChoices ?? {},
 			armorUid: j.armorUid ?? null,
 			isShield: j.isShield ?? false,
+			inventory: j.inventory ?? [],
 		});
 	}
 }
@@ -394,7 +450,15 @@ class CharWizardPage {
 			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name))
 			.filter(it => { if (seenArmor.has(it.name)) return false; seenArmor.add(it.name); return true; });
 
-		const data = {races, backgrounds, feats, classData, spells, items, armors, styleHint};
+		const itemIndex = new Map();
+		const itemIndexByName = new Map();
+		items.forEach(it => {
+			itemIndex.set(`${it.name}|${it.source}`.toLowerCase(), it);
+			const nk = `${it.name}`.toLowerCase();
+			if (!itemIndexByName.has(nk)) itemIndexByName.set(nk, it);
+		});
+
+		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, styleHint};
 		globalThis.dbg_cw = data;
 
 		const state = new CharState(data);

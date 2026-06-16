@@ -472,10 +472,79 @@ export class CharWizardUi {
 		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label>${shieldCb}`;
 		ee(wrp)`<div class="ve-mb-3"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
 
-		// Equipment
-		ee(wrp)`<h4>Starting Equipment</h4>`;
+		// Equipment choices (a)/(b)
+		ee(wrp)`<h4>Starting Equipment <span class="ve-muted ve-small">(choose options, then add to inventory)</span></h4>`;
 		const eqWrp = ee`<div></div>`.appendTo(wrp);
 		this._renderEquipment(eqWrp);
+
+		// Inventory
+		this._renderInventory(wrp);
+	}
+
+	/* ----- Inventory ----- */
+	_renderInventory (wrp) {
+		const st = this._state;
+		ee(wrp)`<h4 class="ve-mt-3">Inventory</h4>`;
+		const ctrl = ee`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
+		const btnAdd = ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Resolve your chosen class + background starting gear into items">＋ Add starting equipment</button>`
+			.onn("click", () => { st.addStartingEquipmentToInventory(); this._save(); this.render(); });
+		const btnClear = ee`<button class="ve-btn ve-btn-danger ve-btn-xs">Clear</button>`
+			.onn("click", () => { st.inventory = []; this._save(); this.render(); });
+		ee(ctrl)`${btnAdd}${btnClear}`;
+
+		// search-add (results flow inline below the input)
+		const searchWrp = ee`<div style="max-width:320px"></div>`.appendTo(wrp);
+		const search = ee`<input class="ve-form-control ve-input-xs" placeholder="Search items to add…">`.appendTo(searchWrp);
+		const results = ee`<div class="cw__pick-list" style="max-height:200px;display:none"></div>`.appendTo(searchWrp);
+		const listWrp = ee`<div class="ve-mt-2"></div>`.appendTo(wrp);
+		const renderList = () => this._renderInventoryList(listWrp);
+		search.onn("input", () => {
+			const t = search.val().toLowerCase().trim();
+			results.empty();
+			if (t.length < 2) { results.style.display = "none"; return; }
+			const matches = (this._data.items || []).filter(it => it.name.toLowerCase().includes(t)).slice(0, 20);
+			results.style.display = matches.length ? "block" : "none";
+			matches.forEach(it => {
+				ee`<div class="cw__pick"><span>${it.name}</span><span class="cw__pick-src">${it.source}</span></div>`
+					.onn("click", () => { st.addToInventory({uid: CW.uid(it), name: it.name, qty: 1}); this._save(); search.val(""); results.empty(); results.style.display = "none"; renderList(); })
+					.appendTo(results);
+			});
+		});
+
+		renderList();
+	}
+
+	_renderInventoryList (listWrp) {
+		const st = this._state;
+		listWrp.empty();
+		if (!st.inventory.length) { ee(listWrp)`<p class="ve-muted ve-small">No items yet — add your starting equipment or search above.</p>`; return; }
+		const tbl = ee`<table class="w-100"><tbody></tbody></table>`.appendTo(listWrp);
+		const tb = tbl.querySelector("tbody");
+		st.inventory.forEach((row, ix) => {
+			const nameHtml = row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq();
+			const tr = ee`<tr style="border-bottom:1px solid rgba(127,127,127,.15)"></tr>`.appendTo(tb);
+			ee(tr)`<td class="ve-py-1">${nameHtml}</td>`;
+			// "Wear" control for mundane armor/shields -> drives AC
+			const armorEnt = row.uid ? (this._data.armors || []).find(a => CW.uid(a) === row.uid) : null;
+			const wearCell = ee`<td class="ve-py-1 ve-text-center"></td>`.appendTo(tr);
+			if (armorEnt) {
+				const typeAbv = `${armorEnt.type || ""}`.split("|")[0];
+				const isShieldItem = typeAbv === "S";
+				const worn = isShieldItem ? st.isShield : st.armorUid === row.uid;
+				ee`<button class="ve-btn ve-btn-xs ${worn ? "ve-btn-success" : "ve-btn-default"}">${worn ? "Worn ✓" : "Wear"}</button>`
+					.onn("click", () => {
+						if (isShieldItem) st.isShield = !st.isShield;
+						else st.armorUid = worn ? null : row.uid;
+						this._save(); this.render();
+					})
+					.appendTo(wearCell);
+			}
+			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { st.removeFromInventory(ix); } this._save(); this._renderInventoryList(listWrp); });
+			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => { row.qty++; this._save(); this._renderInventoryList(listWrp); });
+			ee(tr)`<td class="ve-py-1 ve-text-center" style="white-space:nowrap">${dec} <b>${row.qty}</b> ${inc}</td>`;
+			const rm = ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => { st.removeFromInventory(ix); this._save(); this._renderInventoryList(listWrp); });
+			ee(tr)`<td class="ve-py-1 ve-text-right">${rm}</td>`;
+		});
 	}
 
 	_renderEquipment (wrp) {
@@ -483,13 +552,6 @@ export class CharWizardUi {
 		const cls = st.classEnt; const bg = st.backgroundEnt;
 		const lines = [];
 		(cls?.startingEquipment?.default || []).forEach(s => lines.push({src: cls.name, text: s}));
-		if (bg?.startingEquipment) {
-			// background equipment may be structured; render its display form
-			try {
-				const html = Renderer.background.getCompactRenderedString
-					? null : null;
-			} catch (e) { /* noop */ }
-		}
 		if (!lines.length) { ee(wrp)`<p class="ve-muted">No starting equipment listed (choose a class).</p>`; }
 		lines.forEach((ln, ix) => {
 			const opts = this._splitEquipChoice(ln.text);
@@ -526,11 +588,7 @@ export class CharWizardUi {
 		} catch (e) { return "—"; }
 	}
 
-	_splitEquipChoice (text) {
-		// split "(a) X or (b) Y" into ["X", "Y"]; otherwise single
-		if (!/\([a-d]\)/.test(text)) return [text];
-		return text.split(/\s*\([a-d]\)\s*/).map(s => s.replace(/^\s*or\s+/i, "").replace(/,\s*$/, "").trim()).filter(Boolean);
-	}
+	_splitEquipChoice (text) { return CW.splitEquipChoice(text); }
 
 	/* ----- Step: Spells ----- */
 	_renderStepSpells (el) {
@@ -638,6 +696,17 @@ export class CharWizardUi {
 			${awt.tools.length ? `<div><b>Tools:</b> ${renderInline(awt.tools.join(", "))}</div>` : ""}
 			<div><b>Languages:</b> ${st.languages().join(", ") || "—"}</div>
 			${st.senses().length ? `<div><b>Senses:</b> ${st.senses().join(", ")}</div>` : ""}`;
+
+		// inventory
+		if (st.inventory.length) {
+			const secInv = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secInv)`<h4>Inventory</h4>`;
+			const ul = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secInv);
+			st.inventory.forEach(row => {
+				const nameHtml = row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq();
+				ee(ul)`<div style="break-inside:avoid">${nameHtml}${row.qty > 1 ? ` ×${row.qty}` : ""}</div>`;
+			});
+		}
 
 		// feats
 		const featList = st.featsTaken();
