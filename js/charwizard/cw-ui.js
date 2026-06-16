@@ -458,6 +458,20 @@ export class CharWizardUi {
 		});
 		if (bgSkills.length) ee(wrp)`<p><b>From background:</b> ${bgSkills.map(s => CW.skillName(s)).join(", ")}</p>`;
 
+		// Defense / armor
+		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
+		const defWrp = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(wrp);
+		const armorSel = ee`<select class="ve-form-control ve-input-xs" style="max-width:280px"><option value="">No armor (unarmored)</option></select>`;
+		(this._data.armors || []).filter(a => `${a.type || ""}`.split("|")[0] !== "S").forEach(a => {
+			ee`<option value="${CW.uid(a).qq()}">${a.name} — AC ${a.ac || "?"} (${`${a.type || ""}`.split("|")[0]})</option>`.appendTo(armorSel);
+		});
+		armorSel.val(st.armorUid || "");
+		armorSel.onn("change", () => { st.armorUid = armorSel.val() || null; this._save(); this.render(); });
+		const shieldCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="checkbox" ${st.isShield ? "checked" : ""}> Shield (+2)</label>`;
+		shieldCb.querySelector("input").addEventListener("change", (e) => { st.isShield = e.target.checked; this._save(); this.render(); });
+		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label>${shieldCb}`;
+		ee(wrp)`<div class="ve-mb-3"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
+
 		// Equipment
 		ee(wrp)`<h4>Starting Equipment</h4>`;
 		const eqWrp = ee`<div></div>`.appendTo(wrp);

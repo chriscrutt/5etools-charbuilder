@@ -196,7 +196,25 @@ export class CharState {
 	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0); }
 	skillMod (skill) { return this.abilityMod(CW.skillAbil(skill)) + (this.skillProfs().has(skill) ? this.profBonus : 0); }
 
-	ac () { return 10 + this.abilityMod("dex"); } // unarmored baseline
+	armorEnt () { return this.armorUid ? (this._data.armors || []).find(a => CW.uid(a) === this.armorUid) || null : null; }
+
+	acBreakdown () {
+		const dex = this.abilityMod("dex");
+		const armor = this.armorEnt();
+		let base; let how;
+		if (armor) {
+			const typeAbv = `${armor.type || ""}`.split("|")[0];
+			const baseAc = armor.ac || 10;
+			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name} + Dex`; }
+		} else {
+			const clsName = this.classEnt?.name;
+			if (clsName === "Barbarian") { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (clsName === "Monk") { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
+		}
+		if (this.isShield) { base += 2; how += " + Shield"; }
+		return {ac: base, how};
+	}
+
+	ac () { return this.acBreakdown().ac; }
 	initiative () { return this.abilityMod("dex"); }
 	passivePerception () { return 10 + this.skillMod("perception"); }
 
@@ -352,12 +370,13 @@ class CharWizardPage {
 
 		const styleHint = VetoolsConfig.get("styleSwitcher", "style");
 
-		const [races, backgrounds, feats, classData, spells] = await Promise.all([
+		const [races, backgrounds, feats, classData, spells, items] = await Promise.all([
 			this._pLoadSimple(UrlUtil.PG_RACES, "race"),
 			this._pLoadSimple(UrlUtil.PG_BACKGROUNDS, "background"),
 			this._pLoadSimple(UrlUtil.PG_FEATS, "feat"),
 			this._pLoadClasses(),
 			this._pLoadSimple(UrlUtil.PG_SPELLS, "spell"),
+			this._pLoadItems(),
 		]);
 
 		races.forEach(ent => UtilsEntityRace.mutMigrateForVersion(ent, {styleHint}));
@@ -367,7 +386,15 @@ class CharWizardPage {
 		backgrounds.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 		classData.classes.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 
-		const data = {races, backgrounds, feats, classData, spells, styleHint};
+		const typeAbv = (it) => `${it.type || ""}`.split("|")[0];
+		const seenArmor = new Set();
+		const armors = items
+			// mundane character armor/shields only (no magic, no animal barding); magic armor handled later with inventory
+			.filter(it => (it.armor || ["LA", "MA", "HA", "S"].includes(typeAbv(it))) && !it.magic && (!it.rarity || it.rarity === "none") && !/barding/i.test(it.name))
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name))
+			.filter(it => { if (seenArmor.has(it.name)) return false; seenArmor.add(it.name); return true; });
+
+		const data = {races, backgrounds, feats, classData, spells, items, armors, styleHint};
 		globalThis.dbg_cw = data;
 
 		const state = new CharState(data);
@@ -395,6 +422,21 @@ class CharWizardPage {
 			const hash = UrlUtil.URL_TO_HASH_BUILDER[page](it);
 			return !ExcludeUtil.isExcluded(hash, category, it.source);
 		}));
+	}
+
+	async _pLoadItems () {
+		try {
+			const raw = await DataUtil.item.loadJSON();
+			const all = raw.item || [];
+			return all.filter(it => {
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_ITEMS](it);
+				return !ExcludeUtil.isExcluded(hash, "item", it.source);
+			});
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error("charwizard: item load failed", e);
+			return [];
+		}
 	}
 
 	async _pLoadClasses () {
