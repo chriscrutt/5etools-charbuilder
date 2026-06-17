@@ -252,8 +252,9 @@ export class CharWizardUi {
 		st.classes[0] = {uid, level: st.classes[0]?.level || 1, subclassUid: null};
 		st.classSkillChoices = [];
 		st.expertiseChoices = [];
+		st.sidekickSave = null; st.sidekickSpellClass = null;
 		if (old) { delete st.spellChoices[old]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${old}@`)) delete st.asiChoices[k]; }); }
-		st.clearProfChoicesForSource("class");
+		st.clearProfChoicesForSource("class"); st.clearProfChoicesForSource("sidekick");
 		this._save();
 	}
 
@@ -753,6 +754,18 @@ export class CharWizardUi {
 		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
 
+		// sidekick classes: explain + saving-throw choice
+		const skMeta = st.sidekickMeta();
+		if (skMeta) {
+			ee(wrp)`<div class="ve-muted ve-small ve-mb-2"><span class="glyphicon glyphicon-info-sign"></span> Sidekick classes (Tasha's) are simplified — their hit die (d${skMeta.hd}), armor, weapons, and proficiencies are set from your choices here. In play a sidekick is often layered onto a creature's stat block.</div>`;
+			ee(wrp)`<h4 class="ve-mt-0">Saving Throw Proficiency</h4>`;
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— choose a saving throw —</option></select>`;
+			skMeta.saves.forEach(a => ee`<option value="${a}">${CW.ABIL_FULL[a]}</option>`.appendTo(sel));
+			sel.val(st.sidekickSave || "");
+			sel.onn("change", () => { st.sidekickSave = sel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2">Proficient in ${sel}</div>`;
+		}
+
 		// class skill choices
 		const meta = st.classSkillChoiceMeta();
 		ee(wrp)`<h4 class="ve-mt-0">Skill Proficiencies</h4>`;
@@ -1051,6 +1064,16 @@ export class CharWizardUi {
 		const wrp = ee`<div></div>`.appendTo(el);
 		const sources = st.spellSources();
 		const nonPactMulti = sources.filter(s => s.prog !== "pact").length > 1;
+
+		// Spellcaster Sidekick: choose which class's spell list (sets the spellcasting ability too)
+		if (st.isSidekick() && st.classEnt?.casterProgression) {
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— choose a spell list —</option></select>`;
+			[["Cleric", "Wis"], ["Druid", "Wis"], ["Wizard", "Int"], ["Bard", "Cha"], ["Sorcerer", "Cha"], ["Warlock", "Cha"]].forEach(([c, ab]) => ee`<option value="${c}">${c} (${ab})</option>`.appendTo(sel));
+			sel.val(st.sidekickSpellClass || "");
+			sel.onn("change", () => { st.sidekickSpellClass = sel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2"><b>Spellcasting:</b> learns spells from the ${sel} list. <span class="ve-muted ve-small">Choose a list to set your spellcasting ability.</span></div>`;
+			if (!st.sidekickSpellClass) { ee(wrp)`<p class="ve-muted">Pick a spell list above to choose spells.</p>`; return; }
+		}
 
 		if (sources.length) {
 			const slots = st.spellSlots(); const pact = st.pactSlots();
