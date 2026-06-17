@@ -802,7 +802,11 @@ export class CharWizardUi {
 			const t = search.val().toLowerCase().trim();
 			results.empty();
 			if (t.length < 2) { results.style.display = "none"; return; }
-			const matches = (this._data.items || []).filter(it => it.name.toLowerCase().includes(t)).slice(0, 20);
+			const rank = (n) => n === t ? 0 : n.startsWith(t) ? 1 : 2; // exact, then prefix, then contains
+			const matches = (this._data.items || [])
+				.filter(it => it.name.toLowerCase().includes(t))
+				.sort((a, b) => (rank(a.name.toLowerCase()) - rank(b.name.toLowerCase())) || SortUtil.ascSortLower(a.name, b.name))
+				.slice(0, 25);
 			results.style.display = matches.length ? "block" : "none";
 			matches.forEach(it => {
 				ee`<div class="cw__pick"><span>${it.name}</span><span class="cw__pick-src">${it.source}</span></div>`
