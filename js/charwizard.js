@@ -80,6 +80,65 @@ export class CharState {
 		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
 		this.attunedUids = []; // items the character is attuned to (max 3)
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
+		this.play = this._defaultPlayState(); // runtime "play mode" state (current HP, expended slots, …) — distinct from the build
+	}
+
+	/* ----- play mode: live runtime state, separate from the character build ----- */
+	_defaultPlayState () {
+		return {
+			curHp: null, // null => treat as full (maxHp); a number tracks current HP
+			tempHp: 0, // temporary hit points (absorbed first, don't stack — take the higher)
+			expended: {}, // "spellLevel" -> # of slots expended
+			pactExpended: 0, // warlock pact-magic slots expended (return on a short rest)
+			arcanumUsed: {}, // mystic arcanum spell level (6-9) -> used this long rest
+			deathSaves: {success: 0, fail: 0},
+			inspiration: false,
+			log: [], // recent roll results [{label, total, detail, ts}]
+			notes: "",
+		};
+	}
+	get play () { return this._play || (this._play = this._defaultPlayState()); }
+	set play (v) { this._play = v || this._defaultPlayState(); }
+
+	playMaxHp () { return this.maxHp(); }
+	playCurHp () { const mx = this.playMaxHp(); const c = this.play.curHp; return c == null ? mx : Math.max(0, Math.min(c, mx)); }
+	playTempHp () { return Math.max(0, Math.floor(this.play.tempHp || 0)); }
+	// damage hits temporary HP first, then current HP (floors at 0)
+	applyDamage (n) {
+		n = Math.max(0, Math.floor(n || 0)); if (!n) return;
+		const temp = this.playTempHp();
+		if (temp > 0) { const fromTemp = Math.min(temp, n); this.play.tempHp = temp - fromTemp; n -= fromTemp; }
+		if (n > 0) this.play.curHp = Math.max(0, this.playCurHp() - n);
+	}
+	applyHealing (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; this.play.curHp = Math.min(this.playMaxHp(), this.playCurHp() + n); }
+	// temp HP doesn't stack — keep whichever is higher (RAW)
+	setTempHp (n) { this.play.tempHp = Math.max(this.playTempHp(), Math.max(0, Math.floor(n || 0))); }
+	clearTempHp () { this.play.tempHp = 0; }
+
+	playSlotsTotal (lvl) { return (this.spellSlots() || {})[lvl] || 0; }
+	playSlotsRemaining (lvl) { return Math.max(0, this.playSlotsTotal(lvl) - (this.play.expended[lvl] || 0)); }
+	expendSlot (lvl) { const used = this.play.expended[lvl] || 0; if (used < this.playSlotsTotal(lvl)) this.play.expended[lvl] = used + 1; }
+	restoreSlot (lvl) { const used = this.play.expended[lvl] || 0; if (used > 0) this.play.expended[lvl] = used - 1; }
+	playPactTotal () { const p = this.pactSlots() || {}; const lvl = Object.keys(p)[0]; return lvl ? p[lvl] : 0; }
+	playPactLevel () { const p = this.pactSlots() || {}; return +(Object.keys(p)[0] || 0); }
+	playPactRemaining () { return Math.max(0, this.playPactTotal() - (this.play.pactExpended || 0)); }
+	expendPact () { if ((this.play.pactExpended || 0) < this.playPactTotal()) this.play.pactExpended = (this.play.pactExpended || 0) + 1; }
+	restorePact () { if ((this.play.pactExpended || 0) > 0) this.play.pactExpended -= 1; }
+
+	pushRollLog (label, total, detail) {
+		const log = this.play.log || (this.play.log = []);
+		log.unshift({label, total, detail, ts: Date.now()});
+		if (log.length > 12) log.length = 12;
+	}
+
+	shortRest () { this.play.pactExpended = 0; } // pact slots return on a short rest
+	longRest () {
+		this.play.curHp = this.playMaxHp();
+		this.play.tempHp = 0;
+		this.play.expended = {};
+		this.play.pactExpended = 0;
+		this.play.arcanumUsed = {};
+		this.play.deathSaves = {success: 0, fail: 0};
 	}
 
 	/* ----- content source filter ----- */
@@ -1504,6 +1563,7 @@ export class CharState {
 			shieldUid: this.shieldUid,
 			attunedUids: this.attunedUids,
 			inventory: this.inventory,
+			play: this.play,
 		};
 	}
 
@@ -1564,6 +1624,7 @@ export class CharState {
 			shieldUid: j.shieldUid ?? null,
 			attunedUids: j.attunedUids ?? [],
 			inventory: j.inventory ?? [],
+			play: {...this._defaultPlayState(), ...(j.play || {})},
 		});
 		// migrate v1 boolean shield -> the first shield in inventory
 		if (this.shieldUid == null && j.isShield) { const sh = this.inventory.find(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); this.shieldUid = sh?.uid || null; }

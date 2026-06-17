@@ -79,15 +79,21 @@ export class CharWizardUi {
 		const inpName = ee`<input class="ve-form-control" style="max-width:280px" placeholder="Character name" value="${(this._state.name || "").qq()}">`
 			.onn("change", () => { this._state.name = inpName.val(); this._save(); });
 		const btnSources = ee`<button class="ve-btn ve-btn-default ve-btn-sm ${this._showSources ? "active" : ""}" title="Choose which books/sources appear in the builder"><span class="glyphicon glyphicon-book"></span> Sources</button>`
-			.onn("click", () => { this._showSources = !this._showSources; this.render(); });
+			.onn("click", () => { this._showSources = !this._showSources; this._playMode = false; this.render(); });
+		const btnPlay = ee`<button class="ve-btn ${this._playMode ? "ve-btn-primary active" : "ve-btn-success"} ve-btn-sm" title="Play this character — track HP, spell slots, and roll d20 checks"><span class="glyphicon glyphicon-${this._playMode ? "edit" : "play"}"></span> ${this._playMode ? "Edit Build" : "Play"}</button>`
+			.onn("click", () => { this._playMode = !this._playMode; this._showSources = false; this.render(); });
 		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap">
 			${inpName}
 			${btnSources}
+			${btnPlay}
 			${this._getToolbarButtons()}
 		</div>`;
 
 		// Sources panel (replaces the stepper/body while open)
 		if (this._showSources) { this._renderSourcesPanel(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
+
+		// Play mode (replaces the stepper/body while active)
+		if (this._playMode) { this._renderPlayMode(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// Stepper
 		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
@@ -187,6 +193,170 @@ export class CharWizardUi {
 				lbl.appendTo(grid);
 			});
 		});
+	}
+
+	/* ----- play mode: live HP / spell slots / d20 rolls for a built character ----- */
+	_rng (max) { try { return RollerUtil.randomise(max); } catch (e) { return 1 + Math.floor(Math.random() * max); } }
+	// roll a d20 check/save/attack, honouring net advantage/disadvantage; logs the result and re-renders
+	_d20Roll (label, mod, ad) {
+		const adv = ad?.net === "adv"; const dis = ad?.net === "dis";
+		const r1 = this._rng(20); const r2 = (adv || dis) ? this._rng(20) : null;
+		const die = r2 == null ? r1 : (adv ? Math.max(r1, r2) : Math.min(r1, r2));
+		const total = die + (mod || 0);
+		const tag = die === 20 ? " — natural 20!" : die === 1 ? " — natural 1" : "";
+		const rolls = r2 == null ? `${r1}` : `${r1}/${r2}→${die}${adv ? " adv" : " dis"}`;
+		const detail = `d20 (${rolls}) ${CW.fmtMod(mod || 0)}${tag}`;
+		this._state.pushRollLog(label, total, detail);
+		JqueryUtil.doToast({type: die === 20 ? "success" : die === 1 ? "danger" : "info", content: `${label}: ${total} <span class="ve-muted">(${detail.qq()})</span>`});
+		this._save(); this.render();
+	}
+	// roll a weapon's damage (parses NdM dice in the damage string + flat bonus)
+	_rollDamage (atk, dice, label) {
+		if (!dice) return;
+		let total = 0; const parts = [];
+		`${dice}`.replace(/(\d+)d(\d+)/g, (m, n, faces) => { let sub = 0; for (let i = 0; i < +n; ++i) { const r = this._rng(+faces); sub += r; parts.push(r); } total += sub; return m; });
+		total += atk.dmgBonus || 0;
+		const typ = atk.dmgType ? ` ${CW.DMG_TYPE[atk.dmgType] || atk.dmgType}` : "";
+		const detail = `${dice} (${parts.join("+")})${atk.dmgBonus ? ` ${CW.fmtMod(atk.dmgBonus)}` : ""}`;
+		this._state.pushRollLog(`${label} damage`, total, `${detail}${typ}`);
+		JqueryUtil.doToast({type: "info", content: `${label} damage: ${Math.max(0, total)}${typ} <span class="ve-muted">(${detail.qq()})</span>`});
+		this._save(); this.render();
+	}
+
+	_renderPlayMode (wrp) {
+		const st = this._state;
+		if (!st.classUid) { ee(wrp)`<div class="cw__err">Build your character first (choose at least a class), then switch to Play mode to track HP, spell slots, and roll checks.</div>`; return; }
+
+		const classLine = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
+		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:10px;flex-wrap:wrap">
+			<div><div style="font-size:22px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
+			<div class="ve-muted ve-small">${classLine.qq()}</div></div></div>`;
+
+		// top stat row
+		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
+		const box = (lbl, val) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
+		box("Armor Class", st.ac());
+		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}`);
+		ee(boxes)`<div class="cw__stat-box" style="cursor:pointer" title="Roll initiative">${ee`<div class="lbl">Roll Init</div><div class="val">🎲</div>`}</div>`.onn("click", () => this._d20Roll("Initiative", st.initiative(), st.initiativeAdvDis()));
+		box("Prof. Bonus", CW.fmtMod(st.profBonus));
+		box("Passive Perc.", st.passiveScore("perception"));
+		box("Walk Speed", st.speedString());
+
+		this._renderPlayHp(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayRests(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySlots(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayLog(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+	}
+
+	_renderPlayHp (sec) {
+		const st = this._state;
+		const cur = st.playCurHp(); const max = st.playMaxHp(); const temp = st.playTempHp();
+		const pct = max ? Math.round((cur / max) * 100) : 0;
+		const colour = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
+		ee(sec)`<h4>Hit Points</h4>`;
+		const bar = ee`<div style="position:relative;height:26px;border:1px solid rgba(127,127,127,.4);border-radius:4px;overflow:hidden;background:rgba(127,127,127,.12)">
+			<div style="position:absolute;inset:0 ${100 - pct}% 0 0;background:${colour};opacity:.55"></div>
+			<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:bold">${cur} / ${max}${temp ? ` (+${temp} temp)` : ""}</div>
+		</div>`;
+		ee(sec)`<div class="ve-mb-2">${bar}</div>`;
+
+		const inpAmt = ee`<input class="ve-form-control" type="number" min="0" style="width:80px" placeholder="0">`;
+		const amt = () => Math.max(0, parseInt(inpAmt.val(), 10) || 0);
+		const btnDmg = ee`<button class="ve-btn ve-btn-danger ve-btn-sm" title="Subtract from HP (temp HP first)">− Damage</button>`.onn("click", () => { st.applyDamage(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnHeal = ee`<button class="ve-btn ve-btn-success ve-btn-sm" title="Restore HP (up to max)">+ Heal</button>`.onn("click", () => { st.applyHealing(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnTemp = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Set temporary HP (doesn't stack — keeps the higher)">Temp HP</button>`.onn("click", () => { st.setTempHp(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnFull = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Reset to maximum HP">Full</button>`.onn("click", () => { st.applyHealing(st.playMaxHp()); st.clearTempHp(); this._save(); this.render(); });
+		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap">${inpAmt}${btnDmg}${btnHeal}${btnTemp}${btnFull}</div>`;
+		if (cur === 0) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">Unconscious — at 0 HP. Make death saving throws.</div>`;
+	}
+
+	_renderPlayRests (sec) {
+		const st = this._state;
+		const btnShort = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Pact slots return">Short Rest</button>`.onn("click", () => { st.shortRest(); JqueryUtil.doToast({type: "success", content: "Short rest — pact magic slots restored."}); this._save(); this.render(); });
+		const btnLong = ee`<button class="ve-btn ve-btn-primary ve-btn-sm" title="Restore HP and all spell slots">Long Rest</button>`.onn("click", () => { st.longRest(); JqueryUtil.doToast({type: "success", content: "Long rest — HP and spell slots restored."}); this._save(); this.render(); });
+		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap"><b class="ve-mr-1">Rest:</b>${btnShort}${btnLong}</div>`;
+	}
+
+	_renderPlaySlots (sec) {
+		const st = this._state;
+		const slots = st.spellSlots() || {}; const pact = st.pactSlots();
+		const levels = Object.keys(slots).map(Number).sort((a, b) => a - b);
+		if (!levels.length && !pact) return;
+		ee(sec)`<h4>Spell Slots</h4>`;
+		const pip = (filled) => `<span style="display:inline-block;width:15px;height:15px;border-radius:50%;border:2px solid #2196f3;margin:0 2px;vertical-align:middle;background:${filled ? "#2196f3" : "transparent"}"></span>`;
+		levels.forEach(lvl => {
+			const total = st.playSlotsTotal(lvl); const rem = st.playSlotsRemaining(lvl);
+			const pips = Array.from({length: total}, (_, i) => pip(i < rem)).join("");
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="width:62px">Level ${lvl}</b><div style="flex:1">${pips}</div></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Expend a slot" ${rem ? "" : "disabled"}>Use</button>`.onn("click", () => { st.expendSlot(lvl); this._save(); this.render(); })}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Restore a slot" ${rem < total ? "" : "disabled"}>↺</button>`.onn("click", () => { st.restoreSlot(lvl); this._save(); this.render(); })}`;
+			ee(row)`<span class="ve-muted ve-small">${rem}/${total}</span>`;
+			row.appendTo(sec);
+		});
+		if (pact) {
+			const lvl = st.playPactLevel(); const total = st.playPactTotal(); const rem = st.playPactRemaining();
+			const pips = Array.from({length: total}, (_, i) => pip(i < rem)).join("");
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="width:62px" title="Warlock Pact Magic — return on a short rest">Pact L${lvl}</b><div style="flex:1">${pips}</div></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem ? "" : "disabled"}>Use</button>`.onn("click", () => { st.expendPact(); this._save(); this.render(); })}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem < total ? "" : "disabled"}>↺</button>`.onn("click", () => { st.restorePact(); this._save(); this.render(); })}`;
+			ee(row)`<span class="ve-muted ve-small">${rem}/${total}</span>`;
+			row.appendTo(sec);
+		}
+	}
+
+	_renderPlayAbilities (sec) {
+		const st = this._state;
+		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(sec);
+		CW.ABILITIES.forEach(abv => {
+			const mod = st.abilityMod(abv); const save = st.saveMod(abv); const saveProf = st.saveProfs().has(abv);
+			const card = ee`<div class="cw__abil" style="cursor:pointer" title="Roll a ${CW.ABIL_FULL[abv]} check">
+				<div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.finalAbility(abv)}</div>
+				<div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, st.abilityCheckAdvDis?.(abv)));
+			const saveBtn = ee`<div class="cw__abil-sub" style="cursor:pointer" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div>`
+				.onn("click", (e) => { e.stopPropagation(); this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, st.saveAdvDis(abv)); });
+			card.appendChild(saveBtn);
+			card.appendTo(grid);
+		});
+	}
+
+	_renderPlayAttacks (sec) {
+		const st = this._state;
+		const wielded = st.wieldedWeapons();
+		if (!wielded.length) return;
+		ee(sec)`<h4>Attacks <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		wielded.forEach(it => {
+			const a = st.weaponAttack(it);
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:120px">${refLink(UrlUtil.PG_ITEMS, it, it.name)}</b></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll attack (d20 ${CW.fmtMod(a.toHit)})">Attack ${CW.fmtMod(a.toHit)}</button>`.onn("click", () => this._d20Roll(`${it.name} attack`, a.toHit, null))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll damage">Dmg ${st.fmtWeaponDamage(a.dmg1, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg1, it.name))}`;
+			if (a.dmg2) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll two-handed (versatile) damage">2H ${st.fmtWeaponDamage(a.dmg2, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg2, `${it.name} (2H)`))}`;
+			row.appendTo(sec);
+		});
+		if (st.numAttacks() > 1) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Extra Attack: ${st.numAttacks()} attacks per Attack action.</div>`;
+	}
+
+	_renderPlaySkills (sec) {
+		const st = this._state;
+		ee(sec)`<h4>Skills <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		const MARK = {expertise: "★", full: "●", half: "◐", none: "○"};
+		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
+		CW.skills().sort().forEach(sk => {
+			const mod = st.skillMod(sk);
+			ee(grid)`${ee`<div style="break-inside:avoid;cursor:pointer;padding:1px 0" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(st.skillAdvDis(sk))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, st.skillAdvDis(sk)))}`;
+		});
+	}
+
+	_renderPlayLog (sec) {
+		const st = this._state; const log = st.play.log || [];
+		ee(sec)`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><h4 class="ve-mt-0 ve-mb-0">Roll Log</h4>${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${log.length ? "" : "disabled"}>Clear</button>`.onn("click", () => { st.play.log = []; this._save(); this.render(); })}</div>`;
+		if (!log.length) { ee(sec)`<div class="ve-muted ve-small">Click any ability, save, skill, or attack above to roll. Results appear here.</div>`; return; }
+		const list = ee`<div class="ve-small"></div>`.appendTo(sec);
+		log.forEach(r => ee(list)`<div style="padding:1px 0"><b style="display:inline-block;min-width:36px">${r.total}</b> <span>${`${r.label}`.qq()}</span> <span class="ve-muted">— ${`${r.detail}`.qq()}</span></div>`);
 	}
 
 	/* ----- generic chooser (list + preview) ----- */
