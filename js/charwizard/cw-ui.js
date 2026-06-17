@@ -440,7 +440,7 @@ export class CharWizardUi {
 			subtitle: "Choose a background. It grants skill proficiencies, languages/tools, and starting equipment.",
 			entities: this._data.backgrounds,
 			getSel: () => this._state.backgroundUid,
-			setSel: (uid) => { this._state.backgroundUid = uid; this._state.clearProfChoicesForSource("bg"); },
+			setSel: (uid) => { this._state.backgroundUid = uid; this._state.bgAbilOption = 0; this._state.bgAbilChoices = []; this._state.bgAbilWeighted = []; this._state.bgFeat = {featUid: null, featAbilChoose: []}; this._state.clearProfChoicesForSource("bg"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.background.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -474,6 +474,12 @@ export class CharWizardUi {
 
 		// 2b) racial feat (Variant Human, Custom Lineage, …)
 		this._renderRaceFeat(wrp);
+
+		// 2c) background ability bonuses + feat (2024 / Eberron / FRHoF backgrounds)
+		if (st.bgAbilityOptions().length || st.backgroundFixedFeats().length || st.backgroundFeatChoice()) {
+			ee(wrp)`<hr class="hr-2 ve-mt-3">`;
+			this._renderBackgroundAbility(wrp);
+		}
 
 		// 3) ASIs & feats (merged here so the totals above reflect them)
 		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Ability Score Improvements &amp; Feats</h4>`;
@@ -522,62 +528,113 @@ export class CharWizardUi {
 			if (st.raceUid) ee(wrp)`<div class="ve-mb-2 ve-muted ve-small">This ${this._raceWord().toLowerCase()} grants no ability score increases${this._data.styleHint === "one" ? " — under 2024 rules, ability bonuses come from your background." : "."}</div>`;
 			return;
 		}
+		this._renderAbilityBonusChooser(wrp, {title: "Racial Ability Bonuses", entName: st.raceEnt.name, options: opts, optKey: "raceAbilOption", choicesKey: "raceAbilChoices", weightedKey: "raceAbilWeighted"});
+	}
+
+	// generic ability-bonus chooser used by race + background (fixed / weighted / simple-choose, multi-option)
+	_renderAbilityBonusChooser (wrp, {title, entName, options, optKey, choicesKey, weightedKey}) {
+		const st = this._state;
+		if (!options.length) return;
 		const box = ee`<div class="ve-mb-3"></div>`.appendTo(wrp);
-		ee(box)`<div class="ve-mb-1"><b>Racial Ability Bonuses</b> <span class="ve-muted ve-small">(${st.raceEnt.name.qq()})</span></div>`;
-		if (opts.length > 1) {
+		ee(box)`<div class="ve-mb-1"><b>${title}</b> <span class="ve-muted ve-small">(${`${entName}`.qq()})</span></div>`;
+		if (options.length > 1) {
 			ee(box)`<div class="ve-muted ve-small ve-mb-1">Choose one option:</div>`;
 			const optRow = ee`<div class="ve-btn-group ve-mb-2"></div>`.appendTo(box);
-			opts.forEach((opt, i) => {
-				const active = (st.raceAbilOption || 0) === i;
-				ee`<button class="ve-btn ve-btn-xs ${active ? "ve-btn-primary" : "ve-btn-default"}">${String.fromCharCode(97 + i)}) ${this._raceAbilOptionLabel(opt).qq()}</button>`
-					.onn("click", () => { st.raceAbilOption = i; st.raceAbilChoices = []; st.raceAbilWeighted = []; this._save(); this.render(); })
+			options.forEach((opt, i) => {
+				const active = (st[optKey] || 0) === i;
+				ee`<button class="ve-btn ve-btn-xs ${active ? "ve-btn-primary" : "ve-btn-default"}">${String.fromCharCode(97 + i)}) ${this._abilOptionLabel(opt).qq()}</button>`
+					.onn("click", () => { st[optKey] = i; st[choicesKey] = []; st[weightedKey] = []; this._save(); this.render(); })
 					.appendTo(optRow);
 			});
 		}
-		this._renderRaceAbilityOption(box, st.activeRaceAbilityOption());
+		const ab = options[Math.min(st[optKey] || 0, options.length - 1)] || null;
+		if (!ab) return;
+		const fixed = Object.entries(ab).filter(([k, v]) => CW.ABILITIES.includes(k) && typeof v === "number");
+		if (fixed.length) ee(box)`<div class="ve-mb-1"><b>Fixed:</b> ${fixed.map(([k, v]) => `${CW.fmtMod(v)} ${CW.ABIL_FULL[k]}`).join(", ")}</div>`;
+		const ch = ab.choose;
+		if (ch?.weighted) this._renderAbilityWeighted(box, ch.weighted, weightedKey);
+		else if (ch) {
+			const from = ch.from || CW.ABILITIES; const count = ch.count || 1; const amount = ch.amount || 1;
+			const counter = ee`<span class="ve-muted">${st[choicesKey].length}/${count}</span>`;
+			ee(box)`<div class="ve-mb-1">Choose ${count} different (+${amount} each) (${counter}):</div>`;
+			this._renderChipPicker(box, {items: from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a] || a, arr: st[choicesKey], max: count, counterEle: counter});
+		}
 	}
 
-	_raceAbilOptionLabel (opt) {
+	_abilOptionLabel (opt) {
 		if (opt.choose?.weighted) return (opt.choose.weighted.weights || []).map(w => `+${w}`).join(" / ");
 		if (opt.choose) return `choose ${opt.choose.count || 1} (+${opt.choose.amount || 1})`;
 		const fixed = Object.entries(opt).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`);
 		return fixed.join(", ") || "—";
 	}
 
-	_renderRaceAbilityOption (box, ab) {
-		const st = this._state;
-		if (!ab) return;
-		const fixed = Object.entries(ab).filter(([k, v]) => CW.ABILITIES.includes(k) && typeof v === "number");
-		if (fixed.length) ee(box)`<div class="ve-mb-1"><b>Fixed:</b> ${fixed.map(([k, v]) => `${CW.fmtMod(v)} ${CW.ABIL_FULL[k]}`).join(", ")}</div>`;
-		const ch = ab.choose;
-		if (ch?.weighted) this._renderRaceAbilityWeighted(box, ch.weighted);
-		else if (ch) {
-			const from = ch.from || CW.ABILITIES; const count = ch.count || 1; const amount = ch.amount || 1;
-			const counter = ee`<span class="ve-muted">${st.raceAbilChoices.length}/${count}</span>`;
-			ee(box)`<div class="ve-mb-1">Choose ${count} different (+${amount} each) (${counter}):</div>`;
-			this._renderChipPicker(box, {items: from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a] || a, arr: st.raceAbilChoices, max: count, counterEle: counter});
-		}
-	}
-
-	_renderRaceAbilityWeighted (box, weighted) {
+	_renderAbilityWeighted (box, weighted, weightedKey) {
 		const st = this._state;
 		const weights = weighted.weights || [];
 		let from = (weighted.from || CW.ABILITIES).filter(a => CW.ABILITIES.includes(a));
 		if (!from.length) from = CW.ABILITIES;
-		st.raceAbilWeighted = st.raceAbilWeighted || [];
-		st.raceAbilWeighted.length = weights.length;
+		st[weightedKey] = st[weightedKey] || [];
+		st[weightedKey].length = weights.length;
 		ee(box)`<div class="ve-muted ve-small ve-mb-1">Assign each bonus to a different ability:</div>`;
 		const row = ee`<div class="ve-flex-v-center" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(box);
 		weights.forEach((w, i) => {
 			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— ability —</option></select>`;
 			from.forEach(abv => {
-				const usedElsewhere = st.raceAbilWeighted.some((a, j) => j !== i && a === abv);
+				const usedElsewhere = st[weightedKey].some((a, j) => j !== i && a === abv);
 				ee`<option value="${abv}" ${usedElsewhere ? "disabled" : ""}>${CW.ABIL_FULL[abv]}</option>`.appendTo(sel);
 			});
-			sel.val(st.raceAbilWeighted[i] || "");
-			sel.onn("change", () => { st.raceAbilWeighted[i] = sel.val(); this._save(); this.render(); });
+			sel.val(st[weightedKey][i] || "");
+			sel.onn("change", () => { st[weightedKey][i] = sel.val(); this._save(); this.render(); });
 			ee(row)`<label class="ve-flex-v-center" style="gap:4px"><b>+${w} to</b> ${sel}</label>`;
 		});
+	}
+
+	// Background ability bonuses (2024 / Eberron / FRHoF backgrounds) + a background feat picker
+	_renderBackgroundAbility (wrp) {
+		const st = this._state;
+		const opts = st.bgAbilityOptions();
+		if (opts.length) this._renderAbilityBonusChooser(wrp, {title: "Background Ability Bonuses", entName: st.backgroundEnt.name, options: opts, optKey: "bgAbilOption", choicesKey: "bgAbilChoices", weightedKey: "bgAbilWeighted"});
+		this._renderBackgroundFeat(wrp);
+	}
+
+	_renderBackgroundFeat (wrp) {
+		const st = this._state;
+		const fixed = st.backgroundFixedFeats();
+		const choice = st.backgroundFeatChoice();
+		if (!fixed.length && !choice) return;
+		ee(wrp)`<div class="ve-mb-1 ve-mt-2"><b>Background Feat</b> <span class="ve-muted ve-small">(${st.backgroundEnt.name.qq()})</span></div>`;
+		fixed.forEach(f => {
+			ee`<details class="ve-mt-1"><summary><b>${f.name.qq()}</b> <span class="ve-muted ve-small">(granted)</span></summary><div class="ve-pl-3 ve-small">${renderEntries(f.entries)}</div></details>`.appendTo(wrp);
+		});
+		if (choice && choice.category) {
+			// a category we can't populate from the feat list (e.g. Dark Gifts) — point to the background instead
+			ee(wrp)`<div class="ve-muted ve-small ve-mt-1">Also choose ${choice.count} option from this background (see its feature text above).</div>`;
+		} else if (choice) {
+			const rf = st.bgFeat;
+			const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
+			let hidden = 0;
+			feats.forEach(f => {
+				const uid = CW.uid(f);
+				const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.key !== "bg");
+				if (!st.meetsFeatPrereq(f) && rf.featUid !== uid) { hidden++; return; }
+				ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
+			});
+			sel.val(rf.featUid || "");
+			sel.onn("change", () => { rf.featUid = sel.val() || null; rf.featAbilChoose = []; this._save(); this.render(); });
+			ee(wrp)`<label class="ve-flex-v-center ve-mt-1" style="gap:6px">Feat ${sel}</label>${hidden ? `<span class="ve-muted ve-small ve-ml-2">(${hidden} hidden — prerequisites not met)</span>` : ""}`;
+			const feat = rf.featUid ? this._data.feats.find(f => CW.uid(f) === rf.featUid) : null;
+			if (feat) {
+				(feat.ability || []).forEach(ab => {
+					if (!ab.choose) return;
+					const cnt = ab.choose.count || 1; rf.featAbilChoose = rf.featAbilChoose || [];
+					const counter = ee`<span class="ve-muted">${rf.featAbilChoose.length}/${cnt}</span>`;
+					ee(wrp)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
+					this._renderChipPicker(wrp, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: rf.featAbilChoose, max: cnt, counterEle: counter});
+				});
+				ee`<div class="ve-mt-1 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
+			}
+		}
 	}
 
 	_initAbilitiesForMethod () {
@@ -591,15 +648,17 @@ export class CharWizardUi {
 		const st = this._state;
 		const base = st.abilitiesBase[abv];
 		const racial = st.racialBonuses()[abv];
+		const bg = st.backgroundBonuses()[abv];
 		const asi = st.asiBonuses()[abv];
 		const clsf = st.classFeatureAbilityBonuses()[abv];
 		const total = base == null ? null : st.finalAbility(abv);
 		const mod = total == null ? null : CW.mod(total);
-		const computed = (base || 0) + racial + asi + clsf;
+		const computed = (base || 0) + racial + bg + asi + clsf;
 		const itemSet = st._itemAbilitySet(abv);
 		const parts = [];
 		if (base != null) parts.push(`base ${base}`);
 		if (racial) parts.push(`${CW.fmtMod(racial)} race`);
+		if (bg) parts.push(`${CW.fmtMod(bg)} background`);
 		if (asi) parts.push(`${CW.fmtMod(asi)} ASI`);
 		if (clsf) parts.push(`${CW.fmtMod(clsf)} class`);
 		if (base != null && itemSet != null && itemSet > computed) parts.push(`set ${itemSet} (item)`);
@@ -1351,6 +1410,14 @@ export class CharWizardUi {
 					ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()} <span class="ve-muted ve-small">(${f.kind})</span></summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secF);
 				});
 			});
+		}
+
+		// background feature(s) — the named "Feature: …" entries
+		const bgFeatures = (bg?.entries || []).filter(e => e && e.name && e.type === "entries");
+		if (bgFeatures.length) {
+			const secBg = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secBg)`<h4>${bg.name.qq()} Feature${bgFeatures.length > 1 ? "s" : ""}</h4>`;
+			bgFeatures.forEach(f => ee`<details style="margin:2px 0"><summary><b>${`${f.name}`.replace(/^Feature:\s*/, "").qq()}</b></summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secBg));
 		}
 
 		// race traits

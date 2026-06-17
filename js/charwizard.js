@@ -57,6 +57,10 @@ export class CharState {
 		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
 		this.raceResistChoice = null; // chosen damage type when the race offers a resistance choice (e.g. Dragonborn)
 		this.sizeChoice = null; // chosen size abv when the race offers Small or Medium
+		this.bgAbilOption = 0; // which background ability option (a/b)
+		this.bgAbilChoices = []; // background "choose N" ability picks
+		this.bgAbilWeighted = []; // background weighted ability assignment
+		this.bgFeat = {featUid: null, featAbilChoose: []}; // feat granted by some backgrounds (2024 origin feat, dragonmark, …)
 		this.classSkillChoices = [];
 		this.expertiseChoices = []; // skills with expertise (double proficiency)
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
@@ -154,36 +158,27 @@ export class CharState {
 	}
 
 	/* ----- abilities ----- */
-	raceAbilityOptions () { return this.raceEnt?.ability || []; }
-	activeRaceAbilityOption () {
-		const opts = this.raceAbilityOptions();
-		if (!opts.length) return null;
-		return opts[Math.min(this.raceAbilOption || 0, opts.length - 1)] || null;
-	}
-
-	racialBonuses () {
+	// generic ability-bonus computation for an option (fixed + weighted/simple choose), shared by race + background
+	_abilOptionBonuses (opt, choices, weighted) {
 		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
-		const ab = this.activeRaceAbilityOption();
-		if (!ab) return out;
-		// fixed bonuses
-		Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
-		const ch = ab.choose;
-		if (ch?.weighted) {
-			const weights = ch.weighted.weights || [];
-			(this.raceAbilWeighted || []).forEach((abv, i) => { if (abv && out[abv] != null && weights[i] != null) out[abv] += weights[i]; });
-		} else if (ch) {
-			const amount = ch.amount || 1;
-			(this.raceAbilChoices || []).forEach(k => { if (out[k] != null) out[k] += amount; });
-		}
+		if (!opt) return out;
+		Object.entries(opt).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
+		const ch = opt.choose;
+		if (ch?.weighted) { const weights = ch.weighted.weights || []; (weighted || []).forEach((abv, i) => { if (abv && out[abv] != null && weights[i] != null) out[abv] += weights[i]; }); } else if (ch) { const amount = ch.amount || 1; (choices || []).forEach(k => { if (out[k] != null) out[k] += amount; }); }
 		return out;
 	}
+	_chooseMeta (opt) { if (!opt?.choose || opt.choose.weighted) return null; return {from: opt.choose.from || CW.ABILITIES, count: opt.choose.count || 1, amount: opt.choose.amount || 1}; }
 
-	// meta for a simple (non-weighted) "choose" option, else null
-	racialChooseMeta () {
-		const ab = this.activeRaceAbilityOption();
-		if (!ab?.choose || ab.choose.weighted) return null;
-		return {from: ab.choose.from || CW.ABILITIES, count: ab.choose.count || 1, amount: ab.choose.amount || 1};
-	}
+	raceAbilityOptions () { return this.raceEnt?.ability || []; }
+	activeRaceAbilityOption () { const o = this.raceAbilityOptions(); return o.length ? (o[Math.min(this.raceAbilOption || 0, o.length - 1)] || null) : null; }
+	racialBonuses () { return this._abilOptionBonuses(this.activeRaceAbilityOption(), this.raceAbilChoices, this.raceAbilWeighted); }
+	racialChooseMeta () { return this._chooseMeta(this.activeRaceAbilityOption()); }
+
+	// background ability bonuses (2024 / Eberron / FRHoF backgrounds, same weighted format as races)
+	bgAbilityOptions () { return this.backgroundEnt?.ability || []; }
+	activeBgAbilityOption () { const o = this.bgAbilityOptions(); return o.length ? (o[Math.min(this.bgAbilOption || 0, o.length - 1)] || null) : null; }
+	backgroundBonuses () { return this._abilOptionBonuses(this.activeBgAbilityOption(), this.bgAbilChoices, this.bgAbilWeighted); }
+	bgChooseMeta () { return this._chooseMeta(this.activeBgAbilityOption()); }
 
 	// ASI "slots" across all classes: each class grants ASIs at its own levels.
 	// Returns [{classUid, className, classLevel, key}] where key = "classUid@classLevel".
@@ -222,11 +217,26 @@ export class CharState {
 			else if (ch.type === "feat" && ch.featUid) Object.entries(this._featAbilityBonus(ch.featUid, ch.featAbilChoose)).forEach(([k, v]) => out[k] += v);
 		});
 		if (this.raceFeatCount() && this.raceFeat?.featUid) Object.entries(this._featAbilityBonus(this.raceFeat.featUid, this.raceFeat.featAbilChoose)).forEach(([k, v]) => out[k] += v);
+		this.backgroundFixedFeats().forEach(f => Object.entries(this._featAbilityBonus(CW.uid(f), [])).forEach(([k, v]) => out[k] += v));
+		if (this.backgroundFeatChoice() && this.bgFeat?.featUid) Object.entries(this._featAbilityBonus(this.bgFeat.featUid, this.bgFeat.featAbilChoose)).forEach(([k, v]) => out[k] += v);
 		return out;
 	}
 
 	// number of level-1 feats granted by the race (Variant Human / Custom Lineage = 1)
 	raceFeatCount () { return (this.raceEnt?.feats || []).reduce((a, g) => a + (g?.any || g?.anyFromCategory?.count || 0), 0); }
+
+	/* ----- background feats (2024 origin feat, dragonmark, faction…) ----- */
+	// feats the background grants by a specific name (auto-applied)
+	backgroundFixedFeats () {
+		const out = [];
+		(this.backgroundEnt?.feats || []).forEach(grp => Object.entries(grp).forEach(([k, v]) => { if (v !== true) return; const feat = this._data.feats.find(f => CW.uid(f).toLowerCase() === `${k}`.toLowerCase()); if (feat) out.push(feat); }));
+		return out;
+	}
+	// a "choose any feat" entry on the background, if present -> {count, category}
+	backgroundFeatChoice () {
+		for (const grp of (this.backgroundEnt?.feats || [])) { if (grp.any) return {count: grp.any}; if (grp.anyFromCategory) return {count: grp.anyFromCategory.count || 1, category: grp.anyFromCategory.category}; }
+		return null;
+	}
 
 	featsTaken () {
 		const slots = this.asiSlots();
@@ -235,6 +245,8 @@ export class CharState {
 			.filter(([key, c]) => byKey.has(key) && c?.type === "feat" && c.featUid)
 			.map(([key, c]) => { const s = byKey.get(key); return {key, level: s.classLevel, className: s.className, featUid: c.featUid}; });
 		if (this.raceFeatCount() && this.raceFeat?.featUid) out.unshift({key: "race", level: 1, className: "Race", featUid: this.raceFeat.featUid});
+		this.backgroundFixedFeats().forEach(f => out.unshift({key: `bgfixed:${CW.uid(f)}`, level: 1, className: "Background", featUid: CW.uid(f)}));
+		if (this.backgroundFeatChoice() && this.bgFeat?.featUid) out.unshift({key: "bg", level: 1, className: "Background", featUid: this.bgFeat.featUid});
 		return out;
 	}
 
@@ -284,7 +296,7 @@ export class CharState {
 	}
 
 	finalAbility (abv) {
-		const computed = (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv];
+		const computed = (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.backgroundBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv];
 		const set = this._itemAbilitySet(abv); // e.g. Amulet of Health sets Con to 19
 		return set != null ? Math.max(computed, set) : computed;
 	}
@@ -393,9 +405,11 @@ export class CharState {
 		const LSTD = Parser.LANGUAGES_STANDARD || []; const LALL = Parser.LANGUAGES_ALL || []; const LEXO = Parser.LANGUAGES_EXOTIC || [];
 		const STD_PLUS_EXOTIC = [...new Set([...LSTD, ...LEXO])]; // "standard" choices are loosened to also allow exotic
 		const addLang = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
+			if (!grp || typeof grp !== "object") return;
 			let n = 0; let opts = null;
 			if (grp.anyStandard) { n = grp.anyStandard; opts = STD_PLUS_EXOTIC; } else if (grp.anyExotic) { n = grp.anyExotic; opts = LEXO; } else if (grp.any) { n = grp.any; opts = LALL; }
 			if (n) groups.push({key: `language:${srcKey}:${ix}`, type: "language", label: `${srcLabel}: choose ${n} language${n > 1 ? "s" : ""}`, options: opts, count: n});
+			if (grp.choose?.from) { const cn = grp.choose.count || 1; groups.push({key: `language:${srcKey}:${ix}:c`, type: "language", label: `${srcLabel}: choose ${cn} language${cn > 1 ? "s" : ""}`, options: grp.choose.from.map(l => `${l}`.toTitleCase()), count: cn}); }
 		});
 		const NUMW = {one: 1, two: 2, three: 3, four: 4, five: 5};
 		const CATABV = {"musical instrument": "INS", "artisan's tool": "AT", "artisans tool": "AT", "gaming set": "GS", "tool": "ANY"};
@@ -1359,6 +1373,10 @@ export class CharState {
 			raceAbilWeighted: this.raceAbilWeighted,
 			raceResistChoice: this.raceResistChoice,
 			sizeChoice: this.sizeChoice,
+			bgAbilOption: this.bgAbilOption,
+			bgAbilChoices: this.bgAbilChoices,
+			bgAbilWeighted: this.bgAbilWeighted,
+			bgFeat: this.bgFeat,
 			classSkillChoices: this.classSkillChoices,
 			expertiseChoices: this.expertiseChoices,
 			profChoices: this.profChoices,
@@ -1413,6 +1431,10 @@ export class CharState {
 			raceAbilWeighted: j.raceAbilWeighted ?? [],
 			raceResistChoice: j.raceResistChoice ?? null,
 			sizeChoice: j.sizeChoice ?? null,
+			bgAbilOption: j.bgAbilOption ?? 0,
+			bgAbilChoices: j.bgAbilChoices ?? [],
+			bgAbilWeighted: j.bgAbilWeighted ?? [],
+			bgFeat: j.bgFeat ?? {featUid: null, featAbilChoose: []},
 			classSkillChoices: j.classSkillChoices ?? [],
 			expertiseChoices: j.expertiseChoices ?? [],
 			profChoices: j.profChoices ?? {},
