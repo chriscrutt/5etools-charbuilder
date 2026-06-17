@@ -49,8 +49,6 @@ export class CharState {
 		this.name = "";
 		this.raceUid = null;
 		this.classes = [{uid: null, level: 1, subclassUid: null}]; // [0] is the primary class
-		this.sidekickSave = null; // chosen save-proficiency ability (sidekick classes)
-		this.sidekickSpellClass = null; // chosen spell list for a Spellcaster Sidekick (Cleric/Druid/Wizard/Bard/Sorcerer/Warlock)
 		this.backgroundUid = null;
 		this.abilityMethod = "pointbuy";
 		this.abilitiesBase = {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8};
@@ -95,18 +93,6 @@ export class CharState {
 	}
 	get primaryClass () { return this.classList()[0] || null; }
 	get classEnt () { return this.primaryClass?.cls || null; } // first class — drives saving throws, skills, starting equipment
-
-	/* ----- sidekick classes (Tasha's): stats come from features-as-choices, so the data lacks hd/saves/profs ----- */
-	static _SIDEKICK = {
-		"Expert Sidekick": {hd: 8, armor: ["light"], weapons: ["simple"], saves: ["dex", "int", "cha"], skillCount: 5, skillFrom: null},
-		"Warrior Sidekick": {hd: 10, armor: ["light", "medium", "heavy", "shield"], weapons: ["simple", "martial"], saves: ["str", "dex", "con"], skillCount: 2, skillFrom: ["acrobatics", "animal handling", "athletics", "intimidation", "nature", "perception", "survival"]},
-		"Spellcaster Sidekick": {hd: 6, armor: ["light"], weapons: ["simple"], saves: ["wis", "int", "cha"], skillCount: 2, skillFrom: ["arcana", "history", "insight", "investigation", "medicine", "performance", "persuasion", "religion"]},
-	};
-	static _SIDEKICK_SPELL_ABV = {Cleric: "wis", Druid: "wis", Wizard: "int", Bard: "cha", Sorcerer: "cha", Warlock: "cha"};
-	isSidekick () { return !!this.classEnt?.isSidekick; }
-	sidekickMeta () { return CharState._SIDEKICK[this.classEnt?.name] || null; }
-	// hit-die faces for a class (sidekicks have none in data -> use a sensible default by type)
-	_clsHdFaces (cls) { return cls?.hd?.faces ?? (cls?.isSidekick ? (CharState._SIDEKICK[cls.name]?.hd ?? 8) : null); }
 	get subclassEnt () { return this.primaryClass?.subclassEnt || null; }
 	// total character level (sum of class levels); compat getters for old single-class read sites
 	get totalLevel () { return this.classList().reduce((a, c) => a + c.level, 0); }
@@ -317,22 +303,22 @@ export class CharState {
 	/* ----- derived ----- */
 	get profBonus () { return CW.profBonus(this.level); }
 
-	hitDie () { return this._clsHdFaces(this.classEnt); }
+	hitDie () { const c = this.classEnt; return c?.hd ? c.hd.faces : null; }
 
 	// e.g. "3d10, 2d6" — hit dice grouped by die size across all classes
 	hitDiceString () {
 		const byDie = {};
-		this.classList().forEach(({cls, level}) => { const f = this._clsHdFaces(cls); if (f) byDie[f] = (byDie[f] || 0) + level; });
+		this.classList().forEach(({cls, level}) => { const f = cls.hd?.faces; if (f) byDie[f] = (byDie[f] || 0) + level; });
 		const keys = Object.keys(byDie).map(Number).sort((a, b) => b - a);
 		return keys.length ? keys.map(f => `${byDie[f]}d${f}`).join(", ") : "—";
 	}
 
 	maxHp () {
-		const list = this.classList(); if (!list.length || this._clsHdFaces(list[0].cls) == null) return null;
+		const list = this.classList(); if (!list.length || !list[0].cls.hd) return null;
 		const conMod = this.abilityMod("con");
 		let hp = 0; let isFirstLevel = true;
 		list.forEach(({cls, level}) => {
-			const faces = this._clsHdFaces(cls); if (!faces) return;
+			const faces = cls.hd?.faces; if (!faces) return;
 			const avg = Math.floor(faces / 2) + 1;
 			for (let i = 0; i < level; ++i) {
 				if (isFirstLevel) { hp += faces + conMod; isFirstLevel = false; } // 1st character level: max die
@@ -364,9 +350,7 @@ export class CharState {
 	saveProfs () {
 		if (this._hasAllSaveProficiency()) return new Set(CW.ABILITIES); // Monk Diamond Soul
 		const c = this.classEnt;
-		const out = new Set(c?.proficiency || []); // e.g. ["str","con"]
-		if (this.sidekickMeta() && this.sidekickSave) out.add(this.sidekickSave); // sidekick: one save of choice
-		return out;
+		return new Set(c?.proficiency || []); // e.g. ["str","con"]
 	}
 	_hasAllSaveProficiency () { return this._hasFeature("Diamond Soul") || this._hasFeature("Disciplined Survivor"); }
 	// flat bonus to ALL saving throws from features (Paladin Aura of Protection = +Cha mod, min +1)
@@ -455,9 +439,6 @@ export class CharState {
 			addSkill(pg.skills, uid, cls.name);
 			addTool(pg.toolProficiencies, uid, cls.name);
 		});
-		// sidekick skill choices (Expert: 5 of any; Warrior/Spellcaster: from a list)
-		const sk = this.sidekickMeta();
-		if (sk) groups.push({key: "skill:sidekick:0", type: "skill", label: `${this.classEnt.name}: choose ${sk.skillCount} skill${sk.skillCount > 1 ? "s" : ""}`, options: sk.skillFrom || CW.skills(), count: sk.skillCount});
 		return groups;
 	}
 
@@ -624,7 +605,6 @@ export class CharState {
 		const out = new Set();
 		const add = (arr) => (arr || []).forEach(a => { const s = (typeof a === "string" ? a : a.proficiency || a.full || "").toLowerCase(); if (s) out.add(s); });
 		this.classList().forEach(({cls, isPrimary}) => add(isPrimary ? cls.startingProficiencies?.armor : cls.multiclassing?.proficienciesGained?.armor));
-		if (this.sidekickMeta()) this.sidekickMeta().armor.forEach(a => out.add(a)); // sidekicks grant armor via features
 		// race / background armor proficiencies use {light:true, medium:true} objects (e.g. Mountain Dwarf)
 		const addObj = (arr) => (arr || []).forEach(grp => { if (grp && typeof grp === "object") Object.entries(grp).forEach(([k, v]) => { if (v === true) out.add(k.toLowerCase()); }); });
 		addObj(this.raceEnt?.armorProficiencies);
@@ -913,7 +893,6 @@ export class CharState {
 		const addObjArr = (arr) => (arr || []).forEach(grp => { if (!grp || typeof grp !== "object" || grp.choose) return; Object.entries(grp).forEach(([k, v]) => { if (v !== true) return; const kl = `${k}`.toLowerCase(); if (/martial/.test(kl)) cats.add("martial"); else if (/simple/.test(kl)) cats.add("simple"); else names.add(kl.split("|")[0].trim()); }); });
 		addObjArr(this.raceEnt?.weaponProficiencies);
 		addObjArr(this.backgroundEnt?.weaponProficiencies);
-		if (this.sidekickMeta()) this.sidekickMeta().weapons.forEach(w => cats.add(w)); // sidekick weapon proficiencies
 		this.chosenForType("weapon").forEach(n => names.add(`${n}`.toLowerCase())); // chosen weapon profs (e.g. Hobgoblin)
 		return {cats, names};
 	}
@@ -1173,9 +1152,7 @@ export class CharState {
 	spellSources () {
 		const out = [];
 		this.classList().forEach(({cls, level, subclassEnt, uid}) => {
-			// Spellcaster Sidekick picks its spellcasting ability + spell list
-			const skAbil = cls.isSidekick && this.sidekickSpellClass ? CharState._SIDEKICK_SPELL_ABV[this.sidekickSpellClass] : null;
-			if (cls.casterProgression || cls.spellcastingAbility) out.push({kind: "class", uid, ent: cls, classEnt: cls, subclassEnt, level, name: cls.name, prog: cls.casterProgression, ability: skAbil || cls.spellcastingAbility, listClassName: cls.isSidekick && this.sidekickSpellClass ? this.sidekickSpellClass : cls.name, preparedSpells: cls.preparedSpells});
+			if (cls.casterProgression || cls.spellcastingAbility) out.push({kind: "class", uid, ent: cls, classEnt: cls, subclassEnt, level, name: cls.name, prog: cls.casterProgression, ability: cls.spellcastingAbility, listClassName: cls.name, preparedSpells: cls.preparedSpells});
 			if (subclassEnt && (subclassEnt.casterProgression || subclassEnt.spellcastingAbility)) out.push({kind: "subclass", uid: CW.uid(subclassEnt), ent: subclassEnt, classEnt: cls, subclassEnt, level, name: `${cls.name} (${subclassEnt.name})`, prog: subclassEnt.casterProgression, ability: subclassEnt.spellcastingAbility, listClassName: this._subclassSpellListClass(cls, subclassEnt), preparedSpells: subclassEnt.preparedSpells});
 		});
 		return out;
@@ -1374,8 +1351,6 @@ export class CharState {
 			name: this.name,
 			raceUid: this.raceUid,
 			classes: this.classes,
-			sidekickSave: this.sidekickSave,
-			sidekickSpellClass: this.sidekickSpellClass,
 			backgroundUid: this.backgroundUid,
 			abilityMethod: this.abilityMethod,
 			abilitiesBase: this.abilitiesBase,
@@ -1430,8 +1405,6 @@ export class CharState {
 			name: j.name ?? "",
 			raceUid: j.raceUid ?? null,
 			classes,
-			sidekickSave: j.sidekickSave ?? null,
-			sidekickSpellClass: j.sidekickSpellClass ?? null,
 			backgroundUid: j.backgroundUid ?? null,
 			abilityMethod: j.abilityMethod ?? "pointbuy",
 			abilitiesBase: j.abilitiesBase ?? {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8},
