@@ -64,6 +64,7 @@ export class CharState {
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
+		this.raceFeat = {featUid: null, featAbilChoose: []}; // level-1 feat granted by some races (Variant Human, Custom Lineage)
 		this.armorUid = null; // worn body-armor item "name|source" (drives AC)
 		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
 		this.attunedUids = []; // items the character is attuned to (max 3)
@@ -196,30 +197,41 @@ export class CharState {
 	// back-compat: character levels that have an ASI (used only for messaging)
 	asiLevels () { return [...new Set(this.asiSlots().map(s => s.classLevel))].sort((a, b) => a - b); }
 
-	// Total ability bonuses from ASIs + chosen feats (only for valid, in-range ASI slots)
+	// ability bonuses from one feat choice (fixed + chosen "+N to one of …")
+	_featAbilityBonus (featUid, featAbilChoose) {
+		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
+		const feat = this._data.feats.find(f => CW.uid(f) === featUid);
+		(feat?.ability || []).forEach(ab => {
+			Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
+			if (ab.choose) (featAbilChoose || []).forEach(k => { if (out[k] != null) out[k] += (ab.choose.amount || 1); });
+		});
+		return out;
+	}
+
+	// Total ability bonuses from ASIs + chosen feats (only for valid, in-range ASI slots) + the racial feat
 	asiBonuses () {
 		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
 		const valid = new Set(this.asiSlots().map(s => s.key));
 		Object.entries(this.asiChoices || {}).forEach(([key, ch]) => {
 			if (!ch || !valid.has(key)) return;
 			if (ch.type === "asi" && ch.inc) Object.entries(ch.inc).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
-			else if (ch.type === "feat" && ch.featUid) {
-				const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
-				(feat?.ability || []).forEach(ab => {
-					Object.entries(ab).forEach(([k, v]) => { if (k !== "choose" && typeof v === "number" && out[k] != null) out[k] += v; });
-					if (ab.choose) (ch.featAbilChoose || []).forEach(k => { if (out[k] != null) out[k] += (ab.choose.amount || 1); });
-				});
-			}
+			else if (ch.type === "feat" && ch.featUid) Object.entries(this._featAbilityBonus(ch.featUid, ch.featAbilChoose)).forEach(([k, v]) => out[k] += v);
 		});
+		if (this.raceFeatCount() && this.raceFeat?.featUid) Object.entries(this._featAbilityBonus(this.raceFeat.featUid, this.raceFeat.featAbilChoose)).forEach(([k, v]) => out[k] += v);
 		return out;
 	}
+
+	// number of level-1 feats granted by the race (Variant Human / Custom Lineage = 1)
+	raceFeatCount () { return (this.raceEnt?.feats || []).reduce((a, g) => a + (g?.any || g?.anyFromCategory?.count || 0), 0); }
 
 	featsTaken () {
 		const slots = this.asiSlots();
 		const byKey = new Map(slots.map(s => [s.key, s]));
-		return Object.entries(this.asiChoices || {})
+		const out = Object.entries(this.asiChoices || {})
 			.filter(([key, c]) => byKey.has(key) && c?.type === "feat" && c.featUid)
 			.map(([key, c]) => { const s = byKey.get(key); return {key, level: s.classLevel, className: s.className, featUid: c.featUid}; });
+		if (this.raceFeatCount() && this.raceFeat?.featUid) out.unshift({key: "race", level: 1, className: "Race", featUid: this.raceFeat.featUid});
+		return out;
 	}
 
 	// Does the character satisfy a feat's prerequisites? (checks ability/level/spellcasting/proficiency/race; unknown types pass)
@@ -1214,6 +1226,7 @@ export class CharState {
 			raceSpellChoices: this.raceSpellChoices,
 			raceSpellAbility: this.raceSpellAbility,
 			asiChoices: this.asiChoices,
+			raceFeat: this.raceFeat,
 			armorUid: this.armorUid,
 			shieldUid: this.shieldUid,
 			attunedUids: this.attunedUids,
@@ -1263,6 +1276,7 @@ export class CharState {
 			raceSpellChoices: j.raceSpellChoices ?? {},
 			raceSpellAbility: j.raceSpellAbility ?? null,
 			asiChoices,
+			raceFeat: j.raceFeat ?? {featUid: null, featAbilChoose: []},
 			armorUid: j.armorUid ?? null,
 			shieldUid: j.shieldUid ?? null,
 			attunedUids: j.attunedUids ?? [],

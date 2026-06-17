@@ -209,7 +209,7 @@ export class CharWizardUi {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
 			entities: this._data.races,
 			getSel: () => this._state.raceUid,
-			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
+			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.raceFeat = {featUid: null, featAbilChoose: []}; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -470,10 +470,46 @@ export class CharWizardUi {
 		ee(wrp)`<hr class="hr-2 ve-mt-3">`;
 		this._renderRacialAbility(wrp);
 
+		// 2b) racial feat (Variant Human, Custom Lineage, …)
+		this._renderRaceFeat(wrp);
+
 		// 3) ASIs & feats (merged here so the totals above reflect them)
 		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Ability Score Improvements &amp; Feats</h4>`;
 		if (st.asiSlots().length) this._renderStepAsi(wrp);
 		else ee(wrp)`<div class="ve-muted ve-small">${st.classUid ? `No Ability Score Improvements available yet (each class's first is usually at its level 4).` : "Choose a class first."}</div>`;
+	}
+
+	/* ----- Racial feat (level-1 feat from Variant Human / Custom Lineage) ----- */
+	_renderRaceFeat (wrp) {
+		const st = this._state;
+		if (!st.raceFeatCount()) return;
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Racial Feat <span class="ve-muted ve-small">(${st.raceEnt?.name?.qq() || ""})</span></h4>`;
+		const rf = st.raceFeat;
+		const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
+		let hidden = 0;
+		feats.forEach(f => {
+			const uid = CW.uid(f);
+			const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.key !== "race");
+			if (!st.meetsFeatPrereq(f) && rf.featUid !== uid) { hidden++; return; }
+			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
+		});
+		sel.val(rf.featUid || "");
+		sel.onn("change", () => { rf.featUid = sel.val() || null; rf.featAbilChoose = []; this._save(); this.render(); });
+		ee(wrp)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>${hidden ? `<span class="ve-muted ve-small ve-ml-2">(${hidden} hidden — prerequisites not met)</span>` : ""}`;
+		if (!rf.featUid) return;
+		const feat = this._data.feats.find(f => CW.uid(f) === rf.featUid);
+		if (!feat) return;
+		if (feat.prerequisite) { let pre = ""; try { pre = Renderer.utils.prerequisite.getHtml(feat.prerequisite) || ""; } catch (e) { pre = ""; } if (pre) ee(wrp)`<div class="ve-small ve-muted ve-mt-1">Prerequisite: ${pre}</div>`; }
+		(feat.ability || []).forEach(ab => {
+			if (!ab.choose) { const fixed = Object.entries(ab).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`); if (fixed.length) ee(wrp)`<div class="ve-small ve-mt-1"><b>Grants:</b> ${fixed.join(", ")}</div>`; return; }
+			const cnt = ab.choose.count || 1;
+			rf.featAbilChoose = rf.featAbilChoose || [];
+			const counter = ee`<span class="ve-muted">${rf.featAbilChoose.length}/${cnt}</span>`;
+			ee(wrp)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
+			this._renderChipPicker(wrp, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: rf.featAbilChoose, max: cnt, counterEle: counter});
+		});
+		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
 	}
 
 	/* ----- Racial ability bonuses (fixed / choose / weighted; multi-option) ----- */
@@ -1203,7 +1239,7 @@ export class CharWizardUi {
 			featList.forEach(({level, className, featUid}) => {
 				const feat = this._data.feats.find(f => CW.uid(f) === featUid);
 				if (!feat) return;
-				const tag = st.isMulticlassed() ? `${className} L${level}` : `L${level}`;
+				const tag = className === "Race" ? "Race" : (st.isMulticlassed() ? `${className} L${level}` : `L${level}`);
 				ee`<details style="margin:2px 0"><summary><b>${feat.name.qq()}</b> <span class="ve-muted ve-small">(${tag.qq()})</span></summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secFe);
 			});
 		}
