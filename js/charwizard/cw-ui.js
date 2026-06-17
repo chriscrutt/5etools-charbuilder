@@ -12,6 +12,13 @@ const hoverAttrs = (page, ent) => {
 		return `data-vet-page="${page}" data-vet-source="${`${ent.source}`.qq()}" data-vet-hash="${`${hash}`.qq()}" onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this)" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" style="cursor:help;text-decoration:underline dotted"`;
 	} catch (e) { return ""; }
 };
+// badge for {adv:[], dis:[], net} — adv + dis cancel to a straight roll
+const advDisBadge = (ad) => {
+	if (!ad || !ad.net) return "";
+	if (ad.net === "both") return `<span class="cw__advdis cw__advdis--none" title="Advantage (${ad.adv.join(", ").qq()}) and disadvantage (${ad.dis.join(", ").qq()}) cancel — roll a straight d20">ADV+DIS</span>`;
+	const srcs = (ad.net === "adv" ? ad.adv : ad.dis).join(", ");
+	return `<span class="cw__advdis cw__advdis--${ad.net}" title="${srcs.qq()}">${ad.net === "adv" ? "ADV" : "DIS"}</span>`;
+};
 
 export class CharWizardUi {
 	constructor ({data, state, eleRoot, fnSave}) {
@@ -881,9 +888,7 @@ export class CharWizardUi {
 		box("Armor Class", cls ? st.ac() : "—");
 		box("Hit Points", hp ?? "—");
 		box("Hit Dice", cls ? `${st.level}d${st.hitDie()}` : "—");
-		const iad = st.initiativeAdvDis();
-		const initBadge = iad ? ` <span class="cw__advdis cw__advdis--${iad.type}" title="${iad.source.qq()}">${iad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
-		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())}${initBadge}</div></div>`;
+		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}</div></div>`;
 		box("Passive Perception", st.passivePerception());
 
 		// abilities + saves
@@ -893,11 +898,9 @@ export class CharWizardUi {
 		CW.ABILITIES.forEach(abv => {
 			const total = st.finalAbility(abv); const mod = st.abilityMod(abv);
 			const saveProf = st.saveProfs().has(abv);
-			const sad = st.saveAdvDis(abv);
-			const sadBadge = sad ? `<span class="cw__advdis cw__advdis--${sad.type}" title="${sad.source.qq()}">${sad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
 			ee(abilGrid)`<div class="cw__abil"><div class="cw__abil-name">${abv}</div>
 				<div class="cw__abil-score">${total}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div>
-				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${sadBadge}</div></div>`;
+				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
 		});
 
 		// skills
@@ -908,9 +911,7 @@ export class CharWizardUi {
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
 		const MARK = {expertise: "★", full: "●", half: "◐", none: "○"};
 		CW.skills().sort().forEach(sk => {
-			const ad = st.skillAdvDis(sk);
-			const badge = ad ? `<span class="cw__advdis cw__advdis--${ad.type}" title="${ad.source.qq()}">${ad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
-			ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b> ${badge}</div>`;
+			ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b> ${advDisBadge(st.skillAdvDis(sk))}</div>`;
 		});
 
 		// conditional advantages / disadvantages (from race/class/feats/background + armor)

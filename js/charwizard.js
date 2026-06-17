@@ -437,19 +437,31 @@ export class CharState {
 		return out;
 	}
 
-	skillAdvDis (skill) {
+	// Permanent (non-situational) adv/dis effects from armor + reliably-detectable features.
+	// scope.kind: "skill"(+skill) | "abilCheck"(+abil) | "save"(+abil) | "init".
+	// Note: most feature adv/dis is situational (e.g. Rage "while raging") and is listed as a note instead.
+	_derivedAdvDis () {
+		const out = [];
 		const eff = this.armorEffects();
-		const abil = CW.skillAbil(skill);
-		if (skill === "stealth" && eff.stealthDis) return {type: "dis", source: `${eff.stealthDis} (stealth)`};
-		if (eff.nonProf && (abil === "str" || abil === "dex")) return {type: "dis", source: "non-proficient armor"};
-		return null;
+		if (eff.stealthDis) out.push({type: "dis", scope: {kind: "skill", skill: "stealth"}, source: `${eff.stealthDis} (stealth)`});
+		if (eff.nonProf) {
+			["str", "dex"].forEach(a => { out.push({type: "dis", scope: {kind: "abilCheck", abil: a}, source: "non-proficient armor"}); out.push({type: "dis", scope: {kind: "save", abil: a}, source: "non-proficient armor"}); });
+			out.push({type: "dis", scope: {kind: "init"}, source: "non-proficient armor"});
+		}
+		const ia = this._initiativeFeatureAdv(); if (ia) out.push({type: "adv", scope: {kind: "init"}, source: ia});
+		return out;
 	}
 
-	saveAdvDis (abv) {
-		const eff = this.armorEffects();
-		if (eff.nonProf && (abv === "str" || abv === "dex")) return {type: "dis", source: "non-proficient armor"};
-		return null;
+	// Net advantage/disadvantage: collects ALL sources, then a single adv + single dis cancel to none.
+	_advDisFor (test) {
+		const adv = new Set(); const dis = new Set();
+		this._derivedAdvDis().forEach(e => { if (test(e.scope)) (e.type === "adv" ? adv : dis).add(e.source); });
+		const a = [...adv]; const d = [...dis];
+		return {adv: a, dis: d, net: a.length && d.length ? "both" : a.length ? "adv" : d.length ? "dis" : null};
 	}
+
+	skillAdvDis (skill) { const abil = CW.skillAbil(skill); return this._advDisFor(sc => (sc.kind === "skill" && sc.skill === skill) || (sc.kind === "abilCheck" && sc.abil === abil)); }
+	saveAdvDis (abv) { return this._advDisFor(sc => (sc.kind === "save" && sc.abil === abv) || sc.kind === "saveAll"); }
 
 	_initiativeFeatureAdv () {
 		let found = null;
@@ -459,12 +471,8 @@ export class CharState {
 		return found;
 	}
 
-	// Initiative is a Dexterity check: non-proficient armor -> disadvantage; some features -> advantage
-	initiativeAdvDis () {
-		if (this.armorEffects().nonProf) return {type: "dis", source: "non-proficient armor"};
-		const adv = this._initiativeFeatureAdv();
-		return adv ? {type: "adv", source: adv} : null;
-	}
+	// Initiative is a Dexterity check
+	initiativeAdvDis () { return this._advDisFor(sc => sc.kind === "init" || (sc.kind === "abilCheck" && sc.abil === "dex")); }
 
 	// best-effort parse of "advantage/disadvantage on saving throws/checks/rolls ..." from features
 	advantageNotes () {
@@ -477,6 +485,7 @@ export class CharState {
 			while ((m = re.exec(text)) !== null) {
 				const s = m[1].trim().replace(/^[,\s]+/, "");
 				const key = `${source}|${s.toLowerCase()}`;
+				if (/(?:advantage|disadvantage) on initiative/i.test(s)) continue; // shown on the Initiative box instead
 				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source, sourceTag}); }
 			}
 		};
