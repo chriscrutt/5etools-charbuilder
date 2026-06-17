@@ -1047,6 +1047,9 @@ export class CharWizardUi {
 			const dc = st.spellSaveDcFor(src); const atk = st.spellAtkBonusFor(src);
 			ee(wrp)`<h4 class="ve-mt-0">${src.name.qq()} Spellcasting</h4>
 				<div class="ve-mb-2"><b>Ability:</b> ${CW.ABIL_FULL[src.ability] || "—"} &nbsp; <b>Save DC:</b> ${dc ?? "—"} &nbsp; <b>Attack:</b> ${atk == null ? "—" : CW.fmtMod(atk)}</div>`;
+			// always-prepared subclass spells (domain/oath/circle) — free, don't count against the limit
+			const prepared = st.subclassPreparedSpells(src);
+			if (prepared.length) ee(wrp)`<div class="ve-mb-2"><b>Always prepared <span class="ve-muted ve-small">(${(src.subclassEnt?.name || "subclass").qq()})</span>:</b> ${prepared.map(p => refLink(UrlUtil.PG_SPELLS, p.sp)).join(", ")}</div>`;
 			const bucket = st.spellChoicesFor(src.uid);
 			const all = st.spellListForSource(src);
 			const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
@@ -1278,9 +1281,11 @@ export class CharWizardUi {
 			spellSources.forEach(src => {
 				const bucket = st.spellChoices[src.uid] || {cantrips: [], leveled: []};
 				const atk = st.spellAtkBonusFor(src);
+				const prepared = st.subclassPreparedSpells(src);
 				ee(secSp)`<div class="ve-mt-1"><b>${src.name.qq()}</b> <span class="ve-muted ve-small">— ${CW.ABIL_FULL[src.ability] || "—"}, DC ${st.spellSaveDcFor(src) ?? "—"}, atk ${atk == null ? "—" : CW.fmtMod(atk)}</span></div>
 					<div class="ve-pl-3"><b>Cantrips:</b> ${spellSpans(bucket.cantrips) || "—"}</div>
-					<div class="ve-pl-3"><b>${src.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(bucket.leveled) || "—"}</div>`;
+					<div class="ve-pl-3"><b>${src.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(bucket.leveled) || "—"}</div>
+					${prepared.length ? `<div class="ve-pl-3"><b>Always prepared:</b> ${prepared.map(p => spellSpan(p.sp.name, p.sp.source)).join(", ")}</div>` : ""}`;
 			});
 		}
 

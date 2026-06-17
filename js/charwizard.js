@@ -1081,12 +1081,34 @@ export class CharState {
 	spellSources () {
 		const out = [];
 		this.classList().forEach(({cls, level, subclassEnt, uid}) => {
-			if (cls.casterProgression || cls.spellcastingAbility) out.push({kind: "class", uid, ent: cls, classEnt: cls, level, name: cls.name, prog: cls.casterProgression, ability: cls.spellcastingAbility, listClassName: cls.name, preparedSpells: cls.preparedSpells});
-			if (subclassEnt && (subclassEnt.casterProgression || subclassEnt.spellcastingAbility)) out.push({kind: "subclass", uid: CW.uid(subclassEnt), ent: subclassEnt, classEnt: cls, level, name: `${cls.name} (${subclassEnt.name})`, prog: subclassEnt.casterProgression, ability: subclassEnt.spellcastingAbility, listClassName: this._subclassSpellListClass(cls, subclassEnt), preparedSpells: subclassEnt.preparedSpells});
+			if (cls.casterProgression || cls.spellcastingAbility) out.push({kind: "class", uid, ent: cls, classEnt: cls, subclassEnt, level, name: cls.name, prog: cls.casterProgression, ability: cls.spellcastingAbility, listClassName: cls.name, preparedSpells: cls.preparedSpells});
+			if (subclassEnt && (subclassEnt.casterProgression || subclassEnt.spellcastingAbility)) out.push({kind: "subclass", uid: CW.uid(subclassEnt), ent: subclassEnt, classEnt: cls, subclassEnt, level, name: `${cls.name} (${subclassEnt.name})`, prog: subclassEnt.casterProgression, ability: subclassEnt.spellcastingAbility, listClassName: this._subclassSpellListClass(cls, subclassEnt), preparedSpells: subclassEnt.preparedSpells});
 		});
 		return out;
 	}
 	_subclassSpellListClass (cls, sc) { return /eldritch knight|arcane trickster/i.test(sc.name) ? "Wizard" : cls.name; }
+
+	/* ----- subclass spells: always-prepared (domain/oath/circle) + expanded (warlock/sorcerer/EK) ----- */
+	// always-prepared spells from a source's subclass (keyed by class level): [{sp, level}]
+	subclassPreparedSpells (src) {
+		const out = []; const sc = src?.subclassEnt; if (!sc?.additionalSpells) return out;
+		sc.additionalSpells.forEach(as => Object.entries(as.prepared || {}).forEach(([lvl, arr]) => {
+			if (+lvl > src.level) return;
+			(Array.isArray(arr) ? arr : (arr?._ || [])).forEach(name => { if (typeof name === "string") { const sp = this._spellByName(name); if (sp) out.push({sp, level: +lvl}); } });
+		}));
+		return out;
+	}
+	// spell names added to the pickable list (keyed by spell level "sN"), e.g. Warlock patron / EK
+	subclassExpandedSpells (src) {
+		const out = []; const sc = src?.subclassEnt; if (!sc?.additionalSpells) return out;
+		const maxLvl = this.maxSpellLevelForSource(src);
+		sc.additionalSpells.forEach(as => Object.entries(as.expanded || {}).forEach(([key, arr]) => {
+			const spLvl = parseInt(`${key}`.replace(/[^0-9]/g, ""), 10) || 0;
+			if (spLvl > maxLvl) return;
+			(arr || []).forEach(name => { if (typeof name === "string") { const sp = this._spellByName(name); if (sp) out.push(sp); } });
+		}));
+		return out;
+	}
 	isCaster () { return this.spellSources().length > 0; }
 
 	spellAbilityFor (src) { return src?.ability || null; }
@@ -1146,8 +1168,8 @@ export class CharState {
 	}
 
 	maxSpellLevel () { const s = this.spellSlots(); if (!s) return 0; return Math.max(0, ...Object.keys(s).map(Number)); }
-	// highest spell level a single source can know/prepare, from its own table
-	maxSpellLevelForSource (src) { const s = this._ownSpellSlots(src.ent, src.level); return s ? Math.max(0, ...Object.keys(s).map(Number)) : 0; }
+	// highest spell level a single source can know/prepare, from its own table (Warlock uses its Pact Magic slot level)
+	maxSpellLevelForSource (src) { let s = this._ownSpellSlots(src.ent, src.level); if (!s && src.prog === "pact") s = this.pactSlots(); return s ? Math.max(0, ...Object.keys(s).map(Number)) : 0; }
 
 	cantripsKnownFor (src) { return src?.ent?.cantripProgression ? (src.ent.cantripProgression[src.level - 1] || 0) : 0; }
 	leveledSpellsKnownFor (src) {
@@ -1171,7 +1193,13 @@ export class CharState {
 		});
 		return Math.max(1, Math.floor(total));
 	}
-	spellListForSource (src) { return this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName)); }
+	spellListForSource (src) {
+		const base = this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName));
+		const expanded = this.subclassExpandedSpells(src);
+		if (!expanded.length) return base;
+		const seen = new Set(base.map(s => `${s.name}|${s.source}`));
+		return [...base, ...expanded.filter(s => { const k = `${s.name}|${s.source}`; if (seen.has(k)) return false; seen.add(k); return true; })];
+	}
 
 	// per-source spell choices bucket {cantrips:[], leveled:[]}
 	spellChoicesFor (uid) { return this.spellChoices[uid] || (this.spellChoices[uid] = {cantrips: [], leveled: []}); }
