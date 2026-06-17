@@ -213,7 +213,9 @@ export class CharWizardUi {
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
-				ee(col)`<table class="w-100 stats">${html}</table>`;
+				const tbl = ee`<table class="w-100 stats">${html}</table>`.appendTo(col);
+				// wire up the height/weight roll buttons (handlers aren't bound by the render itself)
+				try { Renderer.race.bindListenersHeightAndWeight(ent, tbl); } catch (e) { /* no height/weight table */ }
 			},
 		});
 	}
