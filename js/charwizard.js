@@ -388,6 +388,13 @@ export class CharState {
 		addTool(this.backgroundEnt?.toolProficiencies, "bg", "Background");
 		addSkill(this.raceEnt?.skillProficiencies, "race", "Race");
 		addSkill(this.backgroundEnt?.skillProficiencies, "bg", "Background");
+		// multiclassed (secondary) classes grant a limited set of skill + tool proficiencies (keyed by class uid)
+		this.classList().forEach(({cls, isPrimary, uid}) => {
+			if (isPrimary) return;
+			const pg = cls.multiclassing?.proficienciesGained; if (!pg) return;
+			addSkill(pg.skills, uid, cls.name);
+			addTool(pg.toolProficiencies, uid, cls.name);
+		});
 		return groups;
 	}
 
@@ -414,6 +421,7 @@ export class CharState {
 			if (t && typeof t === "object" && !t.choose && !Object.keys(t).some(k => k.startsWith("any"))) Object.entries(t).forEach(([k, v]) => { if (v === true) out.add(k.toTitleCase()); });
 		});
 		add(this.classEnt?.startingProficiencies?.tools); add(this.backgroundEnt?.toolProficiencies);
+		this.classList().forEach(({cls, isPrimary}) => { if (!isPrimary) add(cls.multiclassing?.proficienciesGained?.toolProficiencies); });
 		return out;
 	}
 	chosenTools () { const out = this.fixedTools(); this.chosenForType("tool").forEach(t => out.add(`${t}`.toTitleCase())); return [...out].sort(); }
@@ -877,8 +885,23 @@ export class CharState {
 	leveledSpellsKnownFor (src) {
 		const ent = src.ent;
 		if (ent.spellsKnownProgression) return ent.spellsKnownProgression[src.level - 1] || 0;
-		if (src.preparedSpells) { const a = src.ability; return Math.max(1, src.level + (a ? this.abilityMod(a) : 0)); }
+		if (src.preparedSpells) return this._evalPreparedFormula(src.preparedSpells, src);
 		return 0;
+	}
+
+	// evaluate a 5etools preparedSpells formula, e.g. "<$level$> / 2 + <$cha_mod$>" (half-caster) -> floor(level/2)+mod, min 1
+	_evalPreparedFormula (formula, src) {
+		const replaced = `${formula}`
+			.replace(/<\$level\$>/g, `${src.level}`)
+			.replace(/<\$(\w+?)_mod\$>/g, (m, ab) => `${this.abilityMod(ab)}`);
+		let total = 0;
+		replaced.split("+").forEach(term => {
+			term = term.trim(); if (!term) return;
+			const div = term.match(/^(-?\d+)\s*\/\s*(\d+)$/);
+			if (div) total += parseInt(div[1], 10) / parseInt(div[2], 10);
+			else total += parseInt(term, 10) || 0;
+		});
+		return Math.max(1, Math.floor(total));
 	}
 	spellListForSource (src) { return this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName)); }
 

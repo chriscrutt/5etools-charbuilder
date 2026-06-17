@@ -268,7 +268,7 @@ export class CharWizardUi {
 		const uid = st.classes[ix]?.uid;
 		st.classes.splice(ix, 1);
 		if (!st.classes.length) st.classes = [{uid: null, level: 1, subclassUid: null}];
-		if (uid) { delete st.spellChoices[uid]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${uid}@`)) delete st.asiChoices[k]; }); }
+		if (uid) { delete st.spellChoices[uid]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${uid}@`)) delete st.asiChoices[k]; }); st.clearProfChoicesForSource(uid); }
 		this._save(); this.render();
 	}
 
@@ -359,6 +359,7 @@ export class CharWizardUi {
 			<div><b>${opts?.mc ? "Proficiencies gained" : "Armor"}:</b> ${renderInline((mcProf ? mcProf.armor : sp.armor || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}${opts?.mc ? "" : ""}</div>
 			${opts?.mc ? "" : `<div><b>Weapons:</b> ${renderInline((sp.weapons || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>`}
 			${opts?.mc && mcProf ? `<div><b>Weapons/tools:</b> ${renderInline([...(mcProf.weapons || []), ...(mcProf.tools || [])].map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>` : ""}
+			${opts?.mc && mcProf?.skills ? `<div><b>Skills:</b> ${mcProf.skills.map(g => g.choose ? `choose ${g.choose.count || 1} from ${(g.choose.from || []).map(s => s.toTitleCase()).join(", ")}` : "").filter(Boolean).join("; ").qq()}</div>` : ""}
 			${opts?.mc ? "" : `<div><b>Skills:</b> ${skillsText.qq()}</div>`}
 			${cls.spellcastingAbility ? `<div><b>Spellcasting:</b> ${CW.ABIL_FULL[cls.spellcastingAbility]} (${cls.casterProgression || "?"} caster)</div>` : ""}
 		</div>`;
