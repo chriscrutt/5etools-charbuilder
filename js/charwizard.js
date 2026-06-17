@@ -56,6 +56,7 @@ export class CharState {
 		this.raceAbilChoices = []; // simple "choose N" ability picks
 		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
 		this.raceResistChoice = null; // chosen damage type when the race offers a resistance choice (e.g. Dragonborn)
+		this.sizeChoice = null; // chosen size abv when the race offers Small or Medium
 		this.classSkillChoices = [];
 		this.expertiseChoices = []; // skills with expertise (double proficiency)
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
@@ -63,6 +64,7 @@ export class CharState {
 		this.spellChoices = {}; // classUid -> {cantrips:[], leveled:[]} (arrays of "name|source")
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
+		this.raceSpellGroup = 0; // chosen additionalSpells variant index (when the race offers alternatives)
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
 		this.raceFeat = {featUid: null, featAbilChoose: []}; // level-1 feat granted by some races (Variant Human, Custom Lineage)
 		this.armorUid = null; // worn body-armor item "name|source" (drives AC)
@@ -1003,14 +1005,28 @@ export class CharState {
 		if (m) { const abv = CW.ABIL_NAME_TO_ABV[m[2]]; if (abv) return {base: parseInt(m[1], 10), abil: abv}; }
 		m = text.match(/(?:base ac|armor class)(?: is| of| equals) (\d{2})\b/);
 		if (m) return {base: parseInt(m[1], 10), abil: null};
+		// "+N bonus to armor class" from natural armor (Lizardfolk/Troglodyte DMG) -> 10 + N + Dex
+		if (/natural armor|scales|thick (?:hide|skin)|shell|carapace/.test(text)) { m = text.match(/\+(\d) bonus to (?:your )?(?:armor class|ac)\b/); if (m) return {base: 10 + parseInt(m[1], 10), abil: "dex"}; }
 		return null;
 	}
 
-	size () { const r = this.raceEnt; return r?.size?.length ? Parser.sizeAbvToFull(r.size[0]) : "—"; }
+	creatureType () { const ct = this.raceEnt?.creatureTypes; return ct?.length ? ct.map(t => `${t}`.toTitleCase()).join(", ") : null; }
+
+	// the size abvs a race lets you choose between (e.g. ["S","M"]), or null
+	sizeOptions () { const s = this.raceEnt?.size; return Array.isArray(s) && s.length > 1 ? s : null; }
+	sizeAbv () {
+		const s = this.raceEnt?.size; if (!Array.isArray(s) || !s.length) return null;
+		if (s.length === 1) return s[0];
+		return (this.sizeChoice && s.includes(this.sizeChoice)) ? this.sizeChoice : (s.includes("M") ? "M" : s[0]); // default to Medium when offered
+	}
+	size () { const a = this.sizeAbv(); return a ? Parser.sizeAbvToFull(a) : "—"; }
 
 	senses () {
 		const r = this.raceEnt; const out = [];
 		if (r?.darkvision) out.push(`darkvision ${r.darkvision} ft.`);
+		if (r?.blindsight) out.push(`blindsight ${r.blindsight} ft.`);
+		if (r?.tremorsense) out.push(`tremorsense ${r.tremorsense} ft.`);
+		if (r?.truesight) out.push(`truesight ${r.truesight} ft.`);
 		return out;
 	}
 
@@ -1165,13 +1181,14 @@ export class CharState {
 
 	hasRacialSpells () { return !!this.raceEnt?.additionalSpells?.length; }
 
+	_racialSpellAbilityEnt () { return (this.raceEnt?.additionalSpells || []).find(a => a.ability)?.ability; }
 	racialSpellAbility () {
-		const as = this.raceEnt?.additionalSpells?.[0]; if (!as?.ability) return null;
-		if (typeof as.ability === "string") return as.ability;
-		if (Array.isArray(as.ability.choose)) return this.raceSpellAbility && as.ability.choose.includes(this.raceSpellAbility) ? this.raceSpellAbility : as.ability.choose.slice().sort((a, b) => this.abilityMod(b) - this.abilityMod(a))[0];
+		const ab = this._racialSpellAbilityEnt(); if (!ab) return null;
+		if (typeof ab === "string") return ab;
+		if (Array.isArray(ab.choose)) return this.raceSpellAbility && ab.choose.includes(this.raceSpellAbility) ? this.raceSpellAbility : ab.choose.slice().sort((a, b) => this.abilityMod(b) - this.abilityMod(a))[0];
 		return null;
 	}
-	racialSpellAbilityChoices () { const ab = this.raceEnt?.additionalSpells?.[0]?.ability; return Array.isArray(ab?.choose) ? ab.choose : null; }
+	racialSpellAbilityChoices () { const ab = this._racialSpellAbilityEnt(); return Array.isArray(ab?.choose) ? ab.choose : null; }
 	racialSpellSaveDc () { const a = this.racialSpellAbility(); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
 
 	// parse a 5etools spell-choose filter like "level=0|class=Wizard"
@@ -1183,25 +1200,44 @@ export class CharState {
 		return this._data.spells.filter(sp => (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!school || `${sp.school}`.toLowerCase() === school));
 	}
 
-	// { ability, abilityChoices, knownFixed:[{sp}], knownChoose:[{key,filter,count}], innate:[{sp,freq,level}] } up to current level
+	// multiple additionalSpells groups are alternatives the character picks ONE of (e.g. Astral Elf cantrip, Tiefling legacy)
+	racialSpellGroups () { return this.raceEnt?.additionalSpells || []; }
+	racialSpellGroupIx () { const g = this.racialSpellGroups(); return g.length ? Math.min(this.raceSpellGroup || 0, g.length - 1) : 0; }
+	// auto-label a variant by its spells (the data carries no name)
+	racialSpellGroupLabel (as) {
+		const names = []; const collect = (obj) => Object.values(obj || {}).forEach(v => { if (Array.isArray(v)) v.forEach(x => { if (typeof x === "string") names.push(x.split("#")[0].split("|")[0]); }); else if (v && typeof v === "object") collect(v); });
+		collect(as?.known); collect(as?.innate);
+		return [...new Set(names)].slice(0, 3).map(n => n.toTitleCase()).join(", ") || "Option";
+	}
+
+	// { ability, abilityChoices, knownFixed:[{sp}], knownChoose:[{key,filter,count}], innate:[{sp,freq,level}], groupCount } up to current level.
+	// Uses the selected variant group; "known" spells gated by frequency (rest/daily/will) are treated as innate.
 	racialSpellsInfo () {
-		const as = this.raceEnt?.additionalSpells?.[0]; if (!as) return null;
+		const groups = this.racialSpellGroups(); if (!groups.length) return null;
+		const as = groups[this.racialSpellGroupIx()] || groups[0];
 		const knownFixed = []; const knownChoose = []; const innate = [];
 		const lvlOk = (l) => +l <= this.level;
+		const cleanPer = (per) => `${per}`.replace(/e$/, "");
 		Object.entries(as.known || {}).forEach(([charLvl, val]) => {
 			if (!lvlOk(charLvl)) return;
-			const arr = Array.isArray(val) ? val : (val._ || []);
-			arr.forEach((it, ix) => {
-				if (typeof it === "string") { const sp = this._spellByName(it); if (sp) knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `rk:${charLvl}:${ix}`, filter: it.choose, count: it.count || 1});
-			});
+			const entry = (it, ix, freq) => {
+				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: +charLvl}); else knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `rk:${charLvl}:${ix}`, filter: it.choose, count: it.count || 1});
+			};
+			if (Array.isArray(val)) val.forEach((it, ix) => entry(it, ix));
+			else {
+				(val._ || []).forEach((it, ix) => entry(it, ix));
+				(val.will || []).forEach((s, ix) => entry(s, ix, "at will"));
+				Object.entries(val.rest || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, ix, `${cleanPer(per)}/rest`)));
+				Object.entries(val.daily || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, ix, `${cleanPer(per)}/day`)));
+			}
 		});
 		Object.entries(as.innate || {}).forEach(([charLvl, val]) => {
 			if (!lvlOk(charLvl)) return;
 			const push = (raw, freq) => { const sp = this._spellByName(raw); if (sp) innate.push({sp, freq, level: +charLvl}); };
 			if (Array.isArray(val)) val.forEach(s => push(s, "at will"));
-			else { if (val.daily) Object.entries(val.daily).forEach(([per, a]) => a.forEach(s => push(s, `${per}/day`))); if (val.rest) Object.entries(val.rest).forEach(([per, a]) => a.forEach(s => push(s, `${per}/rest`))); if (val.will) val.will.forEach(s => push(s, "at will")); }
+			else { Object.entries(val.daily || {}).forEach(([per, a]) => a.forEach(s => push(s, `${cleanPer(per)}/day`))); Object.entries(val.rest || {}).forEach(([per, a]) => a.forEach(s => push(s, `${cleanPer(per)}/rest`))); (val.will || []).forEach(s => push(s, "at will")); }
 		});
-		return {ability: this.racialSpellAbility(), abilityChoices: this.racialSpellAbilityChoices(), knownFixed, knownChoose, innate};
+		return {ability: this.racialSpellAbility(), abilityChoices: this.racialSpellAbilityChoices(), knownFixed, knownChoose, innate, groupCount: groups.length};
 	}
 
 	/* ----- serialization ----- */
@@ -1218,6 +1254,7 @@ export class CharState {
 			raceAbilChoices: this.raceAbilChoices,
 			raceAbilWeighted: this.raceAbilWeighted,
 			raceResistChoice: this.raceResistChoice,
+			sizeChoice: this.sizeChoice,
 			classSkillChoices: this.classSkillChoices,
 			expertiseChoices: this.expertiseChoices,
 			profChoices: this.profChoices,
@@ -1225,6 +1262,7 @@ export class CharState {
 			spellChoices: this.spellChoices,
 			raceSpellChoices: this.raceSpellChoices,
 			raceSpellAbility: this.raceSpellAbility,
+			raceSpellGroup: this.raceSpellGroup,
 			asiChoices: this.asiChoices,
 			raceFeat: this.raceFeat,
 			armorUid: this.armorUid,
@@ -1268,6 +1306,7 @@ export class CharState {
 			raceAbilChoices: j.raceAbilChoices ?? [],
 			raceAbilWeighted: j.raceAbilWeighted ?? [],
 			raceResistChoice: j.raceResistChoice ?? null,
+			sizeChoice: j.sizeChoice ?? null,
 			classSkillChoices: j.classSkillChoices ?? [],
 			expertiseChoices: j.expertiseChoices ?? [],
 			profChoices: j.profChoices ?? {},
@@ -1275,6 +1314,7 @@ export class CharState {
 			spellChoices,
 			raceSpellChoices: j.raceSpellChoices ?? {},
 			raceSpellAbility: j.raceSpellAbility ?? null,
+			raceSpellGroup: j.raceSpellGroup ?? 0,
 			asiChoices,
 			raceFeat: j.raceFeat ?? {featUid: null, featAbilChoose: []},
 			armorUid: j.armorUid ?? null,

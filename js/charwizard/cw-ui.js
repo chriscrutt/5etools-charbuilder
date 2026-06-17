@@ -209,7 +209,7 @@ export class CharWizardUi {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
 			entities: this._data.races,
 			getSel: () => this._state.raceUid,
-			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.raceFeat = {featUid: null, featAbilChoose: []}; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
+			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.sizeChoice = null; this._state.raceFeat = {featUid: null, featAbilChoose: []}; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.raceSpellGroup = 0; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -801,6 +801,17 @@ export class CharWizardUi {
 			ee(wrp)`<div class="ve-mb-2">Resistance to ${sel}</div>`;
 		}
 
+		// Size choice (Small or Medium)
+		const sizeOpts = st.sizeOptions();
+		if (sizeOpts) {
+			ee(wrp)`<h4 class="ve-mt-3">Size</h4>`;
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+			sizeOpts.forEach(s => ee`<option value="${`${s}`.qq()}">${Parser.sizeAbvToFull(s).qq()}</option>`.appendTo(sel));
+			sel.val(st.sizeAbv());
+			sel.onn("change", () => { st.sizeChoice = sel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2">${sel} <span class="ve-muted ve-small">(this ${this._raceWord().toLowerCase()} can be Small or Medium)</span></div>`;
+		}
+
 		// Defense / armor — you can only wear armor/shields you own (equip from the Inventory below)
 		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
 		const invArmors = st.inventoryArmors();
@@ -1052,6 +1063,15 @@ export class CharWizardUi {
 		const st = this._state;
 		const info = st.racialSpellsInfo(); if (!info) return;
 		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>${st.raceEnt.name.qq()} — Innate Spellcasting</h4>`;
+		// variant chooser when the race offers alternative spell sets (Astral Elf cantrip, Tiefling/Elf legacy)
+		const groups = st.racialSpellGroups();
+		if (groups.length > 1) {
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+			groups.forEach((g, i) => ee`<option value="${i}">${st.racialSpellGroupLabel(g).qq()}</option>`.appendTo(sel));
+			sel.val(`${st.racialSpellGroupIx()}`);
+			sel.onn("change", () => { st.raceSpellGroup = parseInt(sel.val(), 10) || 0; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-1"><b>Choose one:</b> ${sel}</div>`;
+		}
 		if (info.abilityChoices) {
 			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
 			info.abilityChoices.forEach(a => ee`<option value="${a}">${CW.ABIL_FULL[a]}</option>`.appendTo(sel));
@@ -1112,7 +1132,8 @@ export class CharWizardUi {
 			<div><div style="font-size:24px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
 			<div class="ve-muted">${[classLine, subtitle].filter(Boolean).join(" — ").qq()}</div></div>
 			<div class="ve-text-right"><div><b>Proficiency Bonus</b> ${CW.fmtMod(st.profBonus)}</div>
-			<div><b>Size</b> ${st.size()} &nbsp; <b>Speed</b> ${st.speedString()}</div></div>
+			<div><b>Size</b> ${st.size()} &nbsp; <b>Speed</b> ${st.speedString()}</div>
+			${st.creatureType() ? `<div><b>Type</b> ${st.creatureType().qq()}</div>` : ""}</div>
 		</div>`;
 
 		// core stat boxes
