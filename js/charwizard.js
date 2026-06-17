@@ -266,7 +266,17 @@ export class CharState {
 		return out;
 	}
 
-	finalAbility (abv) { return (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv]; }
+	finalAbility (abv) {
+		const computed = (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv];
+		const set = this._itemAbilitySet(abv); // e.g. Amulet of Health sets Con to 19
+		return set != null ? Math.max(computed, set) : computed;
+	}
+	// highest "static" ability value set by an equipped (attuned) item, or null
+	_itemAbilitySet (abv) {
+		let best = null;
+		this.equippedItems().forEach(it => { if (!this._magicActive(it)) return; const v = it.ability?.static?.[abv]; if (typeof v === "number") best = best == null ? v : Math.max(best, v); });
+		return best;
+	}
 	abilityMod (abv) { return CW.mod(this.finalAbility(abv)); }
 
 	pointBuySpent () {
@@ -578,8 +588,19 @@ export class CharState {
 		return out;
 	}
 
-	/* ----- equipped magic-item effects (worn armor + equipped shield + wielded weapons) ----- */
-	equippedItems () { return [this.armorEnt(), this.shieldEnt(), ...this.wieldedWeapons()].filter(Boolean); }
+	/* ----- equipped magic-item effects (worn armor + shield + wielded weapons + worn rings/wondrous) ----- */
+	_isArmorOrShieldItem (it) { return !!(it && (it.armor || ["LA", "MA", "HA", "S"].includes(`${it.type || ""}`.split("|")[0]))); }
+	// a worn (not held/wielded) accessory: ring or wondrous item
+	isWearable (it) { if (!it) return false; return `${it.type || ""}`.split("|")[0] === "RG" || !!it.wondrous; }
+	// a held magic implement: wand, rod, or staff (spell focus / spell-attack bonuses / attached spells)
+	isHoldable (it) { if (!it) return false; return ["WD", "RD", "ST"].includes(`${it.type || ""}`.split("|")[0]); }
+	_wornWondrousEquipped () { return this.inventory.filter(r => r.equipped && this.isWearable(this._itemByUid(r.uid))).map(r => this._itemByUid(r.uid)).filter(Boolean); }
+	// every equipped item that contributes effects: worn armor + shield + all inventory rows flagged equipped (weapons, rings, wondrous)
+	equippedItems () {
+		const out = [this.armorEnt(), this.shieldEnt()];
+		this.inventory.forEach(r => { if (!r.equipped || !r.uid) return; const it = this._itemByUid(r.uid); if (it && !this._isArmorOrShieldItem(it)) out.push(it); });
+		return out.filter(Boolean);
+	}
 
 	// flatten an item's attachedSpells structure into [{name, note}]
 	_flattenAttachedSpells (att) {
@@ -599,7 +620,8 @@ export class CharState {
 	// Items that require attunement contribute their magic effects only while attuned.
 	equippedItemEffects () {
 		const resist = new Set(); const immune = new Set(); const vulnerable = new Set(); const conditionImmune = new Set();
-		const attuned = []; const needAttune = []; const speed = []; const focus = []; const spells = []; let saveBonus = 0;
+		const attuned = []; const needAttune = []; const speed = []; const focus = []; const spells = []; const abilitySet = []; let saveBonus = 0; let spellAtk = 0; let spellDc = 0;
+		const num = (v) => parseInt(`${v}`.replace(/[^-0-9]/g, ""), 10) || 0;
 		this.equippedItems().forEach(it => {
 			if (it.reqAttune) (this.isAttuned(CW.uid(it)) ? attuned : needAttune).push(it.name);
 			if (!this._magicActive(it)) return; // unattuned item gives only its nonmagical benefits
@@ -607,13 +629,16 @@ export class CharState {
 			(it.immune || []).forEach(x => typeof x === "string" && immune.add(x));
 			(it.vulnerable || []).forEach(x => typeof x === "string" && vulnerable.add(x));
 			(it.conditionImmune || []).forEach(x => typeof x === "string" && conditionImmune.add(x));
-			if (it.bonusSavingThrow) saveBonus += parseInt(`${it.bonusSavingThrow}`.replace(/[^-0-9]/g, ""), 10) || 0;
+			if (it.bonusSavingThrow) saveBonus += num(it.bonusSavingThrow);
+			if (it.bonusSpellAttack) spellAtk += num(it.bonusSpellAttack);
+			if (it.bonusSpellSaveDc) spellDc += num(it.bonusSpellSaveDc);
+			if (it.ability?.static) Object.entries(it.ability.static).forEach(([k, v]) => { if (CW.ABILITIES.includes(k)) abilitySet.push({abil: k, value: v, item: it.name}); });
 			if (it.focus) focus.push(it.name);
 			if (it.modifySpeed) speed.push(it.name);
 			const att = this._flattenAttachedSpells(it.attachedSpells);
 			if (att.length) spells.push({item: it.name, source: it.source, entries: att.map(a => ({...a, sp: this._spellByName(a.name)}))});
 		});
-		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, attuned, needAttune, speed, focus, spells};
+		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, spellAtk, spellDc, abilitySet, attuned, needAttune, speed, focus, spells};
 	}
 
 	// Permanent (non-situational) adv/dis effects from armor + reliably-detectable features.
@@ -864,8 +889,24 @@ export class CharState {
 		}
 		const shield = this.shieldEnt();
 		if (shield) { const sMagic = this._magicActive(shield) ? this._bonusAcNum(shield) : 0; base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
+		const wornAc = this._wornAcBonus();
+		if (wornAc) { base += wornAc; how += ` + ${CW.fmtMod(wornAc)} (items)`; }
 		return {ac: base, how};
 	}
+
+	// AC bonus from worn rings/wondrous items (Ring/Cloak of Protection +1, Bracers of Defense +2…)
+	_wornAcBonus () {
+		const armored = !!this.armorEnt() || !!this.shieldEnt();
+		let bonus = 0;
+		this._wornWondrousEquipped().forEach(it => {
+			if (!this._magicActive(it)) return;
+			const b = this._bonusAcNum(it); if (!b) return;
+			if (this._itemAcUnarmoredOnly(it) && armored) return; // e.g. Bracers of Defense — only while unarmored & no shield
+			bonus += b;
+		});
+		return bonus;
+	}
+	_itemAcUnarmoredOnly (it) { return /(?:wear|wearing|using|use)\s+no\s+armor|aren'?t wearing armor|no armor and (?:using |carrying )?no shield/i.test(JSON.stringify(it.entries || "")); }
 
 	ac () { return this.acBreakdown().ac; }
 	initiative () {
@@ -990,8 +1031,8 @@ export class CharState {
 	isCaster () { return this.spellSources().length > 0; }
 
 	spellAbilityFor (src) { return src?.ability || null; }
-	spellSaveDcFor (src) { const a = this.spellAbilityFor(src); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
-	spellAtkBonusFor (src) { const a = this.spellAbilityFor(src); return a ? this.profBonus + this.abilityMod(a) : null; }
+	spellSaveDcFor (src) { const a = this.spellAbilityFor(src); return a ? 8 + this.profBonus + this.abilityMod(a) + this.equippedItemEffects().spellDc : null; }
+	spellAtkBonusFor (src) { const a = this.spellAbilityFor(src); return a ? this.profBonus + this.abilityMod(a) + this.equippedItemEffects().spellAtk : null; }
 
 	// spell slots from an entity's own progression table (class or subclass table groups)
 	_ownSpellSlots (ent, level) {

@@ -557,11 +557,14 @@ export class CharWizardUi {
 		const clsf = st.classFeatureAbilityBonuses()[abv];
 		const total = base == null ? null : st.finalAbility(abv);
 		const mod = total == null ? null : CW.mod(total);
+		const computed = (base || 0) + racial + asi + clsf;
+		const itemSet = st._itemAbilitySet(abv);
 		const parts = [];
 		if (base != null) parts.push(`base ${base}`);
 		if (racial) parts.push(`${CW.fmtMod(racial)} race`);
 		if (asi) parts.push(`${CW.fmtMod(asi)} ASI`);
 		if (clsf) parts.push(`${CW.fmtMod(clsf)} class`);
+		if (base != null && itemSet != null && itemSet > computed) parts.push(`set ${itemSet} (item)`);
 		return ee`<div class="cw__abil">
 			<div class="cw__abil-name">${abv}</div>
 			${inner}
@@ -863,6 +866,12 @@ export class CharWizardUi {
 				ee`<button class="ve-btn ve-btn-xs ${wielded ? "ve-btn-success" : "ve-btn-default"}" title="Show this weapon's attack & damage on the sheet">${wielded ? "Wielded ✓" : "Wield"}</button>`
 					.onn("click", () => { row.equipped = !row.equipped; this._save(); this.render(); })
 					.appendTo(wearCell);
+			} else if (st.isWearable(itemEnt) || st.isHoldable(itemEnt)) {
+				const worn = !!row.equipped;
+				const label = st.isHoldable(itemEnt) ? (worn ? "Held ✓" : "Hold") : (worn ? "Worn ✓" : "Wear");
+				ee`<button class="ve-btn ve-btn-xs ${worn ? "ve-btn-success" : "ve-btn-default"}" title="Equip this item so its effects apply">${label}</button>`
+					.onn("click", () => { row.equipped = !row.equipped; this._save(); this.render(); })
+					.appendTo(wearCell);
 			}
 			// attune control for items that require attunement (max 3)
 			if (itemEnt && st.requiresAttunement(itemEnt) && row.uid) {
@@ -1083,24 +1092,19 @@ export class CharWizardUi {
 				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
 		});
 
-		// attacks (wielded weapons)
+		// attacks (wielded weapons) — build the whole table in one pass so the <tr>/<td> parse in table context
 		const wielded = st.wieldedWeapons();
 		if (wielded.length) {
 			const secAtk = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(secAtk)`<h4>Attacks</h4>`;
-			const tbl = ee`<table class="w-100 ve-small"><thead><tr><th class="ve-text-left">Weapon</th><th>Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody></tbody></table>`.appendTo(secAtk);
-			const tb = tbl.querySelector("tbody");
-			wielded.forEach(it => {
+			const rowsHtml = wielded.map(it => {
 				const a = st.weaponAttack(it);
-				const dmg = `${st.fmtWeaponDamage(a.dmg1, a)}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a)} two-handed)</span>` : ""}`;
+				const dmg = `${st.fmtWeaponDamage(a.dmg1, a)}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a)} 2H)</span>` : ""}`;
 				const notes = [a.ranged && a.range ? `range ${a.range}` : "", ...a.properties].filter(Boolean).join(", ");
-				ee(tb)`<tr style="border-top:1px solid rgba(127,127,127,.15)">
-					<td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${a.prof ? "" : ` <span class="cw__advdis cw__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`}</td>
-					<td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td>
-					<td class="ve-py-1">${dmg}</td>
-					<td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td>
-				</tr>`;
-			});
+				const noProf = a.prof ? "" : ` <span class="cw__advdis cw__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`;
+				return `<tr style="border-top:1px solid rgba(127,127,127,.15)"><td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${noProf}</td><td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td><td class="ve-py-1">${dmg}</td><td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td></tr>`;
+			}).join("");
+			ee(secAtk)`<table class="w-100 ve-small cw__atk-tbl"><thead><tr><th class="ve-text-left">Weapon</th><th class="ve-text-center">Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
 			ee(secAtk)`<div class="ve-muted ve-small ve-mt-1">Attack bonus = ability mod (Str, or Dex for finesse/ranged) + proficiency (if proficient) + magic. Wield weapons from your Inventory on the Skills &amp; Gear step.</div>`;
 		}
 
@@ -1141,16 +1145,19 @@ export class CharWizardUi {
 		// magic item effects (from worn armor + equipped shield + wielded weapons)
 		const eqfx = st.equippedItemEffects();
 		const itemLink = (name, source) => refLink(UrlUtil.PG_ITEMS, {name, source}, name);
-		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
+		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.spellAtk || eqfx.spellDc || eqfx.abilitySet.length || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
 			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped armor, shield &amp; weapons)</span></h4>`;
+			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped gear: armor, shield, weapons, rings &amp; wondrous)</span></h4>`;
 			const cap = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
+			eqfx.abilitySet.forEach(s => ee(secMi)`<div><b>${CW.ABIL_FULL[s.abil]} set to ${s.value}</b> <span class="ve-muted ve-small">(${s.item.qq()})</span></div>`);
 			if (eqfx.resist.length) ee(secMi)`<div><b>Damage Resistance:</b> ${cap(eqfx.resist).qq()}</div>`;
 			if (eqfx.immune.length) ee(secMi)`<div><b>Damage Immunity:</b> ${cap(eqfx.immune).qq()}</div>`;
 			if (eqfx.vulnerable.length) ee(secMi)`<div><b>Damage Vulnerability:</b> ${cap(eqfx.vulnerable).qq()}</div>`;
 			if (eqfx.conditionImmune.length) ee(secMi)`<div><b>Condition Immunity:</b> ${cap(eqfx.conditionImmune).qq()}</div>`;
 			if (eqfx.saveBonus) ee(secMi)`<div><b>Saving Throws:</b> ${CW.fmtMod(eqfx.saveBonus)} to all saves (included above)</div>`;
+			if (eqfx.spellAtk || eqfx.spellDc) ee(secMi)`<div><b>Spellcasting:</b> ${[eqfx.spellAtk ? `${CW.fmtMod(eqfx.spellAtk)} spell attack` : "", eqfx.spellDc ? `${CW.fmtMod(eqfx.spellDc)} spell save DC` : ""].filter(Boolean).join(", ")} (included above)</div>`;
 			if (eqfx.focus.length) ee(secMi)`<div><b>Spellcasting Focus:</b> ${eqfx.focus.map(n => `${n}`.qq()).join(", ")}</div>`;
+			if (eqfx.speed.length) ee(secMi)`<div><b>Speed:</b> modified by ${eqfx.speed.map(n => `${n}`.qq()).join(", ")} <span class="ve-muted ve-small">(see item text)</span></div>`;
 			eqfx.spells.forEach(grp => {
 				const parts = grp.entries.map(e => `${e.sp ? spellSpan(e.sp.name, e.sp.source) : `${e.name}`.qq()}${e.note ? ` <span class="ve-muted ve-small">(${e.note.qq()})</span>` : ""}`);
 				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
