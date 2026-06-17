@@ -264,6 +264,40 @@ export class CharState {
 		return true;
 	}
 
+	/* ----- feat grants (proficiencies / save / expertise / resist / numeric), aggregated across every taken feat ----- */
+	// [{feat, choice}] for ASI feats + racial feat + background feat (choices) + background fixed feats (no choices)
+	_allFeatInstances () {
+		const out = [];
+		const valid = new Set(this.asiSlots().map(s => s.key));
+		Object.entries(this.asiChoices || {}).forEach(([key, c]) => { if (valid.has(key) && c?.type === "feat" && c.featUid) { const feat = this._data.feats.find(f => CW.uid(f) === c.featUid); if (feat) out.push({feat, choice: c}); } });
+		if (this.raceFeatCount() && this.raceFeat?.featUid) { const feat = this._data.feats.find(f => CW.uid(f) === this.raceFeat.featUid); if (feat) out.push({feat, choice: this.raceFeat}); }
+		if (this.backgroundFeatChoice() && this.bgFeat?.featUid) { const feat = this._data.feats.find(f => CW.uid(f) === this.bgFeat.featUid); if (feat) out.push({feat, choice: this.bgFeat}); }
+		this.backgroundFixedFeats().forEach(feat => out.push({feat, choice: {}}));
+		return out;
+	}
+	// fixed (object {x:true}) proficiencies of one kind across all feats
+	_featFixedProfs (field) { const out = new Set(); this._allFeatInstances().forEach(({feat}) => (feat[field] || []).forEach(g => { if (g && typeof g === "object" && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v === true && !k.startsWith("any")) out.add(k.toLowerCase()); }); })); return out; }
+	featArmorProfs () { return this._featFixedProfs("armorProficiencies"); }
+	featSaveProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featSaveChoose || []).forEach(a => out.add(a))); return out; }
+	featSkillProfs () { const out = new Set(); this._allFeatInstances().forEach(({feat, choice}) => { (feat.skillProficiencies || []).forEach(g => { if (g && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v === true) out.add(k); }); }); (choice.featSkillChoose || []).forEach(s => out.add(s)); }); return out; }
+	featToolProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featToolChoose || []).forEach(t => out.add(`${t}`.toTitleCase()))); return out; }
+	featLangProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featLangChoose || []).forEach(l => out.add(`${l}`.toTitleCase()))); return out; }
+	featWeaponProfs () {
+		const cats = new Set(); const names = new Set();
+		this._allFeatInstances().forEach(({feat, choice}) => {
+			(feat.weaponProficiencies || []).forEach(g => { if (g && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v !== true) return; const kl = `${k}`.toLowerCase(); if (/martial/.test(kl)) cats.add("martial"); else if (/simple/.test(kl)) cats.add("simple"); else if (!kl.startsWith("any")) names.add(kl.split("|")[0]); }); });
+			(choice.featWeaponChoose || []).forEach(w => names.add(`${w}`.toLowerCase()));
+		});
+		return {cats, names};
+	}
+	featExpertiseSkills () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featExpertiseChoose || []).forEach(s => out.add(s))); return out; }
+	featResist () { const out = new Set(); this._allFeatInstances().forEach(({feat}) => (feat.resist || []).forEach(x => { if (typeof x === "string") out.add(x); })); return out; }
+	// numeric bonuses from feats (text-only in the data, so matched by name)
+	_hasFeat (re) { return this._allFeatInstances().some(({feat}) => re.test(feat.name)); }
+	featSpeedBonus () { return this._hasFeat(/^Mobile$/) ? 10 : 0; }
+	featInitiativeBonus () { return this._hasFeat(/^Alert$/) ? 5 : 0; }
+	featPassivePerceptionBonus () { return this._hasFeat(/^Observant$/) ? 5 : 0; }
+
 	// Parse a feature's text for "Your X [and Y] score(s) increase(s) by N" (e.g. Primal Champion)
 	_featureAbilityIncrease (feature) {
 		const out = {};
@@ -362,7 +396,9 @@ export class CharState {
 	saveProfs () {
 		if (this._hasAllSaveProficiency()) return new Set(CW.ABILITIES); // Monk Diamond Soul
 		const c = this.classEnt;
-		return new Set(c?.proficiency || []); // e.g. ["str","con"]
+		const out = new Set(c?.proficiency || []); // e.g. ["str","con"]
+		this.featSaveProfs().forEach(a => out.add(a)); // Resilient
+		return out;
 	}
 	_hasAllSaveProficiency () { return this._hasFeature("Diamond Soul") || this._hasFeature("Disciplined Survivor"); }
 	// flat bonus to ALL saving throws from features (Paladin Aura of Protection = +Cha mod, min +1)
@@ -375,6 +411,7 @@ export class CharState {
 		addGrps(this.backgroundEnt?.skillProficiencies);
 		addGrps(this.raceEnt?.skillProficiencies);
 		addGrps(this.classEnt?.startingProficiencies?.skills);
+		this.featSkillProfs().forEach(s => out.add(s)); // Skill Expert, Prodigy, Observant, …
 		return out;
 	}
 
@@ -479,7 +516,7 @@ export class CharState {
 		})));
 		return [...out];
 	}
-	chosenLanguages () { const out = this.fixedLanguages(); this.chosenForType("language").forEach(l => out.add(l)); this.classLanguages().forEach(l => out.add(l)); return [...out].sort(); }
+	chosenLanguages () { const out = this.fixedLanguages(); this.chosenForType("language").forEach(l => out.add(l)); this.classLanguages().forEach(l => out.add(l)); this.featLangProfs().forEach(l => out.add(l)); return [...out].sort(); }
 
 	// number of attacks per Attack action (Extra Attack; Fighter improves at 11/20)
 	numAttacks () {
@@ -500,7 +537,7 @@ export class CharState {
 		this.classList().forEach(({cls, isPrimary}) => { if (!isPrimary) add(cls.multiclassing?.proficienciesGained?.toolProficiencies); });
 		return out;
 	}
-	chosenTools () { const out = this.fixedTools(); this.chosenForType("tool").forEach(t => out.add(`${t}`.toTitleCase())); return [...out].sort(); }
+	chosenTools () { const out = this.fixedTools(); this.chosenForType("tool").forEach(t => out.add(`${t}`.toTitleCase())); this.featToolProfs().forEach(t => out.add(t)); return [...out].sort(); }
 
 	clearProfChoicesForSource (srcKey) { Object.keys(this.profChoices).forEach(k => { if (k.includes(`:${srcKey}:`)) delete this.profChoices[k]; }); }
 
@@ -544,7 +581,7 @@ export class CharState {
 
 	skillProfType (skill) {
 		const isProf = this.skillProfs().has(skill);
-		if (isProf && this.expertiseChoices.includes(skill)) return "expertise";
+		if (isProf && (this.expertiseChoices.includes(skill) || this.featExpertiseSkills().has(skill))) return "expertise"; // incl. Skill Expert/Prodigy
 		if (isProf) return "full";
 		const hp = this.halfProfMeta();
 		if (hp && (hp.abilities === null || hp.abilities.has(CW.skillAbil(skill)))) return "half";
@@ -623,6 +660,7 @@ export class CharState {
 		const addObj = (arr) => (arr || []).forEach(grp => { if (grp && typeof grp === "object") Object.entries(grp).forEach(([k, v]) => { if (v === true) out.add(k.toLowerCase()); }); });
 		addObj(this.raceEnt?.armorProficiencies);
 		addObj(this.backgroundEnt?.armorProficiencies);
+		this.featArmorProfs().forEach(a => out.add(a)); // Heavily/Moderately/Lightly Armored
 		return out;
 	}
 	static _ARMOR_TYPE_TO_CAT = {LA: "light", MA: "medium", HA: "heavy", S: "shield"};
@@ -723,6 +761,7 @@ export class CharState {
 		const r = this.raceEnt;
 		addArr(r?.resist, resist); addArr(r?.immune, immune); addArr(r?.vulnerable, vulnerable); addArr(r?.conditionImmune, conditionImmune);
 		if (this.raceResistChoice && (this.raceResistOptions() || []).includes(this.raceResistChoice)) resist.add(this.raceResistChoice);
+		this.featResist().forEach(x => resist.add(x)); // feats granting damage resistance
 		const fx = this.equippedItemEffects();
 		fx.resist.forEach(x => resist.add(x)); fx.immune.forEach(x => immune.add(x)); fx.vulnerable.forEach(x => vulnerable.add(x)); fx.conditionImmune.forEach(x => conditionImmune.add(x));
 		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune]};
@@ -908,6 +947,7 @@ export class CharState {
 		addObjArr(this.raceEnt?.weaponProficiencies);
 		addObjArr(this.backgroundEnt?.weaponProficiencies);
 		this.chosenForType("weapon").forEach(n => names.add(`${n}`.toLowerCase())); // chosen weapon profs (e.g. Hobgoblin)
+		const fw = this.featWeaponProfs(); fw.cats.forEach(c => cats.add(c)); fw.names.forEach(n => names.add(n)); // Weapon Master, Gunner, …
 		return {cats, names};
 	}
 	_proficientWithWeapon (it) {
@@ -1004,11 +1044,12 @@ export class CharState {
 	initiative () {
 		const base = this.abilityMod("dex");
 		const hp = this.halfProfMeta();
-		return base + (hp && (hp.abilities === null || hp.abilities.has("dex")) ? hp.amount : 0);
+		return base + (hp && (hp.abilities === null || hp.abilities.has("dex")) ? hp.amount : 0) + this.featInitiativeBonus(); // Alert
 	}
 	// passive score = 10 + skill modifier (+5 advantage / -5 disadvantage)
 	passiveScore (skill) {
 		let s = 10 + this.skillMod(skill);
+		if ((skill === "perception" || skill === "investigation") && this.featPassivePerceptionBonus()) s += this.featPassivePerceptionBonus(); // Observant
 		const ad = this.skillAdvDis(skill);
 		if (ad?.net === "adv") s += 5; else if (ad?.net === "dis") s -= 5;
 		return s;
@@ -1027,7 +1068,7 @@ export class CharState {
 			if (!conditional || !armored) bonus += parseInt(m[1], 10);
 		}));
 		this.classList().forEach(({cls, level, subclassEnt}) => { addFrom(cls.classFeatures, level); addFrom(subclassEnt?.subclassFeatures, level); });
-		return bonus;
+		return bonus + this.featSpeedBonus(); // Mobile +10
 	}
 
 	speedString () {

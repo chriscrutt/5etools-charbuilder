@@ -503,21 +503,13 @@ export class CharWizardUi {
 			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
 		});
 		sel.val(rf.featUid || "");
-		sel.onn("change", () => { rf.featUid = sel.val() || null; rf.featAbilChoose = []; this._save(); this.render(); });
+		sel.onn("change", () => { rf.featUid = sel.val() || null; this._resetFeatChoiceArrays(rf); this._save(); this.render(); });
 		ee(wrp)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>${hidden ? `<span class="ve-muted ve-small ve-ml-2">(${hidden} hidden — prerequisites not met)</span>` : ""}`;
 		if (!rf.featUid) return;
 		const feat = this._data.feats.find(f => CW.uid(f) === rf.featUid);
 		if (!feat) return;
 		if (feat.prerequisite) { let pre = ""; try { pre = Renderer.utils.prerequisite.getHtml(feat.prerequisite) || ""; } catch (e) { pre = ""; } if (pre) ee(wrp)`<div class="ve-small ve-muted ve-mt-1">Prerequisite: ${pre}</div>`; }
-		(feat.ability || []).forEach(ab => {
-			if (!ab.choose) { const fixed = Object.entries(ab).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`); if (fixed.length) ee(wrp)`<div class="ve-small ve-mt-1"><b>Grants:</b> ${fixed.join(", ")}</div>`; return; }
-			const cnt = ab.choose.count || 1;
-			rf.featAbilChoose = rf.featAbilChoose || [];
-			const counter = ee`<span class="ve-muted">${rf.featAbilChoose.length}/${cnt}</span>`;
-			ee(wrp)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
-			this._renderChipPicker(wrp, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: rf.featAbilChoose, max: cnt, counterEle: counter});
-		});
-		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
+		this._renderFeatChoices(wrp, feat, rf);
 	}
 
 	/* ----- Racial ability bonuses (fixed / choose / weighted; multi-option) ----- */
@@ -621,19 +613,10 @@ export class CharWizardUi {
 				ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
 			});
 			sel.val(rf.featUid || "");
-			sel.onn("change", () => { rf.featUid = sel.val() || null; rf.featAbilChoose = []; this._save(); this.render(); });
+			sel.onn("change", () => { rf.featUid = sel.val() || null; this._resetFeatChoiceArrays(rf); this._save(); this.render(); });
 			ee(wrp)`<label class="ve-flex-v-center ve-mt-1" style="gap:6px">Feat ${sel}</label>${hidden ? `<span class="ve-muted ve-small ve-ml-2">(${hidden} hidden — prerequisites not met)</span>` : ""}`;
 			const feat = rf.featUid ? this._data.feats.find(f => CW.uid(f) === rf.featUid) : null;
-			if (feat) {
-				(feat.ability || []).forEach(ab => {
-					if (!ab.choose) return;
-					const cnt = ab.choose.count || 1; rf.featAbilChoose = rf.featAbilChoose || [];
-					const counter = ee`<span class="ve-muted">${rf.featAbilChoose.length}/${cnt}</span>`;
-					ee(wrp)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
-					this._renderChipPicker(wrp, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: rf.featAbilChoose, max: cnt, counterEle: counter});
-				});
-				ee`<div class="ve-mt-1 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
-			}
+			if (feat) this._renderFeatChoices(wrp, feat, rf);
 		}
 	}
 
@@ -783,7 +766,7 @@ export class CharWizardUi {
 			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
 		});
 		sel.val(ch.featUid || "");
-		sel.onn("change", () => { ch.featUid = sel.val() || null; ch.featAbilChoose = []; this._save(); this.render(); });
+		sel.onn("change", () => { ch.featUid = sel.val() || null; this._resetFeatChoiceArrays(ch); this._save(); this.render(); });
 		ee(body)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>${hiddenForPrereq ? `<span class="ve-muted ve-small ve-ml-2">(${hiddenForPrereq} hidden — prerequisites not met)</span>` : ""}`;
 		if (!ch.featUid) return;
 		const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
@@ -792,19 +775,31 @@ export class CharWizardUi {
 			let preHtml = ""; try { preHtml = Renderer.utils.prerequisite.getHtml(feat.prerequisite) || ""; } catch (e) { preHtml = ""; }
 			if (preHtml) ee(body)`<div class="ve-small ve-muted ve-mt-1">Prerequisite: ${preHtml}</div>`;
 		}
+		this._renderFeatChoices(body, feat, ch);
+	}
+
+	_resetFeatChoiceArrays (o) { ["featAbilChoose", "featSkillChoose", "featToolChoose", "featLangChoose", "featSaveChoose", "featWeaponChoose", "featExpertiseChoose"].forEach(k => { o[k] = []; }); }
+
+	// shared picker for a feat's choices (ability / save / skill / tool / language / weapon / expertise) + its description
+	_renderFeatChoices (wrp, feat, choice) {
+		const st = this._state;
+		const chip = (arr, cnt, items, getValue, getLabel, label) => {
+			const counter = ee`<span class="ve-muted">${arr.length}/${cnt}</span>`;
+			ee(wrp)`<div class="ve-mt-1 ve-small">${label} (${counter}):</div>`;
+			this._renderChipPicker(wrp, {items, getValue, getLabel, arr, max: cnt, counterEle: counter, gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:170px;overflow:auto"});
+		};
 		(feat.ability || []).forEach(ab => {
-			if (!ab.choose) {
-				const fixed = Object.entries(ab).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`);
-				if (fixed.length) ee(body)`<div class="ve-small ve-mt-1"><b>Grants:</b> ${fixed.join(", ")}</div>`;
-				return;
-			}
-			const cnt = ab.choose.count || 1;
-			ch.featAbilChoose = ch.featAbilChoose || [];
-			const counter = ee`<span class="ve-muted">${ch.featAbilChoose.length}/${cnt}</span>`;
-			ee(body)`<div class="ve-mt-1 ve-small"><b>+${ab.choose.amount || 1}</b> to ${cnt} of (${counter}):</div>`;
-			this._renderChipPicker(body, {items: ab.choose.from, getValue: a => a, getLabel: a => CW.ABIL_FULL[a], arr: ch.featAbilChoose, max: cnt, counterEle: counter});
+			if (!ab.choose) { const fixed = Object.entries(ab).filter(([k]) => CW.ABILITIES.includes(k)).map(([k, v]) => `${CW.fmtMod(v)} ${k.toUpperCase()}`); if (fixed.length) ee(wrp)`<div class="ve-small ve-mt-1"><b>Grants:</b> ${fixed.join(", ")}</div>`; return; }
+			choice.featAbilChoose = choice.featAbilChoose || [];
+			chip(choice.featAbilChoose, ab.choose.count || 1, ab.choose.from, a => a, a => CW.ABIL_FULL[a], `<b>+${ab.choose.amount || 1}</b> to`);
 		});
-		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(body);
+		(feat.savingThrowProficiencies || []).forEach(g => { if (!g.choose) return; choice.featSaveChoose = choice.featSaveChoose || []; chip(choice.featSaveChoose, g.choose.count || 1, g.choose.from, a => a, a => CW.ABIL_FULL[a], "<b>Save proficiency</b> — choose"); });
+		(feat.skillProficiencies || []).forEach(g => { if (!g.choose) return; choice.featSkillChoose = choice.featSkillChoose || []; chip(choice.featSkillChoose, g.choose.count || 1, g.choose.from, s => s, s => CW.skillName(s), "<b>Skill proficiency</b> — choose"); });
+		(feat.toolProficiencies || []).forEach(g => { if (typeof g !== "object") return; choice.featToolChoose = choice.featToolChoose || []; let n = 0; let opts = null; if (g.choose?.from) { n = g.choose.count || 1; opts = g.choose.from.map(t => `${t}`); } else if (g.anyArtisansTool) { n = g.anyArtisansTool; opts = st._toolOptions("AT"); } else if (g.anyMusicalInstrument) { n = g.anyMusicalInstrument; opts = st._toolOptions("INS"); } else if (g.any || g.anyTool) { n = g.any || g.anyTool; opts = st._toolOptions("ANY"); } if (n) chip(choice.featToolChoose, n, opts, t => t, t => `${t}`.toTitleCase(), "<b>Tool proficiency</b> — choose"); });
+		(feat.languageProficiencies || []).forEach(g => { if (typeof g !== "object") return; choice.featLangChoose = choice.featLangChoose || []; const LALL = Parser.LANGUAGES_ALL || []; let n = 0; let opts = null; if (g.any || g.anyStandard) { n = g.any || g.anyStandard; opts = LALL; } else if (g.choose?.from) { n = g.choose.count || 1; opts = g.choose.from.map(l => `${l}`.toTitleCase()); } if (n) chip(choice.featLangChoose, n, opts, l => l, l => `${l}`.toTitleCase(), "<b>Language</b> — choose"); });
+		(feat.weaponProficiencies || []).forEach(g => { if (!g.choose) return; choice.featWeaponChoose = choice.featWeaponChoose || []; const cat = /martial/.test(g.choose.fromFilter || "") ? "martial" : (/simple/.test(g.choose.fromFilter || "") ? "simple" : null); const opts = g.choose.from ? g.choose.from.map(w => `${w}`.split("|")[0]) : st.weaponOptions({category: cat}); chip(choice.featWeaponChoose, g.choose.count || 1, opts, w => w, w => `${w}`.toTitleCase(), "<b>Weapon proficiency</b> — choose"); });
+		(feat.expertise || []).forEach(g => { const n = g.anyProficientSkill || g.choose?.count || 0; if (!n) return; choice.featExpertiseChoose = choice.featExpertiseChoose || []; const prof = [...st.skillProfs()].filter(s => CW.skillAbil(s)).sort(); if (prof.length) chip(choice.featExpertiseChoose, n, prof, s => s, s => CW.skillName(s), "<b>Expertise</b> — choose a proficient skill"); else ee(wrp)`<div class="ve-muted ve-small">Expertise: choose your skill proficiencies first.</div>`; });
+		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
 	}
 
 	/* ----- Step: Skills & Gear ----- */
