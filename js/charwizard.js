@@ -46,6 +46,9 @@ export class CharState {
 	}
 
 	reset () {
+		const keepHidden = this.hiddenSources; const keepLegacy = this.hideLegacy; // preserve the content filter across a character reset
+		this.hiddenSources = keepHidden || []; // source codes the user has hidden from the builder
+		this.hideLegacy = keepLegacy ?? false; // hide content superseded by a newer 2014-rules printing (VGM -> MPMM)
 		this.name = "";
 		this.raceUid = null;
 		this.classes = [{uid: null, level: 1, subclassUid: null}]; // [0] is the primary class
@@ -77,6 +80,25 @@ export class CharState {
 		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
 		this.attunedUids = []; // items the character is attuned to (max 3)
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
+	}
+
+	/* ----- content source filter ----- */
+	_sourceAllowed (source) { return !(this.hiddenSources || []).includes(source); }
+	// superseded by a newer 2014-rules ("classic") printing (e.g. VGM Aasimar -> MPMM); 2014->2024 reprints are NOT legacy here
+	_isLegacyEntity (ent) {
+		if (!this.hideLegacy || !ent?.reprintedAs) return false;
+		const isClassic = (s) => { try { return SourceUtil.isClassicSource(s); } catch (e) { return false; } };
+		return ent.reprintedAs.some(rep => { const s = (typeof rep === "string" ? rep : rep.uid || "").split("|")[1] || ""; return s && s !== ent.source && isClassic(s); });
+	}
+	isVisible (ent) { return !!ent && this._sourceAllowed(ent.source) && !this._isLegacyEntity(ent); }
+	filterVisible (arr) { return (arr || []).filter(e => this.isVisible(e)); }
+	// every source present across the loaded data, with its filter group (for the Sources panel)
+	allSources () {
+		const seen = new Map();
+		const scan = (arr) => (arr || []).forEach(e => { if (e?.source && !seen.has(e.source)) seen.set(e.source, {source: e.source, group: (typeof SourceUtil !== "undefined" ? SourceUtil.getFilterGroup(e.source) : 0)}); });
+		const d = this._data;
+		[d.races, d.backgrounds, d.feats, d.classData?.classes, d.classData?.subclasses, d.spells, d.items, d.optionalFeatures].forEach(scan);
+		return [...seen.values()].sort((a, b) => (a.group - b.group) || SortUtil.ascSortLower(Parser.sourceJsonToFull(a.source), Parser.sourceJsonToFull(b.source)));
 	}
 
 	/* ----- entity lookups ----- */
@@ -116,7 +138,7 @@ export class CharState {
 	subclassesForClass (cls = this.classEnt) {
 		if (!cls) return [];
 		return this._data.classData.subclasses
-			.filter(sc => sc.className === cls.name && sc.classSource === cls.source && !sc.isReprinted);
+			.filter(sc => sc.className === cls.name && sc.classSource === cls.source && !sc.isReprinted && this.isVisible(sc));
 	}
 
 	subclassGainLevel (cls = this.classEnt) {
@@ -437,7 +459,7 @@ export class CharState {
 			.filter(it => {
 				const t = `${it.type || ""}`.split("|")[0];
 				const ok = typeAbv === "ANY" ? ["AT", "INS", "GS", "T"].includes(t) : t === typeAbv;
-				return ok && !it.magic && (!it.rarity || it.rarity === "none");
+				return ok && !it.magic && (!it.rarity || it.rarity === "none") && this.isVisible(it);
 			})
 			.map(it => it.name)
 			.filter(n => { if (seen.has(n)) return false; seen.add(n); return true; })
@@ -921,6 +943,7 @@ export class CharState {
 			.filter(it => {
 				if (!it.weapon || !it.weaponCategory) return false;
 				if (it.magic || (it.rarity && it.rarity !== "none") || it.age) return false; // no magic / firearms / sci-fi
+				if (!this.isVisible(it)) return false;
 				if (category && it.weaponCategory !== category) return false;
 				const t = `${it.type || ""}`.split("|")[0];
 				if (melee && t !== "M") return false;
@@ -1197,7 +1220,7 @@ export class CharState {
 		const {types} = this.fightingStyleInfo(); if (!types.size) return [];
 		const seen = new Set();
 		return (this._data.fightingStyles || [])
-			.filter(o => (o.featureType || []).some(t => types.has(t)))
+			.filter(o => this.isVisible(o) && (o.featureType || []).some(t => types.has(t)))
 			.filter(o => { if (seen.has(o.name)) return false; seen.add(o.name); return true; })
 			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 	}
@@ -1330,7 +1353,7 @@ export class CharState {
 		return Math.max(1, Math.floor(total));
 	}
 	spellListForSource (src) {
-		const base = this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName));
+		const base = this._data.spells.filter(sp => this.isVisible(sp) && (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName));
 		const expanded = this.subclassExpandedSpells(src);
 		if (!expanded.length) return base;
 		const seen = new Set(base.map(s => `${s.name}|${s.source}`));
@@ -1343,7 +1366,7 @@ export class CharState {
 	/* ----- Warlock Mystic Arcanum (6th-9th level spells, one each at L11/13/15/17) ----- */
 	_warlockLevel () { const w = this.classList().find(c => c.cls.name === "Warlock"); return w ? w.level : 0; }
 	mysticArcanumLevels () { const wl = this._warlockLevel(); return [[11, 6], [13, 7], [15, 8], [17, 9]].filter(([req]) => wl >= req).map(([, sl]) => sl); }
-	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => sp.level === spLvl && (sp.classes?.fromClassList || []).some(c => c.name === "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
+	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === spLvl && (sp.classes?.fromClassList || []).some(c => c.name === "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
 
 	/* ----- racial spellcasting (additionalSpells) ----- */
 	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].trim().toLowerCase()) || null; }
@@ -1366,7 +1389,7 @@ export class CharState {
 		const lvl = params.level != null && params.level !== "" ? +params.level : null;
 		const cls = params.class ? params.class.toLowerCase() : null;
 		const school = params.school ? params.school.toLowerCase() : null;
-		return this._data.spells.filter(sp => (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!school || `${sp.school}`.toLowerCase() === school));
+		return this._data.spells.filter(sp => this.isVisible(sp) && (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!school || `${sp.school}`.toLowerCase() === school));
 	}
 
 	// multiple additionalSpells groups are alternatives the character picks ONE of (e.g. Astral Elf cantrip, Tiefling legacy)
@@ -1414,6 +1437,8 @@ export class CharState {
 		return {
 			_v: 2,
 			name: this.name,
+			hiddenSources: this.hiddenSources,
+			hideLegacy: this.hideLegacy,
 			raceUid: this.raceUid,
 			classes: this.classes,
 			backgroundUid: this.backgroundUid,
@@ -1472,6 +1497,8 @@ export class CharState {
 
 		Object.assign(this, {
 			name: j.name ?? "",
+			hiddenSources: j.hiddenSources ?? [],
+			hideLegacy: j.hideLegacy ?? false,
 			raceUid: j.raceUid ?? null,
 			classes,
 			backgroundUid: j.backgroundUid ?? null,

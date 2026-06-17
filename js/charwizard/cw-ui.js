@@ -78,10 +78,16 @@ export class CharWizardUi {
 		// Toolbar
 		const inpName = ee`<input class="ve-form-control" style="max-width:280px" placeholder="Character name" value="${(this._state.name || "").qq()}">`
 			.onn("change", () => { this._state.name = inpName.val(); this._save(); });
+		const btnSources = ee`<button class="ve-btn ve-btn-default ve-btn-sm ${this._showSources ? "active" : ""}" title="Choose which books/sources appear in the builder"><span class="glyphicon glyphicon-book"></span> Sources</button>`
+			.onn("click", () => { this._showSources = !this._showSources; this.render(); });
 		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap">
 			${inpName}
+			${btnSources}
 			${this._getToolbarButtons()}
 		</div>`;
+
+		// Sources panel (replaces the stepper/body while open)
+		if (this._showSources) { this._renderSourcesPanel(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// Stepper
 		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
@@ -128,6 +134,59 @@ export class CharWizardUi {
 				this._state.reset(); this._save(); this._ixStep = 0; this.render();
 			});
 		return ee`<div class="ve-btn-group no-print">${btnSave}${btnExport}${btnImport}${btnPrint}${btnReset}</div>`;
+	}
+
+	// non-FR campaign settings excluded by the "Forgotten Realms + neutral" preset
+	static _NON_FR_SOURCES = new Set([
+		"GGR", "GRR", // Ravnica
+		"MOT", // Theros
+		"ERLW", "EFA", "WGE", // Eberron
+		"SCC", "STRX", // Strixhaven
+		"AAG", "BAM", "LoX", "SjA", // Spelljammer
+		"EGW", "CRCotN", "TDCSR", "EGW_ToR", "EGW_DD", "EGW_FS", "EGW_US", // Exandria / Critical Role
+		"DSotDQ", // Dragonlance
+		"WBtW", // Witchlight (Domains of Delight)
+		"VRGR", "RHW", "CoS", "CRcotn", // Ravenloft / Barovia
+		"PSA", "PSD", "PSI", "PSK", "PSX", "PSZ", "LFL", "MGELF", // Magic: the Gathering planes
+		"HftT", "AitFR", "AitFR-ISF", "AitFR-THP", "AitFR-AVT", "AitFR-DN", "AitFR-FCD", // misc
+		"AI", "OGA", "TTP", "LR", "ABH",
+	]);
+
+	_renderSourcesPanel (wrp) {
+		const st = this._state;
+		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap"><h4 class="ve-mt-0 ve-mb-0">Content Sources</h4>${ee`<button class="ve-btn ve-btn-primary ve-btn-sm">‹ Done</button>`.onn("click", () => { this._showSources = false; this.render(); })}</div>`;
+		ee(wrp)`<p class="ve-muted ve-small">Hide books you don't use. This filters every list in the builder (races, classes, backgrounds, feats, spells, items). Your choice persists across characters.</p>`;
+
+		const sources = st.allSources();
+		const setHidden = (codes, hide) => { const set = new Set(st.hiddenSources); codes.forEach(c => hide ? set.add(c) : set.delete(c)); st.hiddenSources = [...set]; this._save(); this.render(); };
+
+		// legacy toggle
+		const legacyCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="checkbox" ${st.hideLegacy ? "checked" : ""}> <b>Hide superseded (legacy) content</b> <span class="ve-muted ve-small">— e.g. a Volo's race that Monsters of the Multiverse reprinted (still 5e/2014 rules; 2024 reprints are NOT hidden)</span></label>`;
+		legacyCb.querySelector("input").addEventListener("change", (e) => { st.hideLegacy = e.target.checked; this._save(); this.render(); });
+		ee(wrp)`<div class="ve-mb-2">${legacyCb}</div>`;
+
+		// presets
+		const allCodes = sources.map(s => s.source);
+		const presets = ee`<div class="ve-flex-v-center ve-mb-3" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(wrp);
+		ee(presets)`<span class="ve-muted ve-small">Quick:</span>`;
+		ee`<button class="ve-btn ve-btn-default ve-btn-xs">Show all</button>`.onn("click", () => setHidden(allCodes, false)).appendTo(presets);
+		ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Hide homebrew, partnered, and Unearthed Arcana">Official only</button>`.onn("click", () => { st.hiddenSources = sources.filter(s => s.group !== 0).map(s => s.source); this._save(); this.render(); }).appendTo(presets);
+		ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Core + Forgotten Realms + setting-neutral supplements; hide other campaign settings">Forgotten Realms + neutral</button>`
+			.onn("click", () => { const hide = sources.filter(s => s.group !== 0 || CharWizardUi._NON_FR_SOURCES.has(s.source)).map(s => s.source); st.hiddenSources = hide; st.hideLegacy = true; this._save(); this.render(); }).appendTo(presets);
+
+		// grouped checklist
+		const groupName = {0: "Core & Official", 1: "Partnered", 2: "Unearthed Arcana / Non-standard", 3: "Prerelease", 4: "Homebrew"};
+		const byGroup = {}; sources.forEach(s => { (byGroup[s.group] = byGroup[s.group] || []).push(s); });
+		Object.keys(byGroup).map(Number).sort((a, b) => a - b).forEach(g => {
+			ee(wrp)`<div class="ve-bold ve-mt-2 ve-mb-1">${groupName[g] || `Group ${g}`}</div>`;
+			const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(wrp);
+			byGroup[g].forEach(({source}) => {
+				const shown = st._sourceAllowed(source);
+				const lbl = ee`<label style="display:block;break-inside:avoid;cursor:pointer" title="${`${source}`.qq()}"><input type="checkbox" ${shown ? "checked" : ""}> ${Parser.sourceJsonToFull(source).qq()} <span class="ve-muted ve-small">(${source})</span></label>`;
+				lbl.querySelector("input").addEventListener("change", (e) => setHidden([source], !e.target.checked));
+				lbl.appendTo(grid);
+			});
+		});
 	}
 
 	/* ----- generic chooser (list + preview) ----- */
@@ -207,7 +266,7 @@ export class CharWizardUi {
 	_renderStepRace (el) {
 		this._renderChooser(el, {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
-			entities: this._data.races,
+			entities: this._state.filterVisible(this._data.races),
 			getSel: () => this._state.raceUid,
 			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.sizeChoice = null; this._state.raceFeat = {featUid: null, featAbilChoose: []}; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.raceSpellGroup = 0; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
@@ -230,7 +289,7 @@ export class CharWizardUi {
 		if (!chosen.length) {
 			this._renderChooser(wrp, {
 				subtitle: "Choose your class. Hit dice, saving throws, proficiencies, features, and (if any) spellcasting come from your first class.",
-				entities: this._data.classData.classes,
+				entities: this._state.filterVisible(this._data.classData.classes),
 				getSel: () => st.classes[0]?.uid || null,
 				setSel: (uid) => this._setPrimaryClass(uid),
 				renderDetail: (col, cls) => this._renderClassDetail(col, cls, {level: st.classes[0]?.level || 1, subclassUid: null}),
@@ -321,7 +380,7 @@ export class CharWizardUi {
 	_renderAddClass (wrp) {
 		const st = this._state;
 		const taken = new Set(st.classes.map(c => c.uid).filter(Boolean));
-		const available = this._data.classData.classes.filter(cls => !taken.has(CW.uid(cls)));
+		const available = this._data.classData.classes.filter(cls => !taken.has(CW.uid(cls)) && st.isVisible(cls));
 		const eligible = available.filter(cls => st.canMulticlassInto(cls));
 		const hidden = available.length - eligible.length;
 
@@ -438,7 +497,7 @@ export class CharWizardUi {
 	_renderStepBackground (el) {
 		this._renderChooser(el, {
 			subtitle: "Choose a background. It grants skill proficiencies, languages/tools, and starting equipment.",
-			entities: this._data.backgrounds,
+			entities: this._state.filterVisible(this._data.backgrounds),
 			getSel: () => this._state.backgroundUid,
 			setSel: (uid) => { this._state.backgroundUid = uid; this._state.bgAbilOption = 0; this._state.bgAbilChoices = []; this._state.bgAbilWeighted = []; this._state.bgFeat = {featUid: null, featAbilChoose: []}; this._state.clearProfChoicesForSource("bg"); },
 			renderDetail: (col, ent) => {
@@ -493,7 +552,7 @@ export class CharWizardUi {
 		if (!st.raceFeatCount()) return;
 		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Racial Feat <span class="ve-muted ve-small">(${st.raceEnt?.name?.qq() || ""})</span></h4>`;
 		const rf = st.raceFeat;
-		const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const feats = this._state.filterVisible(this._data.feats).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
 		let hidden = 0;
 		feats.forEach(f => {
@@ -603,7 +662,7 @@ export class CharWizardUi {
 			ee(wrp)`<div class="ve-muted ve-small ve-mt-1">Also choose ${choice.count} option from this background (see its feature text above).</div>`;
 		} else if (choice) {
 			const rf = st.bgFeat;
-			const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+			const feats = this._state.filterVisible(this._data.feats).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 			const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
 			let hidden = 0;
 			feats.forEach(f => {
@@ -706,7 +765,7 @@ export class CharWizardUi {
 		const wrp = ee`<div></div>`.appendTo(el);
 		const slots = st.asiSlots();
 		ee(wrp)`<p class="ve-muted">You have ${slots.length} Ability Score Improvement${slots.length > 1 ? "s" : ""} to assign — each can instead be a feat. Ability increases below are applied to your scores automatically.</p>`;
-		const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const feats = this._state.filterVisible(this._data.feats).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 		slots.forEach(slot => {
 			const key = slot.key;
 			if (!st.asiChoices[key]) st.asiChoices[key] = {type: "asi", plan: "one", inc: {}};
@@ -929,7 +988,7 @@ export class CharWizardUi {
 			if (t.length < 2) { results.style.display = "none"; return; }
 			const rank = (n) => n === t ? 0 : n.startsWith(t) ? 1 : 2; // exact, then prefix, then contains
 			const matches = (this._data.items || [])
-				.filter(it => it.name.toLowerCase().includes(t))
+				.filter(it => it.name.toLowerCase().includes(t) && st.isVisible(it))
 				.sort((a, b) => (rank(a.name.toLowerCase()) - rank(b.name.toLowerCase())) || SortUtil.ascSortLower(a.name, b.name))
 				.slice(0, 25);
 			results.style.display = matches.length ? "block" : "none";
