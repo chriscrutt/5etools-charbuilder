@@ -67,6 +67,7 @@ export class CharState {
 		this.raceSpellGroup = 0; // chosen additionalSpells variant index (when the race offers alternatives)
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
 		this.raceFeat = {featUid: null, featAbilChoose: []}; // level-1 feat granted by some races (Variant Human, Custom Lineage)
+		this.fightingStyles = []; // chosen fighting-style uids "name|source" (Fighter/Paladin/Ranger/Bard)
 		this.armorUid = null; // worn body-armor item "name|source" (drives AC)
 		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
 		this.attunedUids = []; // items the character is attuned to (max 3)
@@ -895,12 +896,15 @@ export class CharState {
 		const active = this._magicActive(it); // magic +N only applies once attuned (when required)
 		const magicAtk = active ? this._bonusWeaponNum(it, "attack") : 0;
 		const magicDmg = active ? this._bonusWeaponNum(it, "damage") : 0;
-		const toHit = abilMod + (prof ? this.profBonus : 0) + magicAtk;
+		const ranged = `${it.type || ""}`.split("|")[0] === "R";
+		const fsAtk = (ranged && this.hasFightingStyle("Archery")) ? 2 : 0; // Archery: +2 to ranged attacks
+		const fsDmg = (!ranged && !props.includes("2H") && this.hasFightingStyle("Dueling")) ? 2 : 0; // Dueling: +2 dmg one-handed melee
+		const toHit = abilMod + (prof ? this.profBonus : 0) + magicAtk + fsAtk;
 		return {
 			name: it.name, source: it.source, ability, prof, toHit,
 			dmg1: it.dmg1, dmg2: (props.includes("V") ? it.dmg2 : null), dmgType: it.dmgType,
-			dmgBonus: abilMod + magicDmg,
-			ranged: `${it.type || ""}`.split("|")[0] === "R", range: it.range,
+			dmgBonus: abilMod + magicDmg + fsDmg,
+			ranged, range: it.range,
 			magic: magicAtk || magicDmg,
 			properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean),
 		};
@@ -936,6 +940,7 @@ export class CharState {
 		if (shield) { const sMagic = this._magicActive(shield) ? this._bonusAcNum(shield) : 0; base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
 		const wornAc = this._wornAcBonus();
 		if (wornAc) { base += wornAc; how += ` + ${CW.fmtMod(wornAc)} (items)`; }
+		if (armor && this.hasFightingStyle("Defense")) { base += 1; how += " + 1 (Defense style)"; } // +1 AC while wearing armor
 		return {ac: base, how};
 	}
 
@@ -1067,6 +1072,32 @@ export class CharState {
 		});
 		return out;
 	}
+
+	/* ----- fighting styles (optional features) ----- */
+	static _FS_TYPE = {Fighter: "FS:F", Paladin: "FS:P", Ranger: "FS:R", Bard: "FS:B"};
+	// {slots, types:Set} — how many fighting styles you can pick and which class lists are available
+	fightingStyleInfo () {
+		let slots = 0; const types = new Set();
+		this.classList().forEach(({cls, level, subclassEnt}) => {
+			let n = 0;
+			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (f?.name && /^(?:additional |bonus )?fighting style$/i.test(f.name) && (f.level || (ix + 1)) <= level) n++; }));
+			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
+			if (n) { slots += n; types.add(CharState._FS_TYPE[cls.name] || "FS:F"); }
+		});
+		return {slots, types};
+	}
+	fightingStyleSlots () { return this.fightingStyleInfo().slots; }
+	// styles available to the character (matching the FS lists of its fighting-style classes), deduped by name
+	fightingStyleOptions () {
+		const {types} = this.fightingStyleInfo(); if (!types.size) return [];
+		const seen = new Set();
+		return (this._data.fightingStyles || [])
+			.filter(o => (o.featureType || []).some(t => types.has(t)))
+			.filter(o => { if (seen.has(o.name)) return false; seen.add(o.name); return true; })
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+	}
+	chosenFightingStyles () { return (this.fightingStyles || []).map(uid => (this._data.fightingStyles || []).find(o => CW.uid(o) === uid)).filter(Boolean); }
+	hasFightingStyle (name) { return this.chosenFightingStyles().some(o => o.name === name); }
 
 	/* ----- spellcasting (multiclass-aware) ----- */
 	// standard multiclass spellcaster slot table: combined caster level -> [L1..L9]
@@ -1293,6 +1324,7 @@ export class CharState {
 			raceSpellGroup: this.raceSpellGroup,
 			asiChoices: this.asiChoices,
 			raceFeat: this.raceFeat,
+			fightingStyles: this.fightingStyles,
 			armorUid: this.armorUid,
 			shieldUid: this.shieldUid,
 			attunedUids: this.attunedUids,
@@ -1345,6 +1377,7 @@ export class CharState {
 			raceSpellGroup: j.raceSpellGroup ?? 0,
 			asiChoices,
 			raceFeat: j.raceFeat ?? {featUid: null, featAbilChoose: []},
+			fightingStyles: j.fightingStyles ?? [],
 			armorUid: j.armorUid ?? null,
 			shieldUid: j.shieldUid ?? null,
 			attunedUids: j.attunedUids ?? [],
@@ -1368,14 +1401,16 @@ class CharWizardPage {
 
 		const styleHint = VetoolsConfig.get("styleSwitcher", "style");
 
-		const [races, backgrounds, feats, classData, spells, items] = await Promise.all([
+		const [races, backgrounds, feats, classData, spells, items, optionalFeatures] = await Promise.all([
 			this._pLoadSimple(UrlUtil.PG_RACES, "race"),
 			this._pLoadSimple(UrlUtil.PG_BACKGROUNDS, "background"),
 			this._pLoadSimple(UrlUtil.PG_FEATS, "feat"),
 			this._pLoadClasses(),
 			this._pLoadSimple(UrlUtil.PG_SPELLS, "spell"),
 			this._pLoadItems(),
+			this._pLoadOptionalFeatures(),
 		]);
+		const fightingStyles = optionalFeatures.filter(o => (o.featureType || []).some(t => /^FS/.test(t)));
 
 		races.forEach(ent => UtilsEntityRace.mutMigrateForVersion(ent, {styleHint}));
 		backgrounds.forEach(ent => UtilsEntityBackground.mutMigrateForVersion(ent, {styleHint}));
@@ -1400,7 +1435,7 @@ class CharWizardPage {
 		const spellIndexByName = new Map();
 		spells.forEach(sp => { const k = `${sp.name}`.toLowerCase(); if (!spellIndexByName.has(k)) spellIndexByName.set(k, sp); });
 
-		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, styleHint};
+		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, fightingStyles, optionalFeatures, styleHint};
 		globalThis.dbg_cw = data;
 
 		const state = new CharState(data);
@@ -1441,6 +1476,17 @@ class CharWizardPage {
 		} catch (e) {
 			// eslint-disable-next-line no-console
 			console.error("charwizard: item load failed", e);
+			return [];
+		}
+	}
+
+	async _pLoadOptionalFeatures () {
+		try {
+			const raw = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/optionalfeatures.json`);
+			return (raw.optionalfeature || []).filter(o => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_OPT_FEATURES](o), "optionalfeature", o.source));
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error("charwizard: optional feature load failed", e);
 			return [];
 		}
 	}

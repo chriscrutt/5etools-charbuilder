@@ -792,6 +792,9 @@ export class CharWizardUi {
 		// Languages / tools / race+bg skill choices
 		this._renderProficiencyChoices(wrp);
 
+		// Fighting Style (Fighter/Paladin/Ranger/Bard)
+		this._renderFightingStyle(wrp);
+
 		// Racial damage-resistance choice (e.g. Dragonborn base)
 		const resOpts = st.raceResistOptions();
 		if (resOpts) {
@@ -972,6 +975,19 @@ export class CharWizardUi {
 		});
 		// background equipment as plain reference
 		if (bg) ee(wrp)`<div class="ve-mb-1"><span class="ve-muted ve-small">${bg.name}:</span> ${this._renderBgEquip(bg)}</div>`;
+	}
+
+	/* ----- Fighting Style ----- */
+	_renderFightingStyle (wrp) {
+		const st = this._state;
+		const slots = st.fightingStyleSlots(); if (!slots) return;
+		const opts = st.fightingStyleOptions();
+		st.fightingStyles = st.fightingStyles.filter(uid => opts.some(o => CW.uid(o) === uid)); // drop stale picks
+		ee(wrp)`<h4 class="ve-mt-3">Fighting Style</h4>`;
+		const counter = ee`<span class="ve-muted">${st.fightingStyles.length}/${slots}</span>`;
+		ee(wrp)`<p class="ve-muted">Choose ${slots} fighting style${slots > 1 ? "s" : ""} (${counter}). <span class="ve-small">Defense, Archery, and Dueling are applied to your AC/attacks automatically.</span></p>`;
+		this._renderChipPicker(wrp, {items: opts, getValue: o => CW.uid(o), getLabel: o => `${o.name}`.qq(), arr: st.fightingStyles, max: slots, counterEle: counter});
+		st.chosenFightingStyles().forEach(o => ee(wrp)`<details class="ve-mt-1"><summary><b>${o.name.qq()}</b></summary><div class="ve-pl-3 ve-small">${renderEntries(o.entries)}</div></details>`);
 	}
 
 	/* ----- choosable proficiencies (languages / tools / race+bg skill choices) ----- */
@@ -1180,6 +1196,8 @@ export class CharWizardUi {
 			ee(secAtk)`<table class="w-100 ve-small cw__atk-tbl"><thead><tr><th class="ve-text-left">Weapon</th><th class="ve-text-center">Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
 			ee(secAtk)`<div class="ve-muted ve-small ve-mt-1">Attack bonus = ability mod (Str, or Dex for finesse/ranged) + proficiency (if proficient) + magic. Wield weapons from your Inventory on the Skills &amp; Gear step.</div>`;
 		}
+		const fstyles = st.chosenFightingStyles();
+		if (fstyles.length) { const secFs = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp); ee(secFs)`<h4>Fighting Style</h4><div>${fstyles.map(o => `${o.name}`.qq()).join(", ")}</div>`; }
 
 		// skills
 		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
