@@ -65,6 +65,7 @@ export class CharState {
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
 		this.armorUid = null; // worn body-armor item "name|source" (drives AC)
 		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
+		this.attunedUids = []; // items the character is attuned to (max 3)
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
 	}
 
@@ -499,6 +500,21 @@ export class CharState {
 	// the "+N" magic AC bonus on an item, as a number
 	_bonusAcNum (it) { return it?.bonusAc ? (parseInt(`${it.bonusAc}`.replace(/[^-0-9]/g, ""), 10) || 0) : 0; }
 
+	/* ----- attunement (max 3) ----- */
+	static ATTUNE_MAX = 3;
+	requiresAttunement (it) { return !!it?.reqAttune; }
+	attuneCondition (it) { return typeof it?.reqAttune === "string" ? it.reqAttune : null; } // e.g. "by a spellcaster"
+	isAttuned (uid) { return this.attunedUids.includes(uid); }
+	attunedCount () { return this.attunedUids.length; }
+	canAttuneMore () { return this.attunedCount() < CharState.ATTUNE_MAX; }
+	setAttuned (uid, on) {
+		if (!uid) return;
+		if (on) { if (!this.isAttuned(uid) && this.canAttuneMore()) this.attunedUids.push(uid); }
+		else this.attunedUids = this.attunedUids.filter(u => u !== uid);
+	}
+	// an item's magic properties are active only if it needs no attunement, or it is attuned
+	_magicActive (it) { return it && (!it.reqAttune || this.isAttuned(CW.uid(it))); }
+
 	// armor categories the character is proficient with (light/medium/heavy/shield).
 	// First class grants its full starting proficiencies; multiclassed classes grant only their limited set.
 	armorProficiencies () {
@@ -559,23 +575,25 @@ export class CharState {
 		return out;
 	}
 
-	// Aggregate mechanical effects from equipped armor + shield (resistances, immunities, save bonus, focus, granted spells…)
+	// Aggregate mechanical effects from equipped armor + shield + wielded weapons.
+	// Items that require attunement contribute their magic effects only while attuned.
 	equippedItemEffects () {
 		const resist = new Set(); const immune = new Set(); const vulnerable = new Set(); const conditionImmune = new Set();
-		const attune = []; const speed = []; const focus = []; const spells = []; let saveBonus = 0;
+		const attuned = []; const needAttune = []; const speed = []; const focus = []; const spells = []; let saveBonus = 0;
 		this.equippedItems().forEach(it => {
+			if (it.reqAttune) (this.isAttuned(CW.uid(it)) ? attuned : needAttune).push(it.name);
+			if (!this._magicActive(it)) return; // unattuned item gives only its nonmagical benefits
 			(it.resist || []).forEach(x => typeof x === "string" && resist.add(x));
 			(it.immune || []).forEach(x => typeof x === "string" && immune.add(x));
 			(it.vulnerable || []).forEach(x => typeof x === "string" && vulnerable.add(x));
 			(it.conditionImmune || []).forEach(x => typeof x === "string" && conditionImmune.add(x));
 			if (it.bonusSavingThrow) saveBonus += parseInt(`${it.bonusSavingThrow}`.replace(/[^-0-9]/g, ""), 10) || 0;
-			if (it.reqAttune) attune.push(it.name);
 			if (it.focus) focus.push(it.name);
 			if (it.modifySpeed) speed.push(it.name);
 			const att = this._flattenAttachedSpells(it.attachedSpells);
 			if (att.length) spells.push({item: it.name, source: it.source, entries: att.map(a => ({...a, sp: this._spellByName(a.name)}))});
 		});
-		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, attune, speed, focus, spells};
+		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, attuned, needAttune, speed, focus, spells};
 	}
 
 	// Permanent (non-situational) adv/dis effects from armor + reliably-detectable features.
@@ -611,7 +629,7 @@ export class CharState {
 			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
 		});
 		this.featsTaken().forEach(({featUid}) => { if (found) return; const f = this._data.feats.find(x => CW.uid(x) === featUid); if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; });
-		this.equippedItems().forEach(it => { if (found) return; if (/advantage on initiative/i.test(JSON.stringify(it.entries || ""))) found = it.name; });
+		this.equippedItems().forEach(it => { if (found || !this._magicActive(it)) return; if (/advantage on initiative/i.test(JSON.stringify(it.entries || ""))) found = it.name; });
 		return found;
 	}
 
@@ -646,7 +664,7 @@ export class CharState {
 			(sc?.subclassFeatures || []).forEach((lv) => (lv || []).forEach(f => { if ((f?.level || 0) <= level) parse(f?.entries, f?.name, `{@subclassFeature ${f.name}|${sc.className}|${sc.classSource}|${sc.shortName}|${sc.source}|${f.level}}`); }));
 		});
 		parse(bg?.entries, bg?.name, bg ? `{@background ${bg.name}|${bg.source}}` : null);
-		this.equippedItems().forEach(it => parse(it.entries, it.name, `{@item ${it.name}|${it.source}}`));
+		this.equippedItems().forEach(it => { if (this._magicActive(it)) parse(it.entries, it.name, `{@item ${it.name}|${it.source}}`); });
 		return out;
 	}
 
@@ -666,6 +684,7 @@ export class CharState {
 		const [row] = this.inventory.splice(ix, 1);
 		if (row && row.uid === this.armorUid) this.armorUid = null; // un-wear armor that's no longer owned
 		if (row && row.uid === this.shieldUid) this.shieldUid = null;
+		if (row && row.uid) this.attunedUids = this.attunedUids.filter(u => u !== row.uid);
 	}
 
 	// Resolve chosen class + background starting equipment into [{uid, name, qty}]
@@ -783,13 +802,16 @@ export class CharState {
 		const abilMod = this.abilityMod(ability);
 		const prof = this._proficientWithWeapon(it);
 		const props = (it.property || []).map(p => `${p}`.split("|")[0].toUpperCase());
-		const toHit = abilMod + (prof ? this.profBonus : 0) + this._bonusWeaponNum(it, "attack");
+		const active = this._magicActive(it); // magic +N only applies once attuned (when required)
+		const magicAtk = active ? this._bonusWeaponNum(it, "attack") : 0;
+		const magicDmg = active ? this._bonusWeaponNum(it, "damage") : 0;
+		const toHit = abilMod + (prof ? this.profBonus : 0) + magicAtk;
 		return {
 			name: it.name, source: it.source, ability, prof, toHit,
 			dmg1: it.dmg1, dmg2: (props.includes("V") ? it.dmg2 : null), dmgType: it.dmgType,
-			dmgBonus: abilMod + this._bonusWeaponNum(it, "damage"),
+			dmgBonus: abilMod + magicDmg,
 			ranged: `${it.type || ""}`.split("|")[0] === "R", range: it.range,
-			magic: this._bonusWeaponNum(it, "attack") || this._bonusWeaponNum(it, "damage"),
+			magic: magicAtk || magicDmg,
 			properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean),
 		};
 	}
@@ -806,7 +828,7 @@ export class CharState {
 		let base; let how;
 		if (armor) {
 			const typeAbv = `${armor.type || ""}`.split("|")[0];
-			const magic = this._bonusAcNum(armor);
+			const magic = this._magicActive(armor) ? this._bonusAcNum(armor) : 0;
 			const baseAc = (armor.ac || 10) + magic;
 			const magicTxt = magic ? ` (+${magic})` : "";
 			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}${magicTxt}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name}${magicTxt} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name}${magicTxt} + Dex`; }
@@ -821,7 +843,7 @@ export class CharState {
 			}
 		}
 		const shield = this.shieldEnt();
-		if (shield) { const sMagic = this._bonusAcNum(shield); base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
+		if (shield) { const sMagic = this._magicActive(shield) ? this._bonusAcNum(shield) : 0; base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
 		return {ac: base, how};
 	}
 
@@ -1101,6 +1123,7 @@ export class CharState {
 			asiChoices: this.asiChoices,
 			armorUid: this.armorUid,
 			shieldUid: this.shieldUid,
+			attunedUids: this.attunedUids,
 			inventory: this.inventory,
 		};
 	}
@@ -1148,6 +1171,7 @@ export class CharState {
 			asiChoices,
 			armorUid: j.armorUid ?? null,
 			shieldUid: j.shieldUid ?? null,
+			attunedUids: j.attunedUids ?? [],
 			inventory: j.inventory ?? [],
 		});
 		// migrate v1 boolean shield -> the first shield in inventory

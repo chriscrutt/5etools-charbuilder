@@ -771,6 +771,7 @@ export class CharWizardUi {
 		ee(wrp)`<div class="ve-mb-1"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
 		if (!invArmors.length && !invShields.length) ee(wrp)`<div class="ve-muted ve-small ve-mb-2">Add armor or a shield to your inventory below to equip it.</div>`;
 		st.armorProficiencyWarnings().forEach(w => ee(wrp)`<div class="cw__err ve-small ve-mb-1"><span class="glyphicon glyphicon-warning-sign"></span> ${w.qq()}</div>`);
+		[st.armorEnt(), st.shieldEnt()].filter(Boolean).forEach(it => { if (st.requiresAttunement(it) && !st.isAttuned(CW.uid(it))) ee(wrp)`<div class="ve-muted ve-small ve-mb-1"><span class="glyphicon glyphicon-flash"></span> ${it.name.qq()} requires attunement — its magic bonus isn't applied until you Attune it in the Inventory below.</div>`; });
 
 		// Equipment choices (a)/(b)
 		ee(wrp)`<h4>Starting Equipment <span class="ve-muted ve-small">(choose options, then add to inventory)</span></h4>`;
@@ -784,7 +785,8 @@ export class CharWizardUi {
 	/* ----- Inventory ----- */
 	_renderInventory (wrp) {
 		const st = this._state;
-		ee(wrp)`<h4 class="ve-mt-3">Inventory</h4>`;
+		const atCap = st.attunedCount() >= 3;
+		ee(wrp)`<h4 class="ve-mt-3">Inventory <span class="ve-muted ve-small">— Attunement ${st.attunedCount()}/3${atCap ? " (full)" : ""}</span></h4>`;
 		const ctrl = ee`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
 		const btnAdd = ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Resolve your chosen class + background starting gear into items">＋ Add starting equipment</button>`
 			.onn("click", () => { st.addStartingEquipmentToInventory(); this._save(); this.render(); });
@@ -860,6 +862,15 @@ export class CharWizardUi {
 				ee`<button class="ve-btn ve-btn-xs ${wielded ? "ve-btn-success" : "ve-btn-default"}" title="Show this weapon's attack & damage on the sheet">${wielded ? "Wielded ✓" : "Wield"}</button>`
 					.onn("click", () => { row.equipped = !row.equipped; this._save(); this.render(); })
 					.appendTo(wearCell);
+			}
+			// attune control for items that require attunement (max 3)
+			if (itemEnt && st.requiresAttunement(itemEnt) && row.uid) {
+				const attuned = st.isAttuned(row.uid);
+				const blocked = !attuned && !st.canAttuneMore();
+				const cond = st.attuneCondition(itemEnt);
+				const title = attuned ? "Click to break attunement" : blocked ? "Attunement slots full (max 3)" : `Attune to this item${cond ? ` (requires attunement ${cond})` : ""}`;
+				ee(wearCell)`${ee`<button class="ve-btn ve-btn-xs ve-ml-1 ${attuned ? "ve-btn-info" : "ve-btn-default"}" ${blocked ? "disabled" : ""} title="${title.qq()}"><span class="glyphicon glyphicon-flash"></span> ${attuned ? "Attuned ✓" : "Attune"}</button>`
+					.onn("click", () => { if (blocked) return; st.setAttuned(row.uid, !attuned); this._save(); this.render(); })}`;
 			}
 			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { st.removeFromInventory(ix); } this._save(); this._renderInventoryList(listWrp); });
 			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => { row.qty++; this._save(); this._renderInventoryList(listWrp); });
@@ -1126,10 +1137,10 @@ export class CharWizardUi {
 			<div><b>Languages:</b> ${st.chosenLanguages().map(l => `${l}`.qq()).join(", ") || "—"}</div>
 			${st.senses().length ? `<div><b>Senses:</b> ${st.senses().join(", ")}</div>` : ""}`;
 
-		// magic item effects (from worn armor + equipped shield)
+		// magic item effects (from worn armor + equipped shield + wielded weapons)
 		const eqfx = st.equippedItemEffects();
 		const itemLink = (name, source) => refLink(UrlUtil.PG_ITEMS, {name, source}, name);
-		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.focus.length || eqfx.attune.length || eqfx.spells.length || eqfx.speed.length) {
+		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
 			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped armor, shield &amp; weapons)</span></h4>`;
 			const cap = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
@@ -1143,7 +1154,8 @@ export class CharWizardUi {
 				const parts = grp.entries.map(e => `${e.sp ? spellSpan(e.sp.name, e.sp.source) : `${e.name}`.qq()}${e.note ? ` <span class="ve-muted ve-small">(${e.note.qq()})</span>` : ""}`);
 				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
 			});
-			if (eqfx.attune.length) ee(secMi)`<div class="ve-muted ve-small">Requires attunement: ${eqfx.attune.map(n => `${n}`.qq()).join(", ")}</div>`;
+			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/3): ${eqfx.attuned.map(n => `${n}`.qq()).join(", ")}</div>`;
+			eqfx.needAttune.forEach(n => ee(secMi)`<div class="cw__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${n.qq()} is equipped but not attuned — its magic benefits are inactive.</div>`);
 		}
 
 		// inventory
