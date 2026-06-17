@@ -944,7 +944,7 @@ export class CharWizardUi {
 		const st = this._state;
 		const out = new Set();
 		const otherChoices = (type) => st.proficiencyChoiceGroups().filter(x => x.type === type && x.key !== g.key).forEach(x => (st.profChoices[x.key] || []).forEach(v => out.add(type === "tool" ? `${v}`.toTitleCase() : v)));
-		if (g.type === "skill") { st.fixedSkillProfs().forEach(s => out.add(s)); st.classSkillChoices.forEach(s => out.add(s)); otherChoices("skill"); } else if (g.type === "language") { st.fixedLanguages().forEach(l => out.add(l)); otherChoices("language"); } else { st.fixedTools().forEach(t => out.add(t)); otherChoices("tool"); }
+		if (g.type === "skill") { st.fixedSkillProfs().forEach(s => out.add(s)); st.classSkillChoices.forEach(s => out.add(s)); otherChoices("skill"); } else if (g.type === "language") { st.fixedLanguages().forEach(l => out.add(l)); otherChoices("language"); } else if (g.type === "weapon") { otherChoices("weapon"); } else { st.fixedTools().forEach(t => out.add(t)); otherChoices("tool"); }
 		return out;
 	}
 

@@ -388,19 +388,29 @@ export class CharState {
 			}
 			if (typeof grp !== "object") return;
 			let n = 0; let opts = null; let what = "tool";
-			if (grp.choose?.from) { n = grp.choose.count || 1; opts = grp.choose.from.map(s => `${s}`); } else if (grp.anyArtisansTool) { n = grp.anyArtisansTool; opts = this._toolOptions("AT"); what = "artisan's tool"; } else if (grp.anyMusicalInstrument) { n = grp.anyMusicalInstrument; opts = this._toolOptions("INS"); what = "instrument"; } else if (grp.anyGamingSet) { n = grp.anyGamingSet; opts = this._toolOptions("GS"); what = "gaming set"; } else if (grp.anyTool) { n = grp.anyTool; opts = this._toolOptions("ANY"); }
+			if (grp.choose?.from) { n = grp.choose.count || 1; opts = grp.choose.from.map(s => `${s}`); } else if (grp.anyArtisansTool) { n = grp.anyArtisansTool; opts = this._toolOptions("AT"); what = "artisan's tool"; } else if (grp.anyMusicalInstrument) { n = grp.anyMusicalInstrument; opts = this._toolOptions("INS"); what = "instrument"; } else if (grp.anyGamingSet) { n = grp.anyGamingSet; opts = this._toolOptions("GS"); what = "gaming set"; } else if (grp.anyTool || grp.any) { n = grp.anyTool || grp.any; opts = this._toolOptions("ANY"); }
 			if (n) groups.push({key: `tool:${srcKey}:${ix}`, type: "tool", label: `${srcLabel}: choose ${n} ${what}${n > 1 ? "s" : ""}`, options: opts, count: n});
 		});
 		const addSkill = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
 			if (grp?.choose?.from) groups.push({key: `skill:${srcKey}:${ix}`, type: "skill", label: `${srcLabel}: choose ${grp.choose.count || 1} skill${(grp.choose.count || 1) > 1 ? "s" : ""}`, options: grp.choose.from, count: grp.choose.count || 1});
 			else if (grp?.any) groups.push({key: `skill:${srcKey}:${ix}`, type: "skill", label: `${srcLabel}: choose ${grp.any} skill${grp.any > 1 ? "s" : ""}`, options: CW.skills(), count: grp.any});
 		});
+		// weapon choices (e.g. Hobgoblin: choose 2 martial weapons via fromFilter)
+		const addWeapon = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
+			if (!grp?.choose) return;
+			const count = grp.choose.count || 1;
+			let opts; let what = "weapon";
+			if (grp.choose.fromFilter) { const cat = /martial/.test(grp.choose.fromFilter) ? "martial" : (/simple/.test(grp.choose.fromFilter) ? "simple" : null); opts = this.weaponOptions({category: cat}); what = `${cat ? `${cat} ` : ""}weapon`; } else if (grp.choose.from) opts = grp.choose.from.map(s => `${s}`.split("|")[0]);
+			if (opts) groups.push({key: `weapon:${srcKey}:${ix}`, type: "weapon", label: `${srcLabel}: choose ${count} ${what}${count > 1 ? "s" : ""}`, options: opts, count});
+		});
 		addLang(this.raceEnt?.languageProficiencies, "race", "Race");
 		addLang(this.backgroundEnt?.languageProficiencies, "bg", "Background");
 		addTool(this.classEnt?.startingProficiencies?.tools, "class", this.classEnt?.name || "Class");
+		addTool(this.raceEnt?.toolProficiencies, "race", this.raceEnt?.name || "Race");
 		addTool(this.backgroundEnt?.toolProficiencies, "bg", "Background");
 		addSkill(this.raceEnt?.skillProficiencies, "race", "Race");
 		addSkill(this.backgroundEnt?.skillProficiencies, "bg", "Background");
+		addWeapon(this.raceEnt?.weaponProficiencies, "race", this.raceEnt?.name || "Race");
 		// multiclassed (secondary) classes grant a limited set of skill + tool proficiencies (keyed by class uid)
 		this.classList().forEach(({cls, isPrimary, uid}) => {
 			if (isPrimary) return;
@@ -433,7 +443,7 @@ export class CharState {
 			if (typeof t === "string") { if (/of your choice/i.test(t)) return; out.add(t.includes("{@") ? t : t.toTitleCase()); return; }
 			if (t && typeof t === "object" && !t.choose && !Object.keys(t).some(k => k.startsWith("any"))) Object.entries(t).forEach(([k, v]) => { if (v === true) out.add(k.toTitleCase()); });
 		});
-		add(this.classEnt?.startingProficiencies?.tools); add(this.backgroundEnt?.toolProficiencies);
+		add(this.classEnt?.startingProficiencies?.tools); add(this.backgroundEnt?.toolProficiencies); add(this.raceEnt?.toolProficiencies);
 		this.classList().forEach(({cls, isPrimary}) => { if (!isPrimary) add(cls.multiclassing?.proficienciesGained?.toolProficiencies); });
 		return out;
 	}
@@ -551,6 +561,10 @@ export class CharState {
 		const out = new Set();
 		const add = (arr) => (arr || []).forEach(a => { const s = (typeof a === "string" ? a : a.proficiency || a.full || "").toLowerCase(); if (s) out.add(s); });
 		this.classList().forEach(({cls, isPrimary}) => add(isPrimary ? cls.startingProficiencies?.armor : cls.multiclassing?.proficienciesGained?.armor));
+		// race / background armor proficiencies use {light:true, medium:true} objects (e.g. Mountain Dwarf)
+		const addObj = (arr) => (arr || []).forEach(grp => { if (grp && typeof grp === "object") Object.entries(grp).forEach(([k, v]) => { if (v === true) out.add(k.toLowerCase()); }); });
+		addObj(this.raceEnt?.armorProficiencies);
+		addObj(this.backgroundEnt?.armorProficiencies);
 		return out;
 	}
 	static _ARMOR_TYPE_TO_CAT = {LA: "light", MA: "medium", HA: "heavy", S: "shield"};
@@ -820,6 +834,7 @@ export class CharState {
 		const addObjArr = (arr) => (arr || []).forEach(grp => { if (!grp || typeof grp !== "object" || grp.choose) return; Object.entries(grp).forEach(([k, v]) => { if (v !== true) return; const kl = `${k}`.toLowerCase(); if (/martial/.test(kl)) cats.add("martial"); else if (/simple/.test(kl)) cats.add("simple"); else names.add(kl.split("|")[0].trim()); }); });
 		addObjArr(this.raceEnt?.weaponProficiencies);
 		addObjArr(this.backgroundEnt?.weaponProficiencies);
+		this.chosenForType("weapon").forEach(n => names.add(`${n}`.toLowerCase())); // chosen weapon profs (e.g. Hobgoblin)
 		return {cats, names};
 	}
 	_proficientWithWeapon (it) {
