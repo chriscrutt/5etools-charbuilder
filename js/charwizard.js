@@ -62,6 +62,7 @@ export class CharState {
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {}; // classUid -> {cantrips:[], leveled:[]} (arrays of "name|source")
+		this.mysticArcanum = {}; // spellLevel(6-9) -> "name|source" (Warlock Mystic Arcanum)
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
 		this.raceSpellGroup = 0; // chosen additionalSpells variant index (when the race offers alternatives)
@@ -347,9 +348,13 @@ export class CharState {
 	}
 
 	saveProfs () {
+		if (this._hasAllSaveProficiency()) return new Set(CW.ABILITIES); // Monk Diamond Soul
 		const c = this.classEnt;
 		return new Set(c?.proficiency || []); // e.g. ["str","con"]
 	}
+	_hasAllSaveProficiency () { return this._hasFeature("Diamond Soul") || this._hasFeature("Disciplined Survivor"); }
+	// flat bonus to ALL saving throws from features (Paladin Aura of Protection = +Cha mod, min +1)
+	_featureSaveBonus () { return this._hasFeature("Aura of Protection") ? Math.max(1, this.abilityMod("cha")) : 0; }
 
 	// Skill proficiencies granted *outside* the class choice (background + race + fixed class skills)
 	fixedSkillProfs () {
@@ -450,7 +455,25 @@ export class CharState {
 		add(this.raceEnt?.languageProficiencies); add(this.backgroundEnt?.languageProficiencies);
 		return out;
 	}
-	chosenLanguages () { const out = this.fixedLanguages(); this.chosenForType("language").forEach(l => out.add(l)); return [...out].sort(); }
+	// special class languages (Druid -> Druidic, Rogue -> Thieves' Cant)
+	classLanguages () {
+		const out = new Set();
+		this.classList().forEach(({cls, level}) => (cls.classFeatures || []).forEach((lv, ix) => (lv || []).forEach(f => {
+			if ((f?.level || (ix + 1)) > level) return;
+			if (/^druidic$/i.test(f?.name || "")) out.add("Druidic");
+			if (/^thieves'? cant$/i.test(f?.name || "")) out.add("Thieves' Cant");
+		})));
+		return [...out];
+	}
+	chosenLanguages () { const out = this.fixedLanguages(); this.chosenForType("language").forEach(l => out.add(l)); this.classLanguages().forEach(l => out.add(l)); return [...out].sort(); }
+
+	// number of attacks per Attack action (Extra Attack; Fighter improves at 11/20)
+	numAttacks () {
+		let n = this._hasFeature("Extra Attack") ? 2 : 1;
+		const fighter = this.classList().find(c => c.cls.name === "Fighter");
+		if (fighter) { if (fighter.level >= 20) n = Math.max(n, 4); else if (fighter.level >= 11) n = Math.max(n, 3); }
+		return n;
+	}
 
 	// fixed (non-choose) tools from class + background
 	fixedTools () {
@@ -474,7 +497,7 @@ export class CharState {
 		return {from: grp.choose.from || CW.skills(), count: grp.choose.count || 1};
 	}
 
-	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0) + this.equippedItemEffects().saveBonus + this._attunementSaveBonus(); }
+	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0) + this.equippedItemEffects().saveBonus + this._attunementSaveBonus() + this._featureSaveBonus(); }
 
 	_hasFeature (name) {
 		return this.classList().some(({cls, level, subclassEnt}) => {
@@ -490,11 +513,16 @@ export class CharState {
 		return null;
 	}
 
-	// number of expertise picks granted (Rogue/Bard Expertise: 2 skills each)
+	// number of expertise picks granted (Rogue/Bard Expertise 2 each; plus other expertise-granting features)
 	expertiseSlots () {
 		let n = 0;
 		this.classList().forEach(({cls, level, subclassEnt}) => {
-			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (f?.name === "Expertise" && (f.level || (ix + 1)) <= level) n += 2; }));
+			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => {
+				if (!f || (f.level || (ix + 1)) > level) return;
+				if (f.name === "Expertise") n += 2;
+				else if (f.name && /^deft explorer$/i.test(f.name)) n += 1; // Ranger (Tasha's)
+				else if (/blessings of knowledge/i.test(JSON.stringify(f.entries || ""))) n += 2; // Knowledge Cleric (nested sub-feature)
+			}));
 			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
 		});
 		return n;
@@ -1012,7 +1040,19 @@ export class CharState {
 		if (m) return {base: parseInt(m[1], 10), abil: null};
 		// "+N bonus to armor class" from natural armor (Lizardfolk/Troglodyte DMG) -> 10 + N + Dex
 		if (/natural armor|scales|thick (?:hide|skin)|shell|carapace/.test(text)) { m = text.match(/\+(\d) bonus to (?:your )?(?:armor class|ac)\b/); if (m) return {base: 10 + parseInt(m[1], 10), abil: "dex"}; }
-		return null;
+		// class/subclass unarmored AC (e.g. Draconic Resilience "your AC equals 13 + your Dexterity modifier")
+		let cna = null;
+		this.classList().forEach(({cls, level, subclassEnt}) => {
+			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => {
+				if (cna || !f?.entries || (f.level || (ix + 1)) > level) return;
+				const t = JSON.stringify(f.entries).toLowerCase();
+				if (!/(?:aren't|are not|not) wearing armor|wear no armor/.test(t)) return; // self unarmored AC only
+				const mm = t.match(/your (?:armor class|ac) (?:equals|is) (\d{2}) \+ your (\w+) modifier/);
+				if (mm) { const abv = CW.ABIL_NAME_TO_ABV[mm[2]]; if (abv) cna = {base: parseInt(mm[1], 10), abil: abv}; }
+			}));
+			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
+		});
+		return cna;
 	}
 
 	creatureType () { const ct = this.raceEnt?.creatureTypes; return ct?.length ? ct.map(t => `${t}`.toTitleCase()).join(", ") : null; }
@@ -1235,6 +1275,11 @@ export class CharState {
 	// per-source spell choices bucket {cantrips:[], leveled:[]}
 	spellChoicesFor (uid) { return this.spellChoices[uid] || (this.spellChoices[uid] = {cantrips: [], leveled: []}); }
 
+	/* ----- Warlock Mystic Arcanum (6th-9th level spells, one each at L11/13/15/17) ----- */
+	_warlockLevel () { const w = this.classList().find(c => c.cls.name === "Warlock"); return w ? w.level : 0; }
+	mysticArcanumLevels () { const wl = this._warlockLevel(); return [[11, 6], [13, 7], [15, 8], [17, 9]].filter(([req]) => wl >= req).map(([, sl]) => sl); }
+	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => sp.level === spLvl && (sp.classes?.fromClassList || []).some(c => c.name === "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
+
 	/* ----- racial spellcasting (additionalSpells) ----- */
 	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].trim().toLowerCase()) || null; }
 
@@ -1322,6 +1367,7 @@ export class CharState {
 			raceSpellChoices: this.raceSpellChoices,
 			raceSpellAbility: this.raceSpellAbility,
 			raceSpellGroup: this.raceSpellGroup,
+			mysticArcanum: this.mysticArcanum,
 			asiChoices: this.asiChoices,
 			raceFeat: this.raceFeat,
 			fightingStyles: this.fightingStyles,
@@ -1375,6 +1421,7 @@ export class CharState {
 			raceSpellChoices: j.raceSpellChoices ?? {},
 			raceSpellAbility: j.raceSpellAbility ?? null,
 			raceSpellGroup: j.raceSpellGroup ?? 0,
+			mysticArcanum: j.mysticArcanum ?? {},
 			asiChoices,
 			raceFeat: j.raceFeat ?? {featUid: null, featAbilChoose: []},
 			fightingStyles: j.fightingStyles ?? [],

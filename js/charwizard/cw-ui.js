@@ -1076,6 +1076,19 @@ export class CharWizardUi {
 			this._renderSpellPicker(wrp, src.preparedSpells ? `Prepared spells` : `Spells known`, leveled, bucket.leveled, st.leveledSpellsKnownFor(src));
 		});
 
+		// Warlock Mystic Arcanum (one 6th-9th level spell each at L11/13/15/17)
+		const arcanumLevels = st.mysticArcanumLevels();
+		if (arcanumLevels.length) {
+			ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Mystic Arcanum</h4><p class="ve-muted ve-small">Choose one Warlock spell of each level below; you can cast each once per long rest (no spell slot).</p>`;
+			arcanumLevels.forEach(spLvl => {
+				const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:280px"><option value="">— choose a level ${spLvl} spell —</option></select>`;
+				st.mysticArcanumOptions(spLvl).forEach(sp => ee`<option value="${CW.uid(sp).qq()}">${sp.name.qq()}</option>`.appendTo(sel));
+				sel.val(st.mysticArcanum[spLvl] || "");
+				sel.onn("change", () => { if (sel.val()) st.mysticArcanum[spLvl] = sel.val(); else delete st.mysticArcanum[spLvl]; this._save(); this.render(); });
+				ee(wrp)`<div class="ve-mb-1"><b>${Parser.spLevelToFull(spLvl)}-level:</b> ${sel}</div>`;
+			});
+		}
+
 		if (st.hasRacialSpells()) this._renderRacialSpells(wrp);
 		if (!sources.length && !st.hasRacialSpells()) ee(wrp)`<p class="ve-muted">No spellcasting.</p>`;
 	}
@@ -1180,6 +1193,8 @@ export class CharWizardUi {
 				<div class="cw__abil-score">${total}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div>
 				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
 		});
+		const saveNotes = [st._featureSaveBonus() ? `Aura of Protection (${CW.fmtMod(st._featureSaveBonus())} to all saves)` : "", st._hasAllSaveProficiency() ? "proficient in all saving throws" : ""].filter(Boolean);
+		if (saveNotes.length) ee(secA)`<div class="ve-muted ve-small ve-mt-1">${saveNotes.join("; ").qq()} (included above).</div>`;
 
 		// attacks (wielded weapons) — build the whole table in one pass so the <tr>/<td> parse in table context
 		const wielded = st.wieldedWeapons();
@@ -1194,6 +1209,7 @@ export class CharWizardUi {
 				return `<tr style="border-top:1px solid rgba(127,127,127,.15)"><td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${noProf}</td><td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td><td class="ve-py-1">${dmg}</td><td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td></tr>`;
 			}).join("");
 			ee(secAtk)`<table class="w-100 ve-small cw__atk-tbl"><thead><tr><th class="ve-text-left">Weapon</th><th class="ve-text-center">Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+			if (st.numAttacks() > 1) ee(secAtk)`<div class="ve-small ve-mt-1"><b>Extra Attack:</b> you can attack ${st.numAttacks()} times when you take the Attack action.</div>`;
 			ee(secAtk)`<div class="ve-muted ve-small ve-mt-1">Attack bonus = ability mod (Str, or Dex for finesse/ranged) + proficiency (if proficient) + magic. Wield weapons from your Inventory on the Skills &amp; Gear step.</div>`;
 		}
 		const fstyles = st.chosenFightingStyles();
@@ -1305,6 +1321,8 @@ export class CharWizardUi {
 					<div class="ve-pl-3"><b>${src.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(bucket.leveled) || "—"}</div>
 					${prepared.length ? `<div class="ve-pl-3"><b>Always prepared:</b> ${prepared.map(p => spellSpan(p.sp.name, p.sp.source)).join(", ")}</div>` : ""}`;
 			});
+			const arcanum = st.mysticArcanumLevels().map(l => st.mysticArcanum[l]).filter(Boolean);
+			if (arcanum.length) ee(secSp)`<div class="ve-mt-1"><b>Mystic Arcanum:</b> ${spellSpans(arcanum)}</div>`;
 		}
 
 		// racial (innate) spellcasting
