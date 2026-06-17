@@ -412,9 +412,9 @@ export class CharState {
 		return idxName?.get(`${name}`.toLowerCase()) || null;
 	}
 
-	addToInventory ({uid, name, qty = 1}) {
+	addToInventory ({uid, name, qty = 1, choiceCategory = null}) {
 		if (uid) { const ex = this.inventory.find(r => r.uid === uid); if (ex) { ex.qty += qty; return; } }
-		this.inventory.push({uid: uid || null, name, qty, equipped: false});
+		this.inventory.push({uid: uid || null, name, qty, equipped: false, ...(choiceCategory ? {choiceCategory} : {})});
 	}
 
 	removeFromInventory (ix) {
@@ -436,6 +436,20 @@ export class CharState {
 				const parts = m[1].split("|");
 				pushTag(parts[0], parts[1], parts[2] || parts[0]);
 			}
+			// category weapon choices, e.g. "two {@filter martial weapons|items|...}" -> 2 "choose a weapon" slots
+			const reF = /\{@filter ([^}|]+)\|[^}]*\}/g; let fm;
+			while ((fm = reF.exec(str)) !== null) {
+				const display = `${fm[1]}`.toLowerCase();
+				if (!/weapon/.test(display)) continue;
+				const pre = str.slice(Math.max(0, fm.index - 14), fm.index).toLowerCase();
+				const cm = pre.match(/\b(two|three|four|2|3|4)\b[^a-z0-9]*$/);
+				const nW = {two: 2, three: 3, four: 4};
+				const count = cm ? (nW[cm[1]] || parseInt(cm[1], 10) || 1) : 1;
+				const category = display.includes("martial") ? "martial" : (display.includes("simple") ? "simple" : null);
+				const melee = display.includes("melee"); const ranged = display.includes("ranged");
+				const label = `${category ? `${category} ` : ""}weapon${melee ? " (melee)" : ranged ? " (ranged)" : ""}`;
+				for (let i = 0; i < count; ++i) out.push({uid: null, name: `${label} (choose)`, qty: 1, choiceCategory: {category, melee, ranged}});
+			}
 		};
 		const cls = this.classEnt;
 		(cls?.startingEquipment?.default || []).forEach((line, ix) => {
@@ -454,6 +468,24 @@ export class CharState {
 	}
 
 	addStartingEquipmentToInventory () { this.resolveStartingEquipment().forEach(r => this.addToInventory(r)); }
+
+	// mundane fantasy weapons matching a category choice (simple/martial, optional melee/ranged)
+	weaponOptions ({category, melee, ranged} = {}) {
+		const seen = new Set();
+		return (this._data.items || [])
+			.filter(it => {
+				if (!it.weapon || !it.weaponCategory) return false;
+				if (it.magic || (it.rarity && it.rarity !== "none") || it.age) return false; // no magic / firearms / sci-fi
+				if (category && it.weaponCategory !== category) return false;
+				const t = `${it.type || ""}`.split("|")[0];
+				if (melee && t !== "M") return false;
+				if (ranged && t !== "R") return false;
+				return true;
+			})
+			.map(it => it.name)
+			.filter(n => { if (seen.has(n)) return false; seen.add(n); return true; })
+			.sort(SortUtil.ascSortLower);
+	}
 
 	acBreakdown () {
 		const dex = this.abilityMod("dex");

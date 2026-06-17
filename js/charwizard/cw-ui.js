@@ -672,9 +672,22 @@ export class CharWizardUi {
 		const tbl = ee`<table class="w-100"><tbody></tbody></table>`.appendTo(listWrp);
 		const tb = tbl.querySelector("tbody");
 		st.inventory.forEach((row, ix) => {
-			const nameHtml = row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq();
 			const tr = ee`<tr style="border-bottom:1px solid rgba(127,127,127,.15)"></tr>`.appendTo(tb);
-			ee(tr)`<td class="ve-py-1">${nameHtml}</td>`;
+			const nameCell = ee`<td class="ve-py-1"></td>`.appendTo(tr);
+			if (row.choiceCategory && !row.uid) {
+				// unresolved "choose a weapon" slot -> dropdown of matching weapons
+				const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:220px"><option value="">— choose ${`a ${row.name}`.replace(" (choose)", "").qq()} —</option></select>`;
+				st.weaponOptions(row.choiceCategory).forEach(n => ee`<option>${n.qq()}</option>`.appendTo(sel));
+				sel.onn("change", () => {
+					const name = sel.val(); if (!name) return;
+					const it = st._resolveItem(name, "");
+					row.uid = it ? CW.uid(it) : null; row.name = it ? it.name : name; delete row.choiceCategory;
+					this._save(); this._renderInventoryList(listWrp);
+				});
+				nameCell.appendChild(sel);
+			} else {
+				ee(nameCell)`${row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq()}`;
+			}
 			// "Wear" control for mundane armor/shields -> drives AC
 			const armorEnt = row.uid ? (this._data.armors || []).find(a => CW.uid(a) === row.uid) : null;
 			const wearCell = ee`<td class="ve-py-1 ve-text-center"></td>`.appendTo(tr);
