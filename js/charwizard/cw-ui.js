@@ -209,7 +209,7 @@ export class CharWizardUi {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
 			entities: this._data.races,
 			getSel: () => this._state.raceUid,
-			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
+			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -754,6 +754,17 @@ export class CharWizardUi {
 		// Languages / tools / race+bg skill choices
 		this._renderProficiencyChoices(wrp);
 
+		// Racial damage-resistance choice (e.g. Dragonborn base)
+		const resOpts = st.raceResistOptions();
+		if (resOpts) {
+			ee(wrp)`<h4 class="ve-mt-3">Damage Resistance <span class="ve-muted ve-small">(${st.raceEnt?.name?.qq() || "Race"})</span></h4>`;
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— choose a damage type —</option></select>`;
+			resOpts.forEach(d => ee`<option value="${`${d}`.qq()}">${`${d}`.toTitleCase()}</option>`.appendTo(sel));
+			sel.val(st.raceResistChoice || "");
+			sel.onn("change", () => { st.raceResistChoice = sel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2">Resistance to ${sel}</div>`;
+		}
+
 		// Defense / armor — you can only wear armor/shields you own (equip from the Inventory below)
 		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
 		const invArmors = st.inventoryArmors();
@@ -1145,15 +1156,22 @@ export class CharWizardUi {
 		// magic item effects (from worn armor + equipped shield + wielded weapons)
 		const eqfx = st.equippedItemEffects();
 		const itemLink = (name, source) => refLink(UrlUtil.PG_ITEMS, {name, source}, name);
-		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.spellAtk || eqfx.spellDc || eqfx.abilitySet.length || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
+		// defenses (race + items): resistances / immunities / vulnerabilities / condition immunities
+		const def = st.defenses();
+		const capList = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
+		if (def.resist.length || def.immune.length || def.vulnerable.length || def.conditionImmune.length) {
+			const secDef = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secDef)`<h4>Defenses</h4>`;
+			if (def.resist.length) ee(secDef)`<div><b>Damage Resistance:</b> ${capList(def.resist).qq()}</div>`;
+			if (def.immune.length) ee(secDef)`<div><b>Damage Immunity:</b> ${capList(def.immune).qq()}</div>`;
+			if (def.vulnerable.length) ee(secDef)`<div><b>Damage Vulnerability:</b> ${capList(def.vulnerable).qq()}</div>`;
+			if (def.conditionImmune.length) ee(secDef)`<div><b>Condition Immunity:</b> ${capList(def.conditionImmune).qq()}</div>`;
+		}
+
+		if (eqfx.saveBonus || eqfx.spellAtk || eqfx.spellDc || eqfx.abilitySet.length || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
 			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped gear: armor, shield, weapons, rings &amp; wondrous)</span></h4>`;
-			const cap = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
 			eqfx.abilitySet.forEach(s => ee(secMi)`<div><b>${CW.ABIL_FULL[s.abil]} set to ${s.value}</b> <span class="ve-muted ve-small">(${s.item.qq()})</span></div>`);
-			if (eqfx.resist.length) ee(secMi)`<div><b>Damage Resistance:</b> ${cap(eqfx.resist).qq()}</div>`;
-			if (eqfx.immune.length) ee(secMi)`<div><b>Damage Immunity:</b> ${cap(eqfx.immune).qq()}</div>`;
-			if (eqfx.vulnerable.length) ee(secMi)`<div><b>Damage Vulnerability:</b> ${cap(eqfx.vulnerable).qq()}</div>`;
-			if (eqfx.conditionImmune.length) ee(secMi)`<div><b>Condition Immunity:</b> ${cap(eqfx.conditionImmune).qq()}</div>`;
 			if (eqfx.saveBonus) ee(secMi)`<div><b>Saving Throws:</b> ${CW.fmtMod(eqfx.saveBonus)} to all saves (included above)</div>`;
 			if (eqfx.spellAtk || eqfx.spellDc) ee(secMi)`<div><b>Spellcasting:</b> ${[eqfx.spellAtk ? `${CW.fmtMod(eqfx.spellAtk)} spell attack` : "", eqfx.spellDc ? `${CW.fmtMod(eqfx.spellDc)} spell save DC` : ""].filter(Boolean).join(", ")} (included above)</div>`;
 			if (eqfx.focus.length) ee(secMi)`<div><b>Spellcasting Focus:</b> ${eqfx.focus.map(n => `${n}`.qq()).join(", ")}</div>`;

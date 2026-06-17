@@ -55,6 +55,7 @@ export class CharState {
 		this.raceAbilOption = 0; // which ability option (a/b/…) for multi-option races
 		this.raceAbilChoices = []; // simple "choose N" ability picks
 		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
+		this.raceResistChoice = null; // chosen damage type when the race offers a resistance choice (e.g. Dragonborn)
 		this.classSkillChoices = [];
 		this.expertiseChoices = []; // skills with expertise (double proficiency)
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
@@ -655,6 +656,21 @@ export class CharState {
 		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, spellAtk, spellDc, abilitySet, attuned, needAttune, speed, focus, spells};
 	}
 
+	/* ----- defenses: damage resistance / immunity / vulnerability / condition immunity (race + items) ----- */
+	// the damage types a race lets you choose a resistance from (e.g. Dragonborn base), or null
+	raceResistOptions () { const ch = (this.raceEnt?.resist || []).find(x => x?.choose?.from); return ch ? ch.choose.from : null; }
+
+	defenses () {
+		const resist = new Set(); const immune = new Set(); const vulnerable = new Set(); const conditionImmune = new Set();
+		const addArr = (arr, set) => (arr || []).forEach(x => { if (typeof x === "string") set.add(x); });
+		const r = this.raceEnt;
+		addArr(r?.resist, resist); addArr(r?.immune, immune); addArr(r?.vulnerable, vulnerable); addArr(r?.conditionImmune, conditionImmune);
+		if (this.raceResistChoice && (this.raceResistOptions() || []).includes(this.raceResistChoice)) resist.add(this.raceResistChoice);
+		const fx = this.equippedItemEffects();
+		fx.resist.forEach(x => resist.add(x)); fx.immune.forEach(x => immune.add(x)); fx.vulnerable.forEach(x => vulnerable.add(x)); fx.conditionImmune.forEach(x => conditionImmune.add(x));
+		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune]};
+	}
+
 	// Permanent (non-situational) adv/dis effects from armor + reliably-detectable features.
 	// scope.kind: "skill"(+skill) | "abilCheck"(+abil) | "save"(+abil) | "init".
 	// Note: most feature adv/dis is situational (e.g. Rage "while raging") and is listed as a note instead.
@@ -1189,6 +1205,7 @@ export class CharState {
 			raceAbilOption: this.raceAbilOption,
 			raceAbilChoices: this.raceAbilChoices,
 			raceAbilWeighted: this.raceAbilWeighted,
+			raceResistChoice: this.raceResistChoice,
 			classSkillChoices: this.classSkillChoices,
 			expertiseChoices: this.expertiseChoices,
 			profChoices: this.profChoices,
@@ -1237,6 +1254,7 @@ export class CharState {
 			raceAbilOption: j.raceAbilOption ?? 0,
 			raceAbilChoices: j.raceAbilChoices ?? [],
 			raceAbilWeighted: j.raceAbilWeighted ?? [],
+			raceResistChoice: j.raceResistChoice ?? null,
 			classSkillChoices: j.classSkillChoices ?? [],
 			expertiseChoices: j.expertiseChoices ?? [],
 			profChoices: j.profChoices ?? {},
