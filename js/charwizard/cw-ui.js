@@ -636,7 +636,8 @@ export class CharWizardUi {
 		const clsf = st.classFeatureAbilityBonuses()[abv];
 		const total = base == null ? null : st.finalAbility(abv);
 		const mod = total == null ? null : CW.mod(total);
-		const computed = (base || 0) + racial + bg + asi + clsf;
+		const itemBonus = st._itemAbilityBonus(abv);
+		const computed = (base || 0) + racial + bg + asi + clsf + itemBonus;
 		const itemSet = st._itemAbilitySet(abv);
 		const parts = [];
 		if (base != null) parts.push(`base ${base}`);
@@ -644,6 +645,7 @@ export class CharWizardUi {
 		if (bg) parts.push(`${CW.fmtMod(bg)} background`);
 		if (asi) parts.push(`${CW.fmtMod(asi)} ASI`);
 		if (clsf) parts.push(`${CW.fmtMod(clsf)} class`);
+		if (itemBonus) parts.push(`${CW.fmtMod(itemBonus)} item`);
 		if (base != null && itemSet != null && itemSet > computed) parts.push(`set ${itemSet} (item)`);
 		return ee`<div class="cw__abil">
 			<div class="cw__abil-name">${abv}</div>
@@ -1258,7 +1260,7 @@ export class CharWizardUi {
 			const rowsHtml = wielded.map(it => {
 				const a = st.weaponAttack(it);
 				const dmg = `${st.fmtWeaponDamage(a.dmg1, a)}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a)} 2H)</span>` : ""}`;
-				const notes = [a.ranged && a.range ? `range ${a.range}` : "", ...a.properties].filter(Boolean).join(", ");
+				const notes = [a.ranged && a.range ? `range ${a.range}` : "", a.critThreshold ? `crit ${a.critThreshold}–20` : "", ...a.properties].filter(Boolean).join(", ");
 				const noProf = a.prof ? "" : ` <span class="cw__advdis cw__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`;
 				return `<tr style="border-top:1px solid rgba(127,127,127,.15)"><td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${noProf}</td><td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td><td class="ve-py-1">${dmg}</td><td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td></tr>`;
 			}).join("");
@@ -1321,17 +1323,18 @@ export class CharWizardUi {
 		if (eqfx.saveBonus || eqfx.spellAtk || eqfx.spellDc || eqfx.abilitySet.length || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
 			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped gear: armor, shield, weapons, rings &amp; wondrous)</span></h4>`;
-			eqfx.abilitySet.forEach(s => ee(secMi)`<div><b>${CW.ABIL_FULL[s.abil]} set to ${s.value}</b> <span class="ve-muted ve-small">(${s.item.qq()})</span></div>`);
+			const itemRefs = (arr) => arr.map(r => itemLink(r.name, r.source)).join(", ");
+			eqfx.abilitySet.forEach(s => ee(secMi)`<div><b>${CW.ABIL_FULL[s.abil]} set to ${s.value}</b> <span class="ve-muted ve-small">(${itemLink(s.item, s.source)})</span></div>`);
 			if (eqfx.saveBonus) ee(secMi)`<div><b>Saving Throws:</b> ${CW.fmtMod(eqfx.saveBonus)} to all saves (included above)</div>`;
 			if (eqfx.spellAtk || eqfx.spellDc) ee(secMi)`<div><b>Spellcasting:</b> ${[eqfx.spellAtk ? `${CW.fmtMod(eqfx.spellAtk)} spell attack` : "", eqfx.spellDc ? `${CW.fmtMod(eqfx.spellDc)} spell save DC` : ""].filter(Boolean).join(", ")} (included above)</div>`;
-			if (eqfx.focus.length) ee(secMi)`<div><b>Spellcasting Focus:</b> ${eqfx.focus.map(n => `${n}`.qq()).join(", ")}</div>`;
-			if (eqfx.speed.length) ee(secMi)`<div><b>Speed:</b> modified by ${eqfx.speed.map(n => `${n}`.qq()).join(", ")} <span class="ve-muted ve-small">(see item text)</span></div>`;
+			if (eqfx.focus.length) ee(secMi)`<div><b>Spellcasting Focus:</b> ${itemRefs(eqfx.focus)}</div>`;
+			if (eqfx.speed.length) ee(secMi)`<div><b>Speed:</b> modified by ${itemRefs(eqfx.speed)} <span class="ve-muted ve-small">(see item text)</span></div>`;
 			eqfx.spells.forEach(grp => {
 				const parts = grp.entries.map(e => `${e.sp ? spellSpan(e.sp.name, e.sp.source) : `${e.name}`.qq()}${e.note ? ` <span class="ve-muted ve-small">(${e.note.qq()})</span>` : ""}`);
 				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
 			});
-			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/${st.attuneMax()}): ${eqfx.attuned.map(n => `${n}`.qq()).join(", ")}</div>`;
-			eqfx.needAttune.forEach(n => ee(secMi)`<div class="cw__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${n.qq()} is equipped but not attuned — its magic benefits are inactive.</div>`);
+			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/${st.attuneMax()}): ${itemRefs(eqfx.attuned)}</div>`;
+			eqfx.needAttune.forEach(r => ee(secMi)`<div class="cw__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${itemLink(r.name, r.source)} is equipped but not attuned — its magic benefits are inactive.</div>`);
 		}
 
 		// inventory

@@ -330,7 +330,7 @@ export class CharState {
 	}
 
 	finalAbility (abv) {
-		const computed = (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.backgroundBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv];
+		const computed = (this.abilitiesBase[abv] || 0) + this.racialBonuses()[abv] + this.backgroundBonuses()[abv] + this.asiBonuses()[abv] + this.classFeatureAbilityBonuses()[abv] + this._itemAbilityBonus(abv);
 		const set = this._itemAbilitySet(abv); // e.g. Amulet of Health sets Con to 19
 		return set != null ? Math.max(computed, set) : computed;
 	}
@@ -340,6 +340,12 @@ export class CharState {
 		this.equippedItems().forEach(it => { if (!this._magicActive(it)) return; const v = it.ability?.static?.[abv]; if (typeof v === "number") best = best == null ? v : Math.max(best, v); });
 		return best;
 	}
+	// flat ability bonus from equipped items (Belt of Dwarvenkind +2 Con, Ioun Stones, Tomes/Manuals)
+	_itemAbilityBonus (abv) {
+		let n = 0;
+		this.equippedItems().forEach(it => { if (!this._magicActive(it)) return; const v = it.ability?.[abv]; if (typeof v === "number") n += v; });
+		return n;
+	}
 	abilityMod (abv) { return CW.mod(this.finalAbility(abv)); }
 
 	pointBuySpent () {
@@ -347,7 +353,9 @@ export class CharState {
 	}
 
 	/* ----- derived ----- */
-	get profBonus () { return CW.profBonus(this.level); }
+	get profBonus () { return CW.profBonus(this.level) + this._itemBonusNum("bonusProficiencyBonus"); } // Ioun Stone of Mastery (+1)
+	// sum a numeric "+N" field across equipped (magic-active) items
+	_itemBonusNum (field) { let n = 0; this.equippedItems().forEach(it => { if (this._magicActive(it) && it[field] != null) n += parseInt(`${it[field]}`.replace(/[^-0-9]/g, ""), 10) || 0; }); return n; }
 
 	hitDie () { const c = this.classEnt; return c?.hd ? c.hd.faces : null; }
 
@@ -589,7 +597,7 @@ export class CharState {
 	}
 
 	skillMod (skill) {
-		const base = this.abilityMod(CW.skillAbil(skill));
+		const base = this.abilityMod(CW.skillAbil(skill)) + this._itemBonusNum("bonusAbilityCheck"); // Stone of Good Luck (+1 to ability checks)
 		const type = this.skillProfType(skill);
 		if (type === "expertise") return base + this.profBonus * 2;
 		if (type === "full") return base + this.profBonus;
@@ -733,7 +741,8 @@ export class CharState {
 		const attuned = []; const needAttune = []; const speed = []; const focus = []; const spells = []; const abilitySet = []; let saveBonus = 0; let spellAtk = 0; let spellDc = 0;
 		const num = (v) => parseInt(`${v}`.replace(/[^-0-9]/g, ""), 10) || 0;
 		this.equippedItems().forEach(it => {
-			if (it.reqAttune) (this.isAttuned(CW.uid(it)) ? attuned : needAttune).push(it.name);
+			const ref = {name: it.name, source: it.source};
+			if (it.reqAttune) (this.isAttuned(CW.uid(it)) ? attuned : needAttune).push(ref);
 			if (!this._magicActive(it)) return; // unattuned item gives only its nonmagical benefits
 			(it.resist || []).forEach(x => typeof x === "string" && resist.add(x));
 			(it.immune || []).forEach(x => typeof x === "string" && immune.add(x));
@@ -742,9 +751,9 @@ export class CharState {
 			if (it.bonusSavingThrow) saveBonus += num(it.bonusSavingThrow);
 			if (it.bonusSpellAttack) spellAtk += num(it.bonusSpellAttack);
 			if (it.bonusSpellSaveDc) spellDc += num(it.bonusSpellSaveDc);
-			if (it.ability?.static) Object.entries(it.ability.static).forEach(([k, v]) => { if (CW.ABILITIES.includes(k)) abilitySet.push({abil: k, value: v, item: it.name}); });
-			if (it.focus) focus.push(it.name);
-			if (it.modifySpeed) speed.push(it.name);
+			if (it.ability?.static) Object.entries(it.ability.static).forEach(([k, v]) => { if (CW.ABILITIES.includes(k)) abilitySet.push({abil: k, value: v, item: it.name, source: it.source}); });
+			if (it.focus) focus.push(ref);
+			if (it.modifySpeed) speed.push(ref);
 			const att = this._flattenAttachedSpells(it.attachedSpells);
 			if (att.length) spells.push({item: it.name, source: it.source, entries: att.map(a => ({...a, sp: this._spellByName(a.name)}))});
 		});
@@ -988,6 +997,7 @@ export class CharState {
 			dmgBonus: abilMod + magicDmg + fsDmg,
 			ranged, range: it.range,
 			magic: magicAtk || magicDmg,
+			critThreshold: (active && it.critThreshold) || null, // crits on N-20
 			properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean),
 		};
 	}
