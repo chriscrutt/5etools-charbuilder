@@ -873,9 +873,11 @@ export class CharWizardUi {
 		CW.ABILITIES.forEach(abv => {
 			const total = st.finalAbility(abv); const mod = st.abilityMod(abv);
 			const saveProf = st.saveProfs().has(abv);
+			const sad = st.saveAdvDis(abv);
+			const sadBadge = sad ? `<span class="cw__advdis cw__advdis--${sad.type}" title="${sad.source.qq()}">${sad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
 			ee(abilGrid)`<div class="cw__abil"><div class="cw__abil-name">${abv}</div>
 				<div class="cw__abil-score">${total}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div>
-				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""}</div></div>`;
+				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${sadBadge}</div></div>`;
 		});
 
 		// skills
@@ -885,8 +887,22 @@ export class CharWizardUi {
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
 		const MARK = {full: "●", half: "◐", none: "○"};
 		CW.skills().sort().forEach(sk => {
-			ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b></div>`;
+			const ad = st.skillAdvDis(sk);
+			const badge = ad ? `<span class="cw__advdis cw__advdis--${ad.type}" title="${ad.source.qq()}">${ad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
+			ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.skillMod(sk))}</b> ${badge}</div>`;
 		});
+
+		// conditional advantages / disadvantages (from race/class/feats/background + armor)
+		const notes = st.advantageNotes();
+		const eff = st.armorEffects();
+		if (notes.length || eff.nonProf || eff.stealthDis || eff.strReqUnmet) {
+			const secAd = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secAd)`<h4>Advantages &amp; Disadvantages</h4>`;
+			if (eff.nonProf) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Str/Dex checks, saves &amp; attacks — wearing armor/shield you're not proficient with.</div>`;
+			if (eff.stealthDis) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Stealth checks — ${eff.stealthDis.qq()}.</div>`;
+			if (eff.strReqUnmet) ee(secAd)`<div class="ve-muted ve-small">Speed −10 ft. — ${eff.strReqUnmet.armor.qq()} requires Str ${eff.strReqUnmet.req}.</div>`;
+			notes.forEach(n => ee(secAd)`<div><span class="cw__advdis cw__advdis--${n.type}">${n.type === "adv" ? "ADV" : "DIS"}</span> ${n.text.qq()} <span class="ve-muted ve-small">(${n.source.qq()})</span></div>`);
+		}
 
 		// proficiencies & languages
 		const awt = st.armorWeaponToolProfs();

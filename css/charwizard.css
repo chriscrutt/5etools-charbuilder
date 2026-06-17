@@ -77,4 +77,9 @@
 .cw__class-tbl th { border-bottom: 2px solid rgba(127,127,127,.4); position: sticky; top: 0; }
 .cw__class-tbl td.cw__class-tbl-feat { text-align: left; white-space: normal; min-width: 160px; }
 
+/* Advantage / disadvantage badges */
+.cw__advdis { display: inline-block; font-size: 9px; font-weight: bold; padding: 0 4px; border-radius: 3px; vertical-align: middle; letter-spacing: .5px; }
+.cw__advdis--adv { background: rgba(46,139,87,.25); color: #4ec77e; border: 1px solid rgba(46,139,87,.5); }
+.cw__advdis--dis { background: rgba(176,0,0,.22); color: #e06666; border: 1px solid rgba(176,0,0,.5); }
+
 .cw__err { color: #b00; padding: 8px; }

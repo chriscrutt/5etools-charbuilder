@@ -405,6 +405,62 @@ export class CharState {
 		return out;
 	}
 
+	/* ----- advantage / disadvantage (annotations) ----- */
+	_ignoresHeavyArmorSpeedPenalty () {
+		// e.g. Dwarf: "Your speed is not reduced by wearing heavy armor."
+		return /speed is(?:n't| not) reduced by (?:wearing )?heavy armor/.test(JSON.stringify(this.raceEnt?.entries || "").toLowerCase());
+	}
+
+	armorEffects () {
+		const out = {stealthDis: null, nonProf: false, strReqUnmet: null};
+		const armor = this.armorEnt();
+		if (armor) {
+			if (armor.stealth) out.stealthDis = armor.name;
+			const cat = this.armorCategory(armor);
+			if (cat && !this.armorProficiencies().has(cat)) out.nonProf = true;
+			const req = parseInt(armor.strength, 10);
+			if (req && this.finalAbility("str") < req && !this._ignoresHeavyArmorSpeedPenalty()) out.strReqUnmet = {armor: armor.name, req};
+		}
+		if (this.isShieldEffective() && !this.armorProficiencies().has("shield")) out.nonProf = true;
+		return out;
+	}
+
+	skillAdvDis (skill) {
+		const eff = this.armorEffects();
+		const abil = CW.skillAbil(skill);
+		if (skill === "stealth" && eff.stealthDis) return {type: "dis", source: `${eff.stealthDis} (stealth)`};
+		if (eff.nonProf && (abil === "str" || abil === "dex")) return {type: "dis", source: "non-proficient armor"};
+		return null;
+	}
+
+	saveAdvDis (abv) {
+		const eff = this.armorEffects();
+		if (eff.nonProf && (abv === "str" || abv === "dex")) return {type: "dis", source: "non-proficient armor"};
+		return null;
+	}
+
+	// best-effort parse of "advantage/disadvantage on saving throws/checks/rolls ..." from features
+	advantageNotes () {
+		const out = []; const seen = new Set();
+		const parse = (entries, source) => {
+			if (!source) return;
+			const text = JSON.stringify(entries || "").replace(/\{@\w+ ([^}|]+)(?:\|[^}]*)?\}/g, "$1");
+			const re = /([^.>"{}]*\b(?:advantage|disadvantage)\b[^.>"{}]*\bon\b[^.>"{}]*?(?:saving throws?|checks?|rolls?)[^.>"{}]*)\./gi;
+			let m;
+			while ((m = re.exec(text)) !== null) {
+				const s = m[1].trim().replace(/^[,\s]+/, "");
+				const key = `${source}|${s.toLowerCase()}`;
+				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source}); }
+			}
+		};
+		parse(this.raceEnt?.entries, this.raceEnt?.name);
+		this.featsTaken().forEach(({featUid}) => { const f = this._data.feats.find(x => CW.uid(x) === featUid); parse(f?.entries, f?.name); });
+		const addF = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) parse(f?.entries, f?.name); }));
+		addF(this.classEnt?.classFeatures); addF(this.subclassEnt?.subclassFeatures);
+		parse(this.backgroundEnt?.entries, this.backgroundEnt?.name);
+		return out;
+	}
+
 	/* ----- inventory ----- */
 	_resolveItem (name, source) {
 		const idx = this._data.itemIndex; const idxName = this._data.itemIndexByName;
@@ -537,14 +593,16 @@ export class CharState {
 	speedString () {
 		const sp = this.raceEnt?.speed; if (sp == null) return "—";
 		const bonus = this.speedBonusFromFeatures();
-		const walk = (typeof sp === "number" ? sp : (sp.walk ?? 30)) + bonus;
+		const penalty = this.armorEffects().strReqUnmet ? 10 : 0; // heavy armor STR requirement not met
+		const walk = Math.max(0, (typeof sp === "number" ? sp : (sp.walk ?? 30)) + bonus - penalty);
 		const parts = [`${walk} ft.`];
 		if (typeof sp === "object") {
 			[["fly", "fly"], ["swim", "swim"], ["climb", "climb"], ["burrow", "burrow"]].forEach(([k, lbl]) => {
 				const v = sp[k]; if (v) parts.push(`${lbl} ${v === true ? walk : v} ft.`);
 			});
 		}
-		return parts.join(", ") + (bonus ? ` (incl. +${bonus} from features)` : "");
+		const notes = [bonus ? `+${bonus} features` : "", penalty ? `−10 armor Str req` : ""].filter(Boolean);
+		return parts.join(", ") + (notes.length ? ` (${notes.join(", ")})` : "");
 	}
 
 	// Race natural armor (text-parsed): {base, abil} or null
