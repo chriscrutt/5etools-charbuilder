@@ -31,16 +31,19 @@ export class CharWizardUi {
 
 	_save () { this._fnSave?.(); }
 
+	// "Race" under 2014 rules, "Species" under 2024 rules
+	_raceWord () { return this._data.styleHint === "one" ? "Species" : "Race"; }
+
 	_steps () {
 		const st = this._state;
 		const steps = [
-			{id: "race", label: "Species", done: () => !!st.raceUid, render: (el) => this._renderStepRace(el)},
+			{id: "race", label: this._raceWord(), done: () => !!st.raceUid, render: (el) => this._renderStepRace(el)},
 			{id: "class", label: "Class", done: () => !!st.classUid, render: (el) => this._renderStepClass(el)},
 			{id: "background", label: "Background", done: () => !!st.backgroundUid, render: (el) => this._renderStepBackground(el)},
 			{id: "abilities", label: "Abilities", done: () => true, render: (el) => this._renderStepAbilities(el)},
 		];
 		steps.push({id: "skills", label: "Skills & Gear", done: () => true, render: (el) => this._renderStepSkills(el)});
-		if (st.isCaster()) steps.push({id: "spells", label: "Spells", done: () => true, render: (el) => this._renderStepSpells(el)});
+		if (st.isCaster() || st.hasRacialSpells()) steps.push({id: "spells", label: "Spells", done: () => true, render: (el) => this._renderStepSpells(el)});
 		steps.push({id: "review", label: "Review", done: () => true, render: (el) => this._renderStepReview(el)});
 		return steps;
 	}
@@ -184,10 +187,10 @@ export class CharWizardUi {
 	/* ----- Step: Race ----- */
 	_renderStepRace (el) {
 		this._renderChooser(el, {
-			subtitle: "Choose your character's species/race. Ability bonuses, speed, size, and traits come from here.",
+			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
 			entities: this._data.races,
 			getSel: () => this._state.raceUid,
-			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.clearProfChoicesForSource("race"); },
+			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.clearProfChoicesForSource("race"); },
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.race.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }
@@ -366,7 +369,7 @@ export class CharWizardUi {
 		const st = this._state;
 		const opts = st.raceAbilityOptions();
 		if (!opts.length) {
-			if (st.raceUid) ee(wrp)`<div class="ve-mb-2 ve-muted ve-small">This species grants no ability score increases${this._data.styleHint === "one" ? " — under 2024 rules, ability bonuses come from your background." : "."}</div>`;
+			if (st.raceUid) ee(wrp)`<div class="ve-mb-2 ve-muted ve-small">This ${this._raceWord().toLowerCase()} grants no ability score increases${this._data.styleHint === "one" ? " — under 2024 rules, ability bonuses come from your background." : "."}</div>`;
 			return;
 		}
 		const box = ee`<div class="ve-mb-3"></div>`.appendTo(wrp);
@@ -819,24 +822,47 @@ export class CharWizardUi {
 	_renderStepSpells (el) {
 		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
-		if (!st.isCaster()) { ee(wrp)`<p class="ve-muted">This class isn't a spellcaster.</p>`; return; }
 
-		const dc = st.spellSaveDc(); const atk = st.spellAtkBonus();
-		ee(wrp)`<div class="ve-mb-2">
-			<b>Spellcasting ability:</b> ${CW.ABIL_FULL[st.spellAbility()] || "—"} &nbsp;
-			<b>Save DC:</b> ${dc ?? "—"} &nbsp; <b>Attack:</b> ${atk == null ? "—" : CW.fmtMod(atk)}
-			<br><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}
-		</div>`;
+		if (st.isCaster()) {
+			const dc = st.spellSaveDc(); const atk = st.spellAtkBonus();
+			ee(wrp)`<h4 class="ve-mt-0">${(st.classEnt?.name || "Class")} Spellcasting</h4>
+				<div class="ve-mb-2"><b>Ability:</b> ${CW.ABIL_FULL[st.spellAbility()] || "—"} &nbsp; <b>Save DC:</b> ${dc ?? "—"} &nbsp; <b>Attack:</b> ${atk == null ? "—" : CW.fmtMod(atk)}<br><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}</div>`;
+			const dedupe = (arr) => { const seen = new Set(); return arr.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }); };
+			const all = st.spellListForClass();
+			const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
+			const maxLv = st.maxSpellLevel();
+			const leveled = dedupe(all.filter(s => s.level >= 1 && s.level <= maxLv).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name)));
+			this._renderSpellPicker(wrp, `Cantrips`, cantrips, st.spellChoices.cantrips, st.cantripsKnown());
+			this._renderSpellPicker(wrp, st.classEnt?.preparedSpells ? `Prepared spells` : `Spells known`, leveled, st.spellChoices.leveled, st.leveledSpellsKnown());
+		}
 
-		// dedupe by name so multi-edition reprints (e.g. PHB + XPHB) don't appear twice
-		const dedupe = (arr) => { const seen = new Set(); return arr.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }); };
-		const all = st.spellListForClass();
-		const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
-		const maxLv = st.maxSpellLevel();
-		const leveled = dedupe(all.filter(s => s.level >= 1 && s.level <= maxLv).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name)));
+		if (st.hasRacialSpells()) this._renderRacialSpells(wrp);
+		if (!st.isCaster() && !st.hasRacialSpells()) ee(wrp)`<p class="ve-muted">No spellcasting.</p>`;
+	}
 
-		this._renderSpellPicker(wrp, `Cantrips`, cantrips, st.spellChoices.cantrips, st.cantripsKnown());
-		this._renderSpellPicker(wrp, st.classEnt?.preparedSpells ? `Prepared spells` : `Spells known`, leveled, st.spellChoices.leveled, st.leveledSpellsKnown());
+	_renderRacialSpells (wrp) {
+		const st = this._state;
+		const info = st.racialSpellsInfo(); if (!info) return;
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>${st.raceEnt.name.qq()} — Innate Spellcasting</h4>`;
+		if (info.abilityChoices) {
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+			info.abilityChoices.forEach(a => ee`<option value="${a}">${CW.ABIL_FULL[a]}</option>`.appendTo(sel));
+			sel.val(st.racialSpellAbility());
+			sel.onn("change", () => { st.raceSpellAbility = sel.val(); this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-1"><b>Spellcasting ability:</b> ${sel} <span class="ve-muted ve-small">(Save DC ${st.racialSpellSaveDc() ?? "—"})</span></div>`;
+		} else if (info.ability) ee(wrp)`<div class="ve-mb-1"><b>Spellcasting ability:</b> ${CW.ABIL_FULL[info.ability]} <span class="ve-muted ve-small">(Save DC ${st.racialSpellSaveDc() ?? "—"})</span></div>`;
+		const sl = (sp) => `<span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>`;
+		if (info.knownFixed.length) ee(wrp)`<div class="ve-mb-1"><b>Known:</b> ${info.knownFixed.map(sl).join(", ")}</div>`;
+		if (info.innate.length) ee(wrp)`<div class="ve-mb-1"><b>Innate:</b> ${info.innate.map(i => `${sl(i.sp)} <span class="ve-muted ve-small">(${i.freq}${i.level > 1 ? `, from L${i.level}` : ""})</span>`).join(", ")}</div>`;
+		info.knownChoose.forEach(g => {
+			if (!st.raceSpellChoices[g.key]) st.raceSpellChoices[g.key] = [];
+			const arr = st.raceSpellChoices[g.key];
+			const seen = new Set();
+			const opts = st.racialSpellOptions(g.filter).filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+			const counter = ee`<span class="ve-muted ve-small">${arr.length}/${g.count}</span>`;
+			ee(wrp)`<div class="ve-mt-1"><b>Choose ${g.count} spell${g.count > 1 ? "s" : ""}</b> (${counter}):</div>`;
+			this._renderChipPicker(wrp, {items: opts, getValue: sp => sp.name, getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${sl(sp)}`, arr, max: g.count, counterEle: counter, gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:200px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px"});
+		});
 	}
 
 	_fmtSlots (slots) {
@@ -864,7 +890,7 @@ export class CharWizardUi {
 	_renderStepReview (el) {
 		const st = this._state;
 		const missing = [];
-		if (!st.raceUid) missing.push("species");
+		if (!st.raceUid) missing.push(this._raceWord().toLowerCase());
 		if (!st.classUid) missing.push("class");
 		if (!st.backgroundUid) missing.push("background");
 		const wrp = ee`<div class="cw__sheet"></div>`.appendTo(el);
@@ -970,6 +996,18 @@ export class CharWizardUi {
 				<div><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}</div>
 				<div><b>Cantrips:</b> ${chosenC.join(", ") || "—"}</div>
 				<div><b>${st.classEnt?.preparedSpells ? "Prepared" : "Known"}:</b> ${chosenL.join(", ") || "—"}</div>`;
+		}
+
+		// racial (innate) spellcasting
+		const rsi = st.hasRacialSpells() ? st.racialSpellsInfo() : null;
+		if (rsi && (rsi.knownFixed.length || rsi.innate.length || rsi.knownChoose.length)) {
+			const secR = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const chosenRacial = rsi.knownChoose.flatMap(g => st.raceSpellChoices[g.key] || []);
+			const known = [...rsi.knownFixed.map(sp => sp.name), ...chosenRacial];
+			ee(secR)`<h4>${st.raceEnt.name.qq()} Innate Spellcasting</h4>
+				${rsi.ability ? `<div><b>Ability:</b> ${CW.ABIL_FULL[rsi.ability]} &nbsp; <b>Save DC:</b> ${st.racialSpellSaveDc() ?? "—"}</div>` : ""}
+				${known.length ? `<div><b>Known:</b> ${known.map(n => `${n}`.qq()).join(", ")}</div>` : ""}
+				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${`${i.sp.name}`.qq()} (${i.freq})`).join(", ")}</div>` : ""}`;
 		}
 
 		// features

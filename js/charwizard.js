@@ -60,6 +60,8 @@ export class CharState {
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
+		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
+		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
 		this.asiChoices = {}; // level -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
 		this.armorUid = null; // worn armor item "name|source" (drives AC)
 		this.isShield = false;
@@ -745,6 +747,50 @@ export class CharState {
 		return this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === cls.name && (!c.source || c.source === cls.source || true)));
 	}
 
+	/* ----- racial spellcasting (additionalSpells) ----- */
+	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].trim().toLowerCase()) || null; }
+
+	hasRacialSpells () { return !!this.raceEnt?.additionalSpells?.length; }
+
+	racialSpellAbility () {
+		const as = this.raceEnt?.additionalSpells?.[0]; if (!as?.ability) return null;
+		if (typeof as.ability === "string") return as.ability;
+		if (Array.isArray(as.ability.choose)) return this.raceSpellAbility && as.ability.choose.includes(this.raceSpellAbility) ? this.raceSpellAbility : as.ability.choose.slice().sort((a, b) => this.abilityMod(b) - this.abilityMod(a))[0];
+		return null;
+	}
+	racialSpellAbilityChoices () { const ab = this.raceEnt?.additionalSpells?.[0]?.ability; return Array.isArray(ab?.choose) ? ab.choose : null; }
+	racialSpellSaveDc () { const a = this.racialSpellAbility(); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
+
+	// parse a 5etools spell-choose filter like "level=0|class=Wizard"
+	racialSpellOptions (filter) {
+		const params = {}; `${filter}`.split("|").forEach(p => { const [k, v] = p.split("="); if (k) params[k.trim()] = (v || "").trim(); });
+		const lvl = params.level != null && params.level !== "" ? +params.level : null;
+		const cls = params.class ? params.class.toLowerCase() : null;
+		const school = params.school ? params.school.toLowerCase() : null;
+		return this._data.spells.filter(sp => (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!school || `${sp.school}`.toLowerCase() === school));
+	}
+
+	// { ability, abilityChoices, knownFixed:[{sp}], knownChoose:[{key,filter,count}], innate:[{sp,freq,level}] } up to current level
+	racialSpellsInfo () {
+		const as = this.raceEnt?.additionalSpells?.[0]; if (!as) return null;
+		const knownFixed = []; const knownChoose = []; const innate = [];
+		const lvlOk = (l) => +l <= this.level;
+		Object.entries(as.known || {}).forEach(([charLvl, val]) => {
+			if (!lvlOk(charLvl)) return;
+			const arr = Array.isArray(val) ? val : (val._ || []);
+			arr.forEach((it, ix) => {
+				if (typeof it === "string") { const sp = this._spellByName(it); if (sp) knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `rk:${charLvl}:${ix}`, filter: it.choose, count: it.count || 1});
+			});
+		});
+		Object.entries(as.innate || {}).forEach(([charLvl, val]) => {
+			if (!lvlOk(charLvl)) return;
+			const push = (raw, freq) => { const sp = this._spellByName(raw); if (sp) innate.push({sp, freq, level: +charLvl}); };
+			if (Array.isArray(val)) val.forEach(s => push(s, "at will"));
+			else { if (val.daily) Object.entries(val.daily).forEach(([per, a]) => a.forEach(s => push(s, `${per}/day`))); if (val.rest) Object.entries(val.rest).forEach(([per, a]) => a.forEach(s => push(s, `${per}/rest`))); if (val.will) val.will.forEach(s => push(s, "at will")); }
+		});
+		return {ability: this.racialSpellAbility(), abilityChoices: this.racialSpellAbilityChoices(), knownFixed, knownChoose, innate};
+	}
+
 	/* ----- serialization ----- */
 	toJson () {
 		return {
@@ -765,6 +811,8 @@ export class CharState {
 			profChoices: this.profChoices,
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
+			raceSpellChoices: this.raceSpellChoices,
+			raceSpellAbility: this.raceSpellAbility,
 			asiChoices: this.asiChoices,
 			armorUid: this.armorUid,
 			isShield: this.isShield,
@@ -791,6 +839,8 @@ export class CharState {
 			profChoices: j.profChoices ?? {},
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
+			raceSpellChoices: j.raceSpellChoices ?? {},
+			raceSpellAbility: j.raceSpellAbility ?? null,
 			asiChoices: j.asiChoices ?? {},
 			armorUid: j.armorUid ?? null,
 			isShield: j.isShield ?? false,
@@ -843,8 +893,10 @@ class CharWizardPage {
 			const nk = `${it.name}`.toLowerCase();
 			if (!itemIndexByName.has(nk)) itemIndexByName.set(nk, it);
 		});
+		const spellIndexByName = new Map();
+		spells.forEach(sp => { const k = `${sp.name}`.toLowerCase(); if (!spellIndexByName.has(k)) spellIndexByName.set(k, sp); });
 
-		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, styleHint};
+		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, styleHint};
 		globalThis.dbg_cw = data;
 
 		const state = new CharState(data);
