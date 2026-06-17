@@ -161,7 +161,7 @@ export class CharWizardUi {
 		const setHidden = (codes, hide) => { const set = new Set(st.hiddenSources); codes.forEach(c => hide ? set.add(c) : set.delete(c)); st.hiddenSources = [...set]; this._save(); this.render(); };
 
 		// legacy toggle
-		const legacyCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="checkbox" ${st.hideLegacy ? "checked" : ""}> <b>Hide superseded (legacy) content</b> <span class="ve-muted ve-small">— e.g. a Volo's race that Monsters of the Multiverse reprinted (still 5e/2014 rules; 2024 reprints are NOT hidden)</span></label>`;
+		const legacyCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="checkbox" ${st.hideLegacy ? "checked" : ""}> <b>Hide superseded (legacy) content</b> <span class="ve-muted ve-small">— books folded into a newer 2014 book (Volo's &amp; Mordenkainen's → Monsters of the Multiverse; Elemental Evil), plus any entity a newer 2014 source reprinted. 2024 reprints (e.g. PHB → 2024 PHB) are NOT hidden.</span></label>`;
 		legacyCb.querySelector("input").addEventListener("change", (e) => { st.hideLegacy = e.target.checked; this._save(); this.render(); });
 		ee(wrp)`<div class="ve-mb-2">${legacyCb}</div>`;
 

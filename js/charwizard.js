@@ -83,10 +83,15 @@ export class CharState {
 	}
 
 	/* ----- content source filter ----- */
+	// books wholly superseded by a newer 2014-rules book (Volo's + Mordenkainen's -> Monsters of the Multiverse; Elemental Evil -> MPMM/XGE)
+	static _LEGACY_CLASSIC_SOURCES = new Set(["VGM", "MTF", "EEPC"]);
 	_sourceAllowed (source) { return !(this.hiddenSources || []).includes(source); }
-	// superseded by a newer 2014-rules ("classic") printing (e.g. VGM Aasimar -> MPMM); 2014->2024 reprints are NOT legacy here
+	// superseded within 2014 rules: a wholly-replaced book, or an entity reprinted by a newer "classic" source (e.g. VGM Aasimar -> MPMM).
+	// 2014->2024 reprints (PHB -> XPHB) are NOT legacy here, since we're playing 2014 rules.
 	_isLegacyEntity (ent) {
-		if (!this.hideLegacy || !ent?.reprintedAs) return false;
+		if (!this.hideLegacy || !ent) return false;
+		if (CharState._LEGACY_CLASSIC_SOURCES.has(ent.source)) return true;
+		if (!ent.reprintedAs) return false;
 		const isClassic = (s) => { try { return SourceUtil.isClassicSource(s); } catch (e) { return false; } };
 		return ent.reprintedAs.some(rep => { const s = (typeof rep === "string" ? rep : rep.uid || "").split("|")[1] || ""; return s && s !== ent.source && isClassic(s); });
 	}
