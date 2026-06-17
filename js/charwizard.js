@@ -14,6 +14,8 @@ export const CW = {
 	STANDARD_ARRAY: [15, 14, 13, 12, 10, 8],
 	POINT_BUY_COST: {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9},
 	POINT_BUY_BUDGET: 27,
+	DMG_TYPE: {S: "slashing", P: "piercing", B: "bludgeoning"},
+	WEAPON_PROP: {F: "finesse", V: "versatile", T: "thrown", L: "light", H: "heavy", "2H": "two-handed", A: "ammunition", R: "reach", LD: "loading", S: "special", RLD: "reload", BF: "burst fire", AF: "ammunition (firearm)"},
 
 	mod (score) { return Math.floor((score - 10) / 2); },
 	fmtMod (n) { return n >= 0 ? `+${n}` : `${n}`; },
@@ -540,8 +542,8 @@ export class CharState {
 		return out;
 	}
 
-	/* ----- equipped magic-item effects (worn armor + equipped shield) ----- */
-	equippedItems () { return [this.armorEnt(), this.shieldEnt()].filter(Boolean); }
+	/* ----- equipped magic-item effects (worn armor + equipped shield + wielded weapons) ----- */
+	equippedItems () { return [this.armorEnt(), this.shieldEnt(), ...this.wieldedWeapons()].filter(Boolean); }
 
 	// flatten an item's attachedSpells structure into [{name, note}]
 	_flattenAttachedSpells (att) {
@@ -729,6 +731,73 @@ export class CharState {
 			.map(it => it.name)
 			.filter(n => { if (seen.has(n)) return false; seen.add(n); return true; })
 			.sort(SortUtil.ascSortLower);
+	}
+
+	/* ----- weapons / attacks ----- */
+	_itemByUid (uid) { return uid ? (this._data.itemIndex?.get(`${uid}`.toLowerCase()) || null) : null; }
+	isWeapon (it) { return !!(it && it.weapon && it.weaponCategory); }
+	// weapons currently wielded (inventory rows flagged equipped)
+	wieldedWeapons () { return this.inventory.filter(r => r.equipped && this.isWeapon(this._itemByUid(r.uid))).map(r => this._itemByUid(r.uid)).filter(Boolean); }
+
+	// weapon proficiencies: {cats:Set<"simple"|"martial">, names:Set<weapon name>} from classes + race + background
+	weaponProficiencies () {
+		const cats = new Set(); const names = new Set();
+		const addCatOrName = (raw) => {
+			const s = `${raw}`.toLowerCase().trim();
+			if (s === "simple" || s === "simple weapons") cats.add("simple");
+			else if (s === "martial" || s === "martial weapons") cats.add("martial");
+			else { const m = `${raw}`.match(/\{@item ([^}|]+)/); const nm = (m ? m[1] : s).split("|")[0].trim().toLowerCase(); if (nm) names.add(nm); }
+		};
+		const addClassArr = (arr) => (arr || []).forEach(w => {
+			if (typeof w === "string") addCatOrName(w);
+			else if (w && typeof w === "object") { const p = `${w.proficiency || w.full || ""}`.toLowerCase(); if (/martial/.test(p)) cats.add("martial"); else if (/simple/.test(p)) cats.add("simple"); }
+		});
+		this.classList().forEach(({cls, isPrimary}) => addClassArr(isPrimary ? cls.startingProficiencies?.weapons : cls.multiclassing?.proficienciesGained?.weapons));
+		const addObjArr = (arr) => (arr || []).forEach(grp => { if (!grp || typeof grp !== "object" || grp.choose) return; Object.entries(grp).forEach(([k, v]) => { if (v !== true) return; const kl = `${k}`.toLowerCase(); if (/martial/.test(kl)) cats.add("martial"); else if (/simple/.test(kl)) cats.add("simple"); else names.add(kl.split("|")[0].trim()); }); });
+		addObjArr(this.raceEnt?.weaponProficiencies);
+		addObjArr(this.backgroundEnt?.weaponProficiencies);
+		return {cats, names};
+	}
+	_proficientWithWeapon (it) {
+		const {cats, names} = this.weaponProficiencies();
+		if (it.weaponCategory && cats.has(it.weaponCategory)) return true;
+		const baseName = (it.baseItem ? `${it.baseItem}`.split("|")[0] : it.name).toLowerCase();
+		return names.has(baseName) || names.has(`${it.name}`.toLowerCase());
+	}
+
+	// the ability used for a weapon's attack/damage (finesse -> better of Str/Dex; ranged -> Dex; else Str)
+	_weaponAbility (it) {
+		const props = (it.property || []).map(p => `${p}`.split("|")[0].toUpperCase());
+		const ranged = `${it.type || ""}`.split("|")[0] === "R";
+		if (props.includes("F")) return this.abilityMod("str") >= this.abilityMod("dex") ? "str" : "dex";
+		return ranged ? "dex" : "str";
+	}
+	// magic attack/damage bonus: bonusWeapon applies to both; bonusWeaponAttack/Damage are specific
+	_bonusWeaponNum (it, kind) {
+		const num = (v) => v ? (parseInt(`${v}`.replace(/[^-0-9]/g, ""), 10) || 0) : 0;
+		return num(it.bonusWeapon) + num(it[kind === "attack" ? "bonusWeaponAttack" : "bonusWeaponDamage"]);
+	}
+
+	weaponAttack (it) {
+		const ability = this._weaponAbility(it);
+		const abilMod = this.abilityMod(ability);
+		const prof = this._proficientWithWeapon(it);
+		const props = (it.property || []).map(p => `${p}`.split("|")[0].toUpperCase());
+		const toHit = abilMod + (prof ? this.profBonus : 0) + this._bonusWeaponNum(it, "attack");
+		return {
+			name: it.name, source: it.source, ability, prof, toHit,
+			dmg1: it.dmg1, dmg2: (props.includes("V") ? it.dmg2 : null), dmgType: it.dmgType,
+			dmgBonus: abilMod + this._bonusWeaponNum(it, "damage"),
+			ranged: `${it.type || ""}`.split("|")[0] === "R", range: it.range,
+			magic: this._bonusWeaponNum(it, "attack") || this._bonusWeaponNum(it, "damage"),
+			properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean),
+		};
+	}
+	// formatted damage string, e.g. "1d8 +3 slashing" (versatile shown separately by the UI)
+	fmtWeaponDamage (dice, atk) {
+		if (!dice) return "—";
+		const b = atk.dmgBonus;
+		return `${dice}${b ? ` ${CW.fmtMod(b)}` : ""}${atk.dmgType ? ` ${CW.DMG_TYPE[atk.dmgType] || atk.dmgType}` : ""}`;
 	}
 
 	acBreakdown () {

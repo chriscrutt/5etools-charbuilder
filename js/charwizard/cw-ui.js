@@ -841,8 +841,9 @@ export class CharWizardUi {
 			} else {
 				ee(nameCell)`${row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq()}`;
 			}
-			// "Wear" control for armor/shields (incl. magic) -> drives AC
+			// equip control: "Wear"/"Equip" for armor & shields, "Wield" for weapons
 			const armorEnt = row.uid ? (this._data.armors || []).find(a => CW.uid(a) === row.uid) : null;
+			const itemEnt = row.uid ? st._itemByUid(row.uid) : null;
 			const wearCell = ee`<td class="ve-py-1 ve-text-center"></td>`.appendTo(tr);
 			if (armorEnt) {
 				const isShieldItem = `${armorEnt.type || ""}`.split("|")[0] === "S";
@@ -853,6 +854,11 @@ export class CharWizardUi {
 						else st.armorUid = worn ? null : row.uid;
 						this._save(); this.render();
 					})
+					.appendTo(wearCell);
+			} else if (st.isWeapon(itemEnt)) {
+				const wielded = !!row.equipped;
+				ee`<button class="ve-btn ve-btn-xs ${wielded ? "ve-btn-success" : "ve-btn-default"}" title="Show this weapon's attack & damage on the sheet">${wielded ? "Wielded ✓" : "Wield"}</button>`
+					.onn("click", () => { row.equipped = !row.equipped; this._save(); this.render(); })
 					.appendTo(wearCell);
 			}
 			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { st.removeFromInventory(ix); } this._save(); this._renderInventoryList(listWrp); });
@@ -1065,6 +1071,27 @@ export class CharWizardUi {
 				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
 		});
 
+		// attacks (wielded weapons)
+		const wielded = st.wieldedWeapons();
+		if (wielded.length) {
+			const secAtk = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secAtk)`<h4>Attacks</h4>`;
+			const tbl = ee`<table class="w-100 ve-small"><thead><tr><th class="ve-text-left">Weapon</th><th>Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody></tbody></table>`.appendTo(secAtk);
+			const tb = tbl.querySelector("tbody");
+			wielded.forEach(it => {
+				const a = st.weaponAttack(it);
+				const dmg = `${st.fmtWeaponDamage(a.dmg1, a)}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a)} two-handed)</span>` : ""}`;
+				const notes = [a.ranged && a.range ? `range ${a.range}` : "", ...a.properties].filter(Boolean).join(", ");
+				ee(tb)`<tr style="border-top:1px solid rgba(127,127,127,.15)">
+					<td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${a.prof ? "" : ` <span class="cw__advdis cw__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`}</td>
+					<td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td>
+					<td class="ve-py-1">${dmg}</td>
+					<td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td>
+				</tr>`;
+			});
+			ee(secAtk)`<div class="ve-muted ve-small ve-mt-1">Attack bonus = ability mod (Str, or Dex for finesse/ranged) + proficiency (if proficient) + magic. Wield weapons from your Inventory on the Skills &amp; Gear step.</div>`;
+		}
+
 		// skills
 		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 		const hpMeta = st.halfProfMeta();
@@ -1104,7 +1131,7 @@ export class CharWizardUi {
 		const itemLink = (name, source) => refLink(UrlUtil.PG_ITEMS, {name, source}, name);
 		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.focus.length || eqfx.attune.length || eqfx.spells.length || eqfx.speed.length) {
 			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped armor &amp; shield)</span></h4>`;
+			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped armor, shield &amp; weapons)</span></h4>`;
 			const cap = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
 			if (eqfx.resist.length) ee(secMi)`<div><b>Damage Resistance:</b> ${cap(eqfx.resist).qq()}</div>`;
 			if (eqfx.immune.length) ee(secMi)`<div><b>Damage Immunity:</b> ${cap(eqfx.immune).qq()}</div>`;
