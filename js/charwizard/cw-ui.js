@@ -754,18 +754,22 @@ export class CharWizardUi {
 		// Defense / armor — you can only wear armor/shields you own (equip from the Inventory below)
 		ee(wrp)`<h4>Defense (Armor Class)</h4>`;
 		const invArmors = st.inventoryArmors();
+		const invShields = st.inventoryShields();
+		const acBonusTxt = (a) => { const b = st._bonusAcNum(a); return `${(a.ac || 0) + b}${b ? ` (+${b})` : ""}`; };
 		const defWrp = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(wrp);
 		const armorSel = ee`<select class="ve-form-control ve-input-xs" style="max-width:280px"><option value="">No armor (unarmored)</option></select>`;
-		invArmors.forEach(a => { ee`<option value="${CW.uid(a).qq()}">${a.name} — AC ${a.ac || "?"} (${`${a.type || ""}`.split("|")[0]})</option>`.appendTo(armorSel); });
+		invArmors.forEach(a => { ee`<option value="${CW.uid(a).qq()}">${a.name} — AC ${acBonusTxt(a)} (${`${a.type || ""}`.split("|")[0]})</option>`.appendTo(armorSel); });
 		armorSel.val(st.armorEnt() ? st.armorUid : "");
 		armorSel.onn("change", () => { st.armorUid = armorSel.val() || null; this._save(); this.render(); });
 		if (!invArmors.length) armorSel.attr("disabled", "true");
-		const hasShield = st.hasShieldInInventory();
-		const shieldCb = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer" title="${hasShield ? "" : "Add a shield to your inventory to use one"}"><input type="checkbox" ${st.isShieldEffective() ? "checked" : ""} ${hasShield ? "" : "disabled"}> Shield (+2)</label>`;
-		shieldCb.querySelector("input").addEventListener("change", (e) => { st.isShield = e.target.checked; this._save(); this.render(); });
-		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label>${shieldCb}`;
+		const shieldSel = ee`<select class="ve-form-control ve-input-xs" style="max-width:240px"><option value="">No shield</option></select>`;
+		invShields.forEach(a => { ee`<option value="${CW.uid(a).qq()}">${a.name} — +${acBonusTxt(a)} AC</option>`.appendTo(shieldSel); });
+		shieldSel.val(st.shieldEnt() ? st.shieldUid : "");
+		shieldSel.onn("change", () => { st.shieldUid = shieldSel.val() || null; this._save(); this.render(); });
+		if (!invShields.length) shieldSel.attr("disabled", "true");
+		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label><label class="ve-flex-v-center" style="gap:6px">Shield ${shieldSel}</label>`;
 		ee(wrp)`<div class="ve-mb-1"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
-		if (!invArmors.length && !hasShield) ee(wrp)`<div class="ve-muted ve-small ve-mb-2">Add armor or a shield to your inventory below to equip it.</div>`;
+		if (!invArmors.length && !invShields.length) ee(wrp)`<div class="ve-muted ve-small ve-mb-2">Add armor or a shield to your inventory below to equip it.</div>`;
 		st.armorProficiencyWarnings().forEach(w => ee(wrp)`<div class="cw__err ve-small ve-mb-1"><span class="glyphicon glyphicon-warning-sign"></span> ${w.qq()}</div>`);
 
 		// Equipment choices (a)/(b)
@@ -833,16 +837,15 @@ export class CharWizardUi {
 			} else {
 				ee(nameCell)`${row.uid ? renderInline(`{@item ${row.name}|${row.uid.split("|")[1]}}`) : `${row.name}`.qq()}`;
 			}
-			// "Wear" control for mundane armor/shields -> drives AC
+			// "Wear" control for armor/shields (incl. magic) -> drives AC
 			const armorEnt = row.uid ? (this._data.armors || []).find(a => CW.uid(a) === row.uid) : null;
 			const wearCell = ee`<td class="ve-py-1 ve-text-center"></td>`.appendTo(tr);
 			if (armorEnt) {
-				const typeAbv = `${armorEnt.type || ""}`.split("|")[0];
-				const isShieldItem = typeAbv === "S";
-				const worn = isShieldItem ? st.isShield : st.armorUid === row.uid;
-				ee`<button class="ve-btn ve-btn-xs ${worn ? "ve-btn-success" : "ve-btn-default"}">${worn ? "Worn ✓" : "Wear"}</button>`
+				const isShieldItem = `${armorEnt.type || ""}`.split("|")[0] === "S";
+				const worn = isShieldItem ? st.shieldUid === row.uid : st.armorUid === row.uid;
+				ee`<button class="ve-btn ve-btn-xs ${worn ? "ve-btn-success" : "ve-btn-default"}">${worn ? "Worn ✓" : (isShieldItem ? "Equip" : "Wear")}</button>`
 					.onn("click", () => {
-						if (isShieldItem) st.isShield = !st.isShield;
+						if (isShieldItem) st.shieldUid = worn ? null : row.uid;
 						else st.armorUid = worn ? null : row.uid;
 						this._save(); this.render();
 					})
@@ -1091,6 +1094,26 @@ export class CharWizardUi {
 			${tools.length ? `<div><b>Tools:</b> ${tools.map(t => `${t}`.includes("{@") ? renderInline(t) : `${t}`.qq()).join(", ")}</div>` : ""}
 			<div><b>Languages:</b> ${st.chosenLanguages().map(l => `${l}`.qq()).join(", ") || "—"}</div>
 			${st.senses().length ? `<div><b>Senses:</b> ${st.senses().join(", ")}</div>` : ""}`;
+
+		// magic item effects (from worn armor + equipped shield)
+		const eqfx = st.equippedItemEffects();
+		const itemLink = (name, source) => refLink(UrlUtil.PG_ITEMS, {name, source}, name);
+		if (eqfx.resist.length || eqfx.immune.length || eqfx.vulnerable.length || eqfx.conditionImmune.length || eqfx.saveBonus || eqfx.focus.length || eqfx.attune.length || eqfx.spells.length || eqfx.speed.length) {
+			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped armor &amp; shield)</span></h4>`;
+			const cap = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
+			if (eqfx.resist.length) ee(secMi)`<div><b>Damage Resistance:</b> ${cap(eqfx.resist).qq()}</div>`;
+			if (eqfx.immune.length) ee(secMi)`<div><b>Damage Immunity:</b> ${cap(eqfx.immune).qq()}</div>`;
+			if (eqfx.vulnerable.length) ee(secMi)`<div><b>Damage Vulnerability:</b> ${cap(eqfx.vulnerable).qq()}</div>`;
+			if (eqfx.conditionImmune.length) ee(secMi)`<div><b>Condition Immunity:</b> ${cap(eqfx.conditionImmune).qq()}</div>`;
+			if (eqfx.saveBonus) ee(secMi)`<div><b>Saving Throws:</b> ${CW.fmtMod(eqfx.saveBonus)} to all saves (included above)</div>`;
+			if (eqfx.focus.length) ee(secMi)`<div><b>Spellcasting Focus:</b> ${eqfx.focus.map(n => `${n}`.qq()).join(", ")}</div>`;
+			eqfx.spells.forEach(grp => {
+				const parts = grp.entries.map(e => `${e.sp ? spellSpan(e.sp.name, e.sp.source) : `${e.name}`.qq()}${e.note ? ` <span class="ve-muted ve-small">(${e.note.qq()})</span>` : ""}`);
+				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
+			});
+			if (eqfx.attune.length) ee(secMi)`<div class="ve-muted ve-small">Requires attunement: ${eqfx.attune.map(n => `${n}`.qq()).join(", ")}</div>`;
+		}
 
 		// inventory
 		if (st.inventory.length) {

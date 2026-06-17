@@ -61,8 +61,8 @@ export class CharState {
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
-		this.armorUid = null; // worn armor item "name|source" (drives AC)
-		this.isShield = false;
+		this.armorUid = null; // worn body-armor item "name|source" (drives AC)
+		this.shieldUid = null; // equipped shield item "name|source" (may be magic)
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
 	}
 
@@ -435,7 +435,7 @@ export class CharState {
 		return {from: grp.choose.from || CW.skills(), count: grp.choose.count || 1};
 	}
 
-	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0); }
+	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0) + this.equippedItemEffects().saveBonus; }
 
 	_hasFeature (name) {
 		return this.classList().some(({cls, level, subclassEnt}) => {
@@ -483,11 +483,19 @@ export class CharState {
 	_armorById (uid) { return uid ? (this._data.armors || []).find(a => CW.uid(a) === uid) || null : null; }
 	_hasInInventory (uid) { return this.inventory.some(r => r.uid === uid); }
 	hasShieldInInventory () { return this.inventory.some(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); }
-	inventoryArmors () { return this.inventory.map(r => this._armorById(r.uid)).filter(a => a && `${a.type || ""}`.split("|")[0] !== "S"); }
+	inventoryArmors () { return this.inventory.map(r => this._armorById(r.uid)).filter(a => a && ["LA", "MA", "HA"].includes(`${a.type || ""}`.split("|")[0])); }
+	inventoryShields () { return this.inventory.map(r => this._armorById(r.uid)).filter(a => a && `${a.type || ""}`.split("|")[0] === "S"); }
 
-	// worn armor entity, only if it is actually in the inventory
+	// worn body armor / equipped shield entities, only if actually in the inventory
 	armorEnt () { return this.armorUid && this._hasInInventory(this.armorUid) ? this._armorById(this.armorUid) : null; }
-	isShieldEffective () { return this.isShield && this.hasShieldInInventory(); }
+	shieldEnt () {
+		if (!this.shieldUid || !this._hasInInventory(this.shieldUid)) return null;
+		const it = this._armorById(this.shieldUid);
+		return it && `${it.type || ""}`.split("|")[0] === "S" ? it : null;
+	}
+	isShieldEffective () { return !!this.shieldEnt(); }
+	// the "+N" magic AC bonus on an item, as a number
+	_bonusAcNum (it) { return it?.bonusAc ? (parseInt(`${it.bonusAc}`.replace(/[^-0-9]/g, ""), 10) || 0) : 0; }
 
 	// armor categories the character is proficient with (light/medium/heavy/shield).
 	// First class grants its full starting proficiencies; multiclassed classes grant only their limited set.
@@ -499,14 +507,16 @@ export class CharState {
 	}
 	static _ARMOR_TYPE_TO_CAT = {LA: "light", MA: "medium", HA: "heavy", S: "shield"};
 	armorCategory (armorEnt) { return CharState._ARMOR_TYPE_TO_CAT[`${armorEnt?.type || ""}`.split("|")[0]] || null; }
+	// proficient with a specific armor/shield item (category proficiency, or the item itself grants it)
+	_proficientWithItem (it) { if (!it) return true; if (it.grantsProficiency) return true; const cat = this.armorCategory(it); return !cat || this.armorProficiencies().has(cat); }
 
 	// warnings for wearing armor/shields the character isn't proficient with
 	armorProficiencyWarnings () {
 		const out = [];
-		const profs = this.armorProficiencies();
 		const armor = this.armorEnt();
-		if (armor) { const cat = this.armorCategory(armor); if (cat && !profs.has(cat)) out.push(`Not proficient with ${cat} armor (${armor.name}): disadvantage on ability checks, saves, and attacks using Str or Dex, and you can't cast spells.`); }
-		if (this.isShieldEffective() && !profs.has("shield")) out.push(`Not proficient with shields: similar penalties apply while the shield is equipped.`);
+		if (armor && !this._proficientWithItem(armor)) { const cat = this.armorCategory(armor); out.push(`Not proficient with ${cat} armor (${armor.name}): disadvantage on ability checks, saves, and attacks using Str or Dex, and you can't cast spells.`); }
+		const shield = this.shieldEnt();
+		if (shield && !this._proficientWithItem(shield)) out.push(`Not proficient with shields (${shield.name}): similar penalties apply while the shield is equipped.`);
 		return out;
 	}
 
@@ -521,13 +531,49 @@ export class CharState {
 		const armor = this.armorEnt();
 		if (armor) {
 			if (armor.stealth) out.stealthDis = armor.name;
-			const cat = this.armorCategory(armor);
-			if (cat && !this.armorProficiencies().has(cat)) out.nonProf = true;
+			if (!this._proficientWithItem(armor)) out.nonProf = true;
 			const req = parseInt(armor.strength, 10);
 			if (req && this.finalAbility("str") < req && !this._ignoresHeavyArmorSpeedPenalty()) out.strReqUnmet = {armor: armor.name, req};
 		}
-		if (this.isShieldEffective() && !this.armorProficiencies().has("shield")) out.nonProf = true;
+		const shield = this.shieldEnt();
+		if (shield) { if (shield.stealth) out.stealthDis = out.stealthDis || shield.name; if (!this._proficientWithItem(shield)) out.nonProf = true; }
 		return out;
+	}
+
+	/* ----- equipped magic-item effects (worn armor + equipped shield) ----- */
+	equippedItems () { return [this.armorEnt(), this.shieldEnt()].filter(Boolean); }
+
+	// flatten an item's attachedSpells structure into [{name, note}]
+	_flattenAttachedSpells (att) {
+		const out = []; const add = (name, note) => out.push({name: `${name}`.split("#")[0].trim(), note});
+		if (!att) return out;
+		if (Array.isArray(att)) { att.forEach(s => add(s, "")); return out; }
+		(att.will || []).forEach(s => add(s, "at will"));
+		Object.entries(att.rest || {}).forEach(([k, arr]) => (arr || []).forEach(s => add(s, `${`${k}`.replace(/e$/, "")}/rest`)));
+		Object.entries(att.daily || {}).forEach(([k, arr]) => (arr || []).forEach(s => add(s, `${`${k}`.replace(/e$/, "")}/day`)));
+		Object.entries(att.charges || {}).forEach(([k, arr]) => (arr || []).forEach(s => add(s, `${k} charge${+k > 1 ? "s" : ""}`)));
+		(att.ritual || []).forEach(s => add(s, "ritual"));
+		(att.limited || att._ || []).forEach(s => add(s, ""));
+		return out;
+	}
+
+	// Aggregate mechanical effects from equipped armor + shield (resistances, immunities, save bonus, focus, granted spells…)
+	equippedItemEffects () {
+		const resist = new Set(); const immune = new Set(); const vulnerable = new Set(); const conditionImmune = new Set();
+		const attune = []; const speed = []; const focus = []; const spells = []; let saveBonus = 0;
+		this.equippedItems().forEach(it => {
+			(it.resist || []).forEach(x => typeof x === "string" && resist.add(x));
+			(it.immune || []).forEach(x => typeof x === "string" && immune.add(x));
+			(it.vulnerable || []).forEach(x => typeof x === "string" && vulnerable.add(x));
+			(it.conditionImmune || []).forEach(x => typeof x === "string" && conditionImmune.add(x));
+			if (it.bonusSavingThrow) saveBonus += parseInt(`${it.bonusSavingThrow}`.replace(/[^-0-9]/g, ""), 10) || 0;
+			if (it.reqAttune) attune.push(it.name);
+			if (it.focus) focus.push(it.name);
+			if (it.modifySpeed) speed.push(it.name);
+			const att = this._flattenAttachedSpells(it.attachedSpells);
+			if (att.length) spells.push({item: it.name, source: it.source, entries: att.map(a => ({...a, sp: this._spellByName(a.name)}))});
+		});
+		return {resist: [...resist], immune: [...immune], vulnerable: [...vulnerable], conditionImmune: [...conditionImmune], saveBonus, attune, speed, focus, spells};
 	}
 
 	// Permanent (non-situational) adv/dis effects from armor + reliably-detectable features.
@@ -563,6 +609,7 @@ export class CharState {
 			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
 		});
 		this.featsTaken().forEach(({featUid}) => { if (found) return; const f = this._data.feats.find(x => CW.uid(x) === featUid); if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; });
+		this.equippedItems().forEach(it => { if (found) return; if (/advantage on initiative/i.test(JSON.stringify(it.entries || ""))) found = it.name; });
 		return found;
 	}
 
@@ -581,7 +628,12 @@ export class CharState {
 				const s = m[1].trim().replace(/^[,\s]+/, "");
 				const key = `${source}|${s.toLowerCase()}`;
 				if (/(?:advantage|disadvantage) on initiative/i.test(s)) continue; // shown on the Initiative box instead
-				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source, sourceTag}); }
+				// prefer the advantage/disadvantage that applies to *you* (e.g. Spellguard Shield grants you advantage while imposing disadvantage on attackers)
+			let type;
+			if (/you (?:have|gain|roll with|can[^.]*?) advantage/i.test(s)) type = "adv";
+			else if (/you (?:have|gain|roll with) disadvantage/i.test(s)) type = "dis";
+			else type = /disadvantage/i.test(s) ? "dis" : "adv";
+			if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type, text: s, source, sourceTag}); }
 			}
 		};
 		const race = this.raceEnt; const bg = this.backgroundEnt;
@@ -592,6 +644,7 @@ export class CharState {
 			(sc?.subclassFeatures || []).forEach((lv) => (lv || []).forEach(f => { if ((f?.level || 0) <= level) parse(f?.entries, f?.name, `{@subclassFeature ${f.name}|${sc.className}|${sc.classSource}|${sc.shortName}|${sc.source}|${f.level}}`); }));
 		});
 		parse(bg?.entries, bg?.name, bg ? `{@background ${bg.name}|${bg.source}}` : null);
+		this.equippedItems().forEach(it => parse(it.entries, it.name, `{@item ${it.name}|${it.source}}`));
 		return out;
 	}
 
@@ -610,6 +663,7 @@ export class CharState {
 	removeFromInventory (ix) {
 		const [row] = this.inventory.splice(ix, 1);
 		if (row && row.uid === this.armorUid) this.armorUid = null; // un-wear armor that's no longer owned
+		if (row && row.uid === this.shieldUid) this.shieldUid = null;
 	}
 
 	// Resolve chosen class + background starting equipment into [{uid, name, qty}]
@@ -683,8 +737,10 @@ export class CharState {
 		let base; let how;
 		if (armor) {
 			const typeAbv = `${armor.type || ""}`.split("|")[0];
-			const baseAc = armor.ac || 10;
-			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name} + Dex`; }
+			const magic = this._bonusAcNum(armor);
+			const baseAc = (armor.ac || 10) + magic;
+			const magicTxt = magic ? ` (+${magic})` : "";
+			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}${magicTxt}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name}${magicTxt} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name}${magicTxt} + Dex`; }
 		} else {
 			// Monk Unarmored Defense requires no shield; Barbarian allows a shield
 			if (this.hasClass("Barbarian")) { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (this.hasClass("Monk") && !this.isShieldEffective()) { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
@@ -695,7 +751,8 @@ export class CharState {
 				if (natAc >= base) { base = natAc; how = `Natural Armor (${nat.base}${nat.abil ? ` + ${nat.abil.toUpperCase()}` : ""})`; }
 			}
 		}
-		if (this.isShieldEffective()) { base += 2; how += " + Shield"; }
+		const shield = this.shieldEnt();
+		if (shield) { const sMagic = this._bonusAcNum(shield); base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
 		return {ac: base, how};
 	}
 
@@ -974,7 +1031,7 @@ export class CharState {
 			raceSpellAbility: this.raceSpellAbility,
 			asiChoices: this.asiChoices,
 			armorUid: this.armorUid,
-			isShield: this.isShield,
+			shieldUid: this.shieldUid,
 			inventory: this.inventory,
 		};
 	}
@@ -1021,9 +1078,11 @@ export class CharState {
 			raceSpellAbility: j.raceSpellAbility ?? null,
 			asiChoices,
 			armorUid: j.armorUid ?? null,
-			isShield: j.isShield ?? false,
+			shieldUid: j.shieldUid ?? null,
 			inventory: j.inventory ?? [],
 		});
+		// migrate v1 boolean shield -> the first shield in inventory
+		if (this.shieldUid == null && j.isShield) { const sh = this.inventory.find(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); this.shieldUid = sh?.uid || null; }
 	}
 }
 
@@ -1057,12 +1116,10 @@ class CharWizardPage {
 		classData.classes.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 
 		const typeAbv = (it) => `${it.type || ""}`.split("|")[0];
-		const seenArmor = new Set();
+		// index of all character armor/shields (incl. magic — drives "Wear" + AC); not deduped, so worn items resolve by exact uid
 		const armors = items
-			// mundane character armor/shields only (no magic, no animal barding); magic armor handled later with inventory
-			.filter(it => (it.armor || ["LA", "MA", "HA", "S"].includes(typeAbv(it))) && !it.magic && (!it.rarity || it.rarity === "none") && !/barding/i.test(it.name))
-			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name))
-			.filter(it => { if (seenArmor.has(it.name)) return false; seenArmor.add(it.name); return true; });
+			.filter(it => (it.armor || ["LA", "MA", "HA", "S"].includes(typeAbv(it))) && !/barding/i.test(it.name))
+			.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 
 		const itemIndex = new Map();
 		const itemIndexByName = new Map();
