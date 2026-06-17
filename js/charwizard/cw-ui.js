@@ -785,8 +785,9 @@ export class CharWizardUi {
 	/* ----- Inventory ----- */
 	_renderInventory (wrp) {
 		const st = this._state;
-		const atCap = st.attunedCount() >= 3;
-		ee(wrp)`<h4 class="ve-mt-3">Inventory <span class="ve-muted ve-small">— Attunement ${st.attunedCount()}/3${atCap ? " (full)" : ""}</span></h4>`;
+		const attuneMax = st.attuneMax();
+		const atCap = st.attunedCount() >= attuneMax;
+		ee(wrp)`<h4 class="ve-mt-3">Inventory <span class="ve-muted ve-small">— Attunement ${st.attunedCount()}/${attuneMax}${atCap ? " (full)" : ""}</span></h4>`;
 		const ctrl = ee`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
 		const btnAdd = ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Resolve your chosen class + background starting gear into items">＋ Add starting equipment</button>`
 			.onn("click", () => { st.addStartingEquipmentToInventory(); this._save(); this.render(); });
@@ -868,7 +869,7 @@ export class CharWizardUi {
 				const attuned = st.isAttuned(row.uid);
 				const blocked = !attuned && !st.canAttuneMore();
 				const cond = st.attuneCondition(itemEnt);
-				const title = attuned ? "Click to break attunement" : blocked ? "Attunement slots full (max 3)" : `Attune to this item${cond ? ` (requires attunement ${cond})` : ""}`;
+				const title = attuned ? "Click to break attunement" : blocked ? `Attunement slots full (max ${st.attuneMax()})` : `Attune to this item${cond ? ` (requires attunement ${cond})` : ""}`;
 				ee(wearCell)`${ee`<button class="ve-btn ve-btn-xs ve-ml-1 ${attuned ? "ve-btn-info" : "ve-btn-default"}" ${blocked ? "disabled" : ""} title="${title.qq()}"><span class="glyphicon glyphicon-flash"></span> ${attuned ? "Attuned ✓" : "Attune"}</button>`
 					.onn("click", () => { if (blocked) return; st.setAttuned(row.uid, !attuned); this._save(); this.render(); })}`;
 			}
@@ -1154,7 +1155,7 @@ export class CharWizardUi {
 				const parts = grp.entries.map(e => `${e.sp ? spellSpan(e.sp.name, e.sp.source) : `${e.name}`.qq()}${e.note ? ` <span class="ve-muted ve-small">(${e.note.qq()})</span>` : ""}`);
 				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
 			});
-			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/3): ${eqfx.attuned.map(n => `${n}`.qq()).join(", ")}</div>`;
+			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/${st.attuneMax()}): ${eqfx.attuned.map(n => `${n}`.qq()).join(", ")}</div>`;
 			eqfx.needAttune.forEach(n => ee(secMi)`<div class="cw__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${n.qq()} is equipped but not attuned — its magic benefits are inactive.</div>`);
 		}
 

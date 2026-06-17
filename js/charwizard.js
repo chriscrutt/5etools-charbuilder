@@ -438,7 +438,7 @@ export class CharState {
 		return {from: grp.choose.from || CW.skills(), count: grp.choose.count || 1};
 	}
 
-	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0) + this.equippedItemEffects().saveBonus; }
+	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0) + this.equippedItemEffects().saveBonus + this._attunementSaveBonus(); }
 
 	_hasFeature (name) {
 		return this.classList().some(({cls, level, subclassEnt}) => {
@@ -500,13 +500,33 @@ export class CharState {
 	// the "+N" magic AC bonus on an item, as a number
 	_bonusAcNum (it) { return it?.bonusAc ? (parseInt(`${it.bonusAc}`.replace(/[^-0-9]/g, ""), 10) || 0) : 0; }
 
-	/* ----- attunement (max 3) ----- */
+	/* ----- attunement (base 3; raised by features e.g. Artificer Magic Item Adept/Savant/Master) ----- */
 	static ATTUNE_MAX = 3;
+	static _NUMW = {two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8};
 	requiresAttunement (it) { return !!it?.reqAttune; }
 	attuneCondition (it) { return typeof it?.reqAttune === "string" ? it.reqAttune : null; } // e.g. "by a spellcaster"
 	isAttuned (uid) { return this.attunedUids.includes(uid); }
 	attunedCount () { return this.attunedUids.length; }
-	canAttuneMore () { return this.attunedCount() < CharState.ATTUNE_MAX; }
+	// max attunements, raised by class features whose text says "attune to up to N magic items"
+	attuneMax () {
+		let max = CharState.ATTUNE_MAX;
+		this.classList().forEach(({cls, level}) => (cls.classFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => {
+			if (!f?.entries || (f.level || (ix + 1)) > level) return;
+			const m = JSON.stringify(f.entries).match(/attune to up to (\w+) magic items?/i);
+			if (m) { const n = CharState._NUMW[m[1].toLowerCase()] || parseInt(m[1], 10); if (n > max) max = n; }
+		})));
+		return max;
+	}
+	canAttuneMore () { return this.attunedCount() < this.attuneMax(); }
+	// +1 save per attuned item from Artificer's Soul of Artifice ("+1 bonus to all saving throws per magic item")
+	_attunementSaveBonus () {
+		let per = 0;
+		this.classList().forEach(({cls, level}) => (cls.classFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => {
+			if (!f?.entries || (f.level || (ix + 1)) > level) return;
+			if (/bonus to all saving throws per magic item/i.test(JSON.stringify(f.entries))) per = 1;
+		})));
+		return per * this.attunedCount();
+	}
 	setAttuned (uid, on) {
 		if (!uid) return;
 		if (on) { if (!this.isAttuned(uid) && this.canAttuneMore()) this.attunedUids.push(uid); }
