@@ -12,8 +12,14 @@ const hoverAttrs = (page, ent) => {
 		return `data-vet-page="${page}" data-vet-source="${`${ent.source}`.qq()}" data-vet-hash="${`${hash}`.qq()}" onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this)" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" style="cursor:help;text-decoration:underline dotted"`;
 	} catch (e) { return ""; }
 };
-// hoverable spell name span (5etools tooltip)
-const spellSpan = (name, source) => `<span ${hoverAttrs(UrlUtil.PG_SPELLS, {name, source})}>${`${name}`.qq()}</span>`;
+// clickable + hoverable reference link that opens in a new tab
+const refLink = (page, ent, label) => {
+	try {
+		const hash = UrlUtil.URL_TO_HASH_BUILDER[page](ent);
+		return `<a href="${page}#${`${hash}`.qq()}" target="_blank" rel="noopener noreferrer" ${hoverAttrs(page, ent)}>${`${label ?? ent.name}`.qq()}</a>`;
+	} catch (e) { return `${label ?? ent?.name ?? ""}`.qq(); }
+};
+const spellSpan = (name, source) => refLink(UrlUtil.PG_SPELLS, {name, source});
 // badge for {adv:[], dis:[], net} — adv + dis cancel to a straight roll
 const advDisBadge = (ad) => {
 	if (!ad || !ad.net) return "";
@@ -29,6 +35,17 @@ export class CharWizardUi {
 		this._eleRoot = eleRoot;
 		this._fnSave = fnSave;
 		this._ixStep = 0;
+
+		// open every reference link (rendered @tags, spells, items, etc.) in a new tab so the builder isn't navigated away
+		this._eleRoot.addEventListener("click", (evt) => {
+			const a = evt.target.closest?.("a[href]");
+			if (!a) return;
+			const href = a.getAttribute("href");
+			if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
+			if (a.target === "_blank") return; // links we built already open in a new tab
+			evt.preventDefault();
+			window.open(a.href, "_blank", "noopener,noreferrer");
+		});
 	}
 
 	_save () { this._fnSave?.(); }
@@ -562,14 +579,17 @@ export class CharWizardUi {
 	_renderAsiFeat (body, lv, ch, feats) {
 		const st = this._state;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
+		let hiddenForPrereq = 0;
 		feats.forEach(f => {
 			const uid = CW.uid(f);
 			const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.level !== lv);
+			const meets = st.meetsFeatPrereq(f);
+			if (!meets && ch.featUid !== uid) { hiddenForPrereq++; return; } // filter out feats you don't qualify for
 			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
 		});
 		sel.val(ch.featUid || "");
 		sel.onn("change", () => { ch.featUid = sel.val() || null; ch.featAbilChoose = []; this._save(); this.render(); });
-		ee(body)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>`;
+		ee(body)`<label class="ve-flex-v-center" style="gap:6px">Feat ${sel}</label>${hiddenForPrereq ? `<span class="ve-muted ve-small ve-ml-2">(${hiddenForPrereq} hidden — prerequisites not met)</span>` : ""}`;
 		if (!ch.featUid) return;
 		const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
 		if (!feat) return;
@@ -853,7 +873,7 @@ export class CharWizardUi {
 			sel.onn("change", () => { st.raceSpellAbility = sel.val(); this._save(); this.render(); });
 			ee(wrp)`<div class="ve-mb-1"><b>Spellcasting ability:</b> ${sel} <span class="ve-muted ve-small">(Save DC ${st.racialSpellSaveDc() ?? "—"})</span></div>`;
 		} else if (info.ability) ee(wrp)`<div class="ve-mb-1"><b>Spellcasting ability:</b> ${CW.ABIL_FULL[info.ability]} <span class="ve-muted ve-small">(Save DC ${st.racialSpellSaveDc() ?? "—"})</span></div>`;
-		const sl = (sp) => `<span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>`;
+		const sl = (sp) => refLink(UrlUtil.PG_SPELLS, sp);
 		if (info.knownFixed.length) ee(wrp)`<div class="ve-mb-1"><b>Known:</b> ${info.knownFixed.map(sl).join(", ")}</div>`;
 		if (info.innate.length) ee(wrp)`<div class="ve-mb-1"><b>Innate:</b> ${info.innate.map(i => `${sl(i.sp)} <span class="ve-muted ve-small">(${i.freq}${i.level > 1 ? `, from L${i.level}` : ""})</span>`).join(", ")}</div>`;
 		info.knownChoose.forEach(g => {
@@ -879,7 +899,7 @@ export class CharWizardUi {
 		this._renderChipPicker(wrp, {
 			items: spells,
 			getValue: sp => CW.uid(sp),
-			getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}<span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>`,
+			getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${refLink(UrlUtil.PG_SPELLS, sp)}`,
 			getTitle: sp => `${Parser.spLevelToFull(sp.level)} ${Parser.spSchoolAbvToFull(sp.school)}`,
 			arr: chosenArr,
 			max,

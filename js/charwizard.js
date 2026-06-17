@@ -168,6 +168,20 @@ export class CharState {
 			.map(([lv, c]) => ({level: +lv, featUid: c.featUid}));
 	}
 
+	// Does the character satisfy a feat's prerequisites? (checks ability/level/spellcasting/proficiency/race; unknown types pass)
+	meetsFeatPrereq (feat) {
+		const pres = feat?.prerequisite;
+		if (!pres || !pres.length) return true;
+		return pres.some(pre => this._meetsOnePrereq(pre)); // alternatives (OR)
+	}
+	_meetsOnePrereq (pre) {
+		for (const [k, v] of Object.entries(pre)) {
+			if (k === "ability") { if (!v.some(req => Object.entries(req).every(([a, sc]) => this.finalAbility(a) >= sc))) return false; } else if (k === "level") { const lv = typeof v === "number" ? v : (v.level || 0); if (this.level < lv) return false; } else if (/^spellcasting/i.test(k)) { if (!this.isCaster() && !this.hasRacialSpells()) return false; } else if (k === "proficiency") { if (!v.every(req => Object.entries(req).every(([t, val]) => t === "armor" ? this.armorProficiencies().has(val) : true))) return false; } else if (k === "race") { const rn = `${this.raceEnt?.name || ""}`.toLowerCase(); if (!v.some(r => rn.includes(`${r.name}`.toLowerCase()))) return false; }
+			// other prerequisite kinds (background, item, "other", etc.) aren't checkable here -> don't block
+		}
+		return true;
+	}
+
 	// Parse a feature's text for "Your X [and Y] score(s) increase(s) by N" (e.g. Primal Champion)
 	_featureAbilityIncrease (feature) {
 		const out = {};
