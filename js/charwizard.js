@@ -1541,6 +1541,7 @@ class CharWizardPage {
 	async _pLoadClasses () {
 		const raw = await DataUtil.class.loadJSON();
 		const classes = (raw.class || []).filter(cls => {
+			if (cls.isSidekick) return false; // sidekicks build from a bestiary creature (CR ≤ 1/2) — a separate flow, TODO
 			const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES](cls);
 			return !ExcludeUtil.isExcluded(hash, "class", cls.source);
 		});
