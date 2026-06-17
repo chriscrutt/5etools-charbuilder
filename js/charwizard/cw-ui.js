@@ -839,7 +839,7 @@ export class CharWizardUi {
 		this._renderFeatChoices(body, feat, ch);
 	}
 
-	_resetFeatChoiceArrays (o) { ["featAbilChoose", "featSkillChoose", "featToolChoose", "featLangChoose", "featSaveChoose", "featWeaponChoose", "featExpertiseChoose"].forEach(k => { o[k] = []; }); }
+	_resetFeatChoiceArrays (o) { ["featAbilChoose", "featSkillChoose", "featToolChoose", "featLangChoose", "featSaveChoose", "featWeaponChoose", "featExpertiseChoose"].forEach(k => { o[k] = []; }); o.featSpellGroup = 0; o.featSpellChoose = {}; }
 
 	// shared picker for a feat's choices (ability / save / skill / tool / language / weapon / expertise) + its description
 	_renderFeatChoices (wrp, feat, choice) {
@@ -860,7 +860,35 @@ export class CharWizardUi {
 		(feat.languageProficiencies || []).forEach(g => { if (typeof g !== "object") return; choice.featLangChoose = choice.featLangChoose || []; const LALL = Parser.LANGUAGES_ALL || []; let n = 0; let opts = null; if (g.any || g.anyStandard) { n = g.any || g.anyStandard; opts = LALL; } else if (g.choose?.from) { n = g.choose.count || 1; opts = g.choose.from.map(l => `${l}`.toTitleCase()); } if (n) chip(choice.featLangChoose, n, opts, l => l, l => `${l}`.toTitleCase(), "<b>Language</b> — choose"); });
 		(feat.weaponProficiencies || []).forEach(g => { if (!g.choose) return; choice.featWeaponChoose = choice.featWeaponChoose || []; const cat = /martial/.test(g.choose.fromFilter || "") ? "martial" : (/simple/.test(g.choose.fromFilter || "") ? "simple" : null); const opts = g.choose.from ? g.choose.from.map(w => `${w}`.split("|")[0]) : st.weaponOptions({category: cat}); chip(choice.featWeaponChoose, g.choose.count || 1, opts, w => w, w => `${w}`.toTitleCase(), "<b>Weapon proficiency</b> — choose"); });
 		(feat.expertise || []).forEach(g => { const n = g.anyProficientSkill || g.choose?.count || 0; if (!n) return; choice.featExpertiseChoose = choice.featExpertiseChoose || []; const prof = [...st.skillProfs()].filter(s => CW.skillAbil(s)).sort(); if (prof.length) chip(choice.featExpertiseChoose, n, prof, s => s, s => CW.skillName(s), "<b>Expertise</b> — choose a proficient skill"); else ee(wrp)`<div class="ve-muted ve-small">Expertise: choose your skill proficiencies first.</div>`; });
+		this._renderFeatSpells(wrp, feat, choice);
 		ee`<div class="ve-mt-2 ve-small">${renderEntries(feat.entries)}</div>`.appendTo(wrp);
+	}
+
+	// feat-granted spells (Magic Initiate variant + cantrips/spell picks, Fey Touched, etc.)
+	_renderFeatSpells (wrp, feat, choice) {
+		const st = this._state;
+		const info = st.featSpellsInfo(feat, choice); if (!info) return;
+		const dc = st.featSpellSaveDc(info.ability);
+		ee(wrp)`<div class="ve-mt-2 ve-small"><b>Spells</b>${info.ability ? ` <span class="ve-muted">(${CW.ABIL_FULL[info.ability] || info.ability}${dc != null ? `, save DC ${dc}` : ""})</span>` : ""}</div>`;
+		if (info.groups.length > 1) {
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+			info.groups.forEach((g, i) => ee`<option value="${i}">${st.racialSpellGroupLabel(g).qq()}</option>`.appendTo(sel));
+			sel.val(`${info.groupIx}`);
+			sel.onn("change", () => { choice.featSpellGroup = parseInt(sel.val(), 10) || 0; choice.featSpellChoose = {}; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-1 ve-small"><b>Choose a spell list:</b> ${sel}</div>`;
+		}
+		if (info.knownFixed.length) ee(wrp)`<div class="ve-small">Learns: ${info.knownFixed.map(sp => refLink(UrlUtil.PG_SPELLS, sp)).join(", ")}</div>`;
+		if (info.innate.length) ee(wrp)`<div class="ve-small">Innate: ${info.innate.map(i => `${refLink(UrlUtil.PG_SPELLS, i.sp)} <span class="ve-muted ve-small">(${i.freq.qq()})</span>`).join(", ")}</div>`;
+		choice.featSpellChoose = choice.featSpellChoose || {};
+		info.knownChoose.forEach(g => {
+			if (!choice.featSpellChoose[g.key]) choice.featSpellChoose[g.key] = [];
+			const arr = choice.featSpellChoose[g.key];
+			const seen = new Set();
+			const opts = st.racialSpellOptions(g.filter).filter(sp => { if (seen.has(sp.name)) return false; seen.add(sp.name); return true; }).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+			const counter = ee`<span class="ve-muted ve-small">${arr.length}/${g.count}</span>`;
+			ee(wrp)`<div class="ve-mt-1 ve-small"><b>Choose ${g.count} spell${g.count > 1 ? "s" : ""}</b>${g.freq ? ` <span class="ve-muted">(${g.freq.qq()})</span>` : ""} (${counter}):</div>`;
+			this._renderChipPicker(wrp, {items: opts, getValue: sp => sp.name, getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${refLink(UrlUtil.PG_SPELLS, sp)}`, arr, max: g.count, counterEle: counter, gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:170px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px"});
+		});
 	}
 
 	/* ----- Step: Skills & Gear ----- */
@@ -1454,6 +1482,21 @@ export class CharWizardUi {
 				${rsi.ability ? `<div><b>Ability:</b> ${CW.ABIL_FULL[rsi.ability]} &nbsp; <b>Save DC:</b> ${st.racialSpellSaveDc() ?? "—"}</div>` : ""}
 				${knownSpans.length ? `<div><b>Known:</b> ${knownSpans.join(", ")}</div>` : ""}
 				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq})`).join(", ")}</div>` : ""}`;
+		}
+
+		// feat-granted spells (Magic Initiate, Fey Touched, …)
+		const featSp = st.featSpellSources();
+		if (featSp.length) {
+			const secFS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secFS)`<h4>Feat Spells</h4>`;
+			featSp.forEach(({feat, choice, info}) => {
+				const chosen = info.knownChoose.flatMap(g => (choice.featSpellChoose?.[g.key] || []).map(n => st._spellByName(n)).filter(Boolean));
+				const known = [...info.knownFixed, ...chosen].map(sp => spellSpan(sp.name, sp.source));
+				const dc = st.featSpellSaveDc(info.ability);
+				ee(secFS)`<div class="ve-mt-1"><b>${feat.name.qq()}</b>${info.ability ? ` <span class="ve-muted ve-small">— ${CW.ABIL_FULL[info.ability] || info.ability}${dc != null ? `, DC ${dc}` : ""}</span>` : ""}</div>
+					${known.length ? `<div class="ve-pl-3"><b>Spells:</b> ${known.join(", ")}</div>` : ""}
+					${info.innate.length ? `<div class="ve-pl-3"><b>Innate:</b> ${info.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} <span class="ve-muted ve-small">(${i.freq.qq()})</span>`).join(", ")}</div>` : ""}`;
+			});
 		}
 
 		// features (grouped per class)

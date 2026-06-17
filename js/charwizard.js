@@ -1388,13 +1388,13 @@ export class CharState {
 	racialSpellAbilityChoices () { const ab = this._racialSpellAbilityEnt(); return Array.isArray(ab?.choose) ? ab.choose : null; }
 	racialSpellSaveDc () { const a = this.racialSpellAbility(); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
 
-	// parse a 5etools spell-choose filter like "level=0|class=Wizard"
+	// parse a 5etools spell-choose filter like "level=0|class=Wizard" or "level=1|school=E;D"
 	racialSpellOptions (filter) {
 		const params = {}; `${filter}`.split("|").forEach(p => { const [k, v] = p.split("="); if (k) params[k.trim()] = (v || "").trim(); });
 		const lvl = params.level != null && params.level !== "" ? +params.level : null;
 		const cls = params.class ? params.class.toLowerCase() : null;
-		const school = params.school ? params.school.toLowerCase() : null;
-		return this._data.spells.filter(sp => this.isVisible(sp) && (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!school || `${sp.school}`.toLowerCase() === school));
+		const schools = params.school ? params.school.toLowerCase().split(";").map(s => s.trim()).filter(Boolean) : null;
+		return this._data.spells.filter(sp => this.isVisible(sp) && (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!schools || schools.includes(`${sp.school}`.toLowerCase())));
 	}
 
 	// multiple additionalSpells groups are alternatives the character picks ONE of (e.g. Astral Elf cantrip, Tiefling legacy)
@@ -1402,40 +1402,70 @@ export class CharState {
 	racialSpellGroupIx () { const g = this.racialSpellGroups(); return g.length ? Math.min(this.raceSpellGroup || 0, g.length - 1) : 0; }
 	// auto-label a variant by its spells (the data carries no name)
 	racialSpellGroupLabel (as) {
+		if (as?.name) return `${as.name}`.toTitleCase(); // explicit group name (e.g. Magic Initiate "Bard Spells")
 		const names = []; const collect = (obj) => Object.values(obj || {}).forEach(v => { if (Array.isArray(v)) v.forEach(x => { if (typeof x === "string") names.push(x.split("#")[0].split("|")[0]); }); else if (v && typeof v === "object") collect(v); });
 		collect(as?.known); collect(as?.innate);
+		// also surface the class/school a {choose} filter targets, so all-choose groups aren't just "Option"
+		const collectChoose = (obj) => Object.values(obj || {}).forEach(v => { if (Array.isArray(v)) v.forEach(x => { if (x?.choose && typeof x.choose === "string") { const m = /class=([^|]+)/.exec(x.choose); if (m) names.push(m[1]); } }); else if (v && typeof v === "object") collectChoose(v); });
+		if (!names.length) { collectChoose(as?.known); collectChoose(as?.innate); }
 		return [...new Set(names)].slice(0, 3).map(n => n.toTitleCase()).join(", ") || "Option";
 	}
 
-	// { ability, abilityChoices, knownFixed:[{sp}], knownChoose:[{key,filter,count}], innate:[{sp,freq,level}], groupCount } up to current level.
-	// Uses the selected variant group; "known" spells gated by frequency (rest/daily/will) are treated as innate.
-	racialSpellsInfo () {
-		const groups = this.racialSpellGroups(); if (!groups.length) return null;
-		const as = groups[this.racialSpellGroupIx()] || groups[0];
+	// shared parser for one additionalSpells variant group -> {knownFixed:[sp], knownChoose:[{key,filter,count,freq?}], innate:[{sp,freq,level}]}
+	// "known" spells gated by a frequency (rest/daily/will) are treated as innate; {choose} entries (in known OR innate) become knownChoose picks.
+	_parseAdditionalSpellGroup (as, charLevel, keyPrefix) {
 		const knownFixed = []; const knownChoose = []; const innate = [];
-		const lvlOk = (l) => +l <= this.level;
+		const lvlOk = (l) => l === "_" || +l <= charLevel; // "_" = always (no level gate); numeric = gained at that character level
+		const lvlNum = (l) => (l === "_" ? 0 : +l) || 0;
 		const cleanPer = (per) => `${per}`.replace(/e$/, "");
 		Object.entries(as.known || {}).forEach(([charLvl, val]) => {
 			if (!lvlOk(charLvl)) return;
 			const entry = (it, ix, freq) => {
-				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: +charLvl}); else knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `rk:${charLvl}:${ix}`, filter: it.choose, count: it.count || 1});
+				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: lvlNum(charLvl)}); else knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `${keyPrefix}${charLvl}:${ix}`, filter: it.choose, count: it.count || 1, freq});
 			};
 			if (Array.isArray(val)) val.forEach((it, ix) => entry(it, ix));
 			else {
 				(val._ || []).forEach((it, ix) => entry(it, ix));
-				(val.will || []).forEach((s, ix) => entry(s, ix, "at will"));
-				Object.entries(val.rest || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, ix, `${cleanPer(per)}/rest`)));
-				Object.entries(val.daily || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, ix, `${cleanPer(per)}/day`)));
+				(val.will || []).forEach((s, ix) => entry(s, `w${ix}`, "at will"));
+				Object.entries(val.rest || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, `r${per}.${ix}`, `${cleanPer(per)}/rest`)));
+				Object.entries(val.daily || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, `d${per}.${ix}`, `${cleanPer(per)}/day`)));
 			}
 		});
 		Object.entries(as.innate || {}).forEach(([charLvl, val]) => {
 			if (!lvlOk(charLvl)) return;
-			const push = (raw, freq) => { const sp = this._spellByName(raw); if (sp) innate.push({sp, freq, level: +charLvl}); };
-			if (Array.isArray(val)) val.forEach(s => push(s, "at will"));
-			else { Object.entries(val.daily || {}).forEach(([per, a]) => a.forEach(s => push(s, `${cleanPer(per)}/day`))); Object.entries(val.rest || {}).forEach(([per, a]) => a.forEach(s => push(s, `${cleanPer(per)}/rest`))); (val.will || []).forEach(s => push(s, "at will")); }
+			const handle = (it, freq, ix) => { if (typeof it === "string") { const sp = this._spellByName(it); if (sp) innate.push({sp, freq, level: lvlNum(charLvl)}); } else if (it?.choose) knownChoose.push({key: `${keyPrefix}i${charLvl}:${ix}`, filter: it.choose, count: it.count || 1, freq}); };
+			if (Array.isArray(val)) val.forEach((s, ix) => handle(s, "at will", ix));
+			else { Object.entries(val.daily || {}).forEach(([per, a]) => a.forEach((s, ix) => handle(s, `${cleanPer(per)}/day`, `d${per}.${ix}`))); Object.entries(val.rest || {}).forEach(([per, a]) => a.forEach((s, ix) => handle(s, `${cleanPer(per)}/rest`, `r${per}.${ix}`))); (val.will || []).forEach((s, ix) => handle(s, "at will", `w${ix}`)); }
 		});
-		return {ability: this.racialSpellAbility(), abilityChoices: this.racialSpellAbilityChoices(), knownFixed, knownChoose, innate, groupCount: groups.length};
+		return {knownFixed, knownChoose, innate};
 	}
+
+	// { ability, abilityChoices, knownFixed, knownChoose, innate, groupCount } from the race's selected variant.
+	racialSpellsInfo () {
+		const groups = this.racialSpellGroups(); if (!groups.length) return null;
+		const as = groups[this.racialSpellGroupIx()] || groups[0];
+		return {...this._parseAdditionalSpellGroup(as, this.level, "rk:"), ability: this.racialSpellAbility(), abilityChoices: this.racialSpellAbilityChoices(), groupCount: groups.length};
+	}
+
+	/* ----- feat-granted spells (Magic Initiate, Fey Touched, Ritual Caster, dragonmarks…) ----- */
+	_featSpellAbility (as, choice) {
+		const ab = as?.ability;
+		if (ab && typeof ab === "string" && ab !== "inherit") return ab; // Magic Initiate variant: cha/wis/int
+		return (choice?.featAbilChoose && choice.featAbilChoose[0]) || null; // Fey/Shadow Touched: "inherit" the feat's chosen ability
+	}
+	// info for a feat's additionalSpells (selected variant); choice holds featSpellGroup + featSpellChoose
+	featSpellsInfo (feat, choice) {
+		const groups = feat?.additionalSpells; if (!groups?.length) return null;
+		const ix = Math.min(choice?.featSpellGroup || 0, groups.length - 1);
+		const as = groups[ix] || groups[0];
+		const parsed = this._parseAdditionalSpellGroup(as, this.level, `fs${ix}:`);
+		return {...parsed, ability: this._featSpellAbility(as, choice), groups, groupIx: ix};
+	}
+	// every taken feat that grants spells, with its resolved info — for the review sheet
+	featSpellSources () {
+		return this._allFeatInstances().map(({feat, choice}) => feat?.additionalSpells?.length ? {feat, choice, info: this.featSpellsInfo(feat, choice)} : null).filter(Boolean);
+	}
+	featSpellSaveDc (ability) { return ability ? 8 + this.profBonus + this.abilityMod(ability) : null; }
 
 	/* ----- serialization ----- */
 	toJson () {
