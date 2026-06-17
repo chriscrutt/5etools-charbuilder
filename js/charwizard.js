@@ -46,9 +46,7 @@ export class CharState {
 	reset () {
 		this.name = "";
 		this.raceUid = null;
-		this.classUid = null;
-		this.level = 1;
-		this.subclassUid = null;
+		this.classes = [{uid: null, level: 1, subclassUid: null}]; // [0] is the primary class
 		this.backgroundUid = null;
 		this.abilityMethod = "pointbuy";
 		this.abilitiesBase = {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8};
@@ -59,10 +57,10 @@ export class CharState {
 		this.expertiseChoices = []; // skills with expertise (double proficiency)
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
 		this.equipmentChoices = {}; // line index -> chosen option index
-		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
+		this.spellChoices = {}; // classUid -> {cantrips:[], leveled:[]} (arrays of "name|source")
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
-		this.asiChoices = {}; // level -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
+		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
 		this.armorUid = null; // worn armor item "name|source" (drives AC)
 		this.isShield = false;
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
@@ -71,33 +69,79 @@ export class CharState {
 	/* ----- entity lookups ----- */
 	_byUid (arr, uid) { if (!uid) return null; return arr.find(e => CW.uid(e) === uid) || null; }
 	get raceEnt () { return this._byUid(this._data.races, this.raceUid); }
-	get classEnt () { return this._byUid(this._data.classData.classes, this.classUid); }
 	get backgroundEnt () { return this._byUid(this._data.backgrounds, this.backgroundUid); }
-	get subclassEnt () {
-		const cls = this.classEnt;
-		if (!cls || !this.subclassUid) return null;
+
+	/* ----- multiclassing: this.classes = [{uid, level, subclassUid}]; classes[0] is the primary (first) class ----- */
+	// resolved class entries [{ix, uid, cls, level, subclassUid, subclassEnt, isPrimary}], skipping unchosen rows
+	classList () {
+		return (this.classes || [])
+			.map((c, ix) => {
+				const cls = this._byUid(this._data.classData.classes, c.uid);
+				if (!cls) return null;
+				return {ix, uid: c.uid, cls, level: Math.max(1, c.level || 1), subclassUid: c.subclassUid || null, subclassEnt: this._subclassEntFor(cls, c.subclassUid), isPrimary: ix === 0};
+			})
+			.filter(Boolean);
+	}
+	get primaryClass () { return this.classList()[0] || null; }
+	get classEnt () { return this.primaryClass?.cls || null; } // first class — drives saving throws, skills, starting equipment
+	get subclassEnt () { return this.primaryClass?.subclassEnt || null; }
+	// total character level (sum of class levels); compat getters for old single-class read sites
+	get totalLevel () { return this.classList().reduce((a, c) => a + c.level, 0); }
+	get level () { return Math.max(1, this.totalLevel); }
+	get classUid () { return this.primaryClass?.uid || (this.classes?.[0]?.uid ?? null); }
+	get subclassUid () { return this.primaryClass?.subclassUid || null; }
+	isMulticlassed () { return this.classList().length > 1; }
+	hasClass (name) { return this.classList().some(c => c.cls.name === name); }
+
+	_subclassEntFor (cls, subclassUid) {
+		if (!cls || !subclassUid) return null;
 		return this._data.classData.subclasses
 			.filter(sc => sc.className === cls.name && sc.classSource === cls.source)
-			.find(sc => CW.uid(sc) === this.subclassUid) || null;
+			.find(sc => CW.uid(sc) === subclassUid) || null;
 	}
 
-	subclassesForClass () {
-		const cls = this.classEnt;
+	subclassesForClass (cls = this.classEnt) {
 		if (!cls) return [];
 		return this._data.classData.subclasses
 			.filter(sc => sc.className === cls.name && sc.classSource === cls.source && !sc.isReprinted);
 	}
 
-	subclassGainLevel () {
-		const cls = this.classEnt;
+	subclassGainLevel (cls = this.classEnt) {
 		if (!cls) return null;
 		// the level at which the first subclass feature is gained
-		const subs = this.subclassesForClass();
+		const subs = this.subclassesForClass(cls);
 		for (const sc of subs) {
 			const feats = sc.subclassFeatures || [];
 			for (let i = 0; i < feats.length; ++i) if ((feats[i] || []).length) return (feats[i][0]?.level) || (i + 1);
 		}
 		return 3;
+	}
+
+	/* ----- multiclass prerequisites (ability score minimums) ----- */
+	// {ok, reqText, missing:[...]} for taking a level in `cls` as a multiclass (ignores starting-class case)
+	multiclassRequirement (cls) {
+		const req = cls?.multiclassing?.requirements;
+		if (!req) return {ok: true, reqText: "", missing: []};
+		const missing = []; const parts = [];
+		Object.entries(req).forEach(([k, v]) => {
+			if (k === "or") {
+				(v || []).forEach(alt => {
+					const opts = Object.entries(alt);
+					parts.push(opts.map(([a, sc]) => `${a.toUpperCase()} ${sc}`).join(" or "));
+					if (!opts.some(([a, sc]) => this.finalAbility(a) >= sc)) missing.push(opts.map(([a, sc]) => `${a.toUpperCase()} ${sc}`).join(" or "));
+				});
+			} else if (CW.ABILITIES.includes(k)) {
+				parts.push(`${k.toUpperCase()} ${v}`);
+				if (this.finalAbility(k) < v) missing.push(`${k.toUpperCase()} ${v}`);
+			}
+		});
+		return {ok: !missing.length, reqText: parts.join(", "), missing};
+	}
+
+	// Can the character add a level in `cls` (must meet its reqs AND those of all current classes)
+	canMulticlassInto (cls) {
+		if (!this.multiclassRequirement(cls).ok) return false;
+		return this.classList().every(c => this.multiclassRequirement(c.cls).ok);
 	}
 
 	/* ----- abilities ----- */
@@ -132,23 +176,28 @@ export class CharState {
 		return {from: ab.choose.from || CW.ABILITIES, count: ab.choose.count || 1, amount: ab.choose.amount || 1};
 	}
 
-	// Levels (<= current) at which this class grants an Ability Score Improvement
-	asiLevels () {
-		const cls = this.classEnt; if (!cls?.classFeatures) return [];
+	// ASI "slots" across all classes: each class grants ASIs at its own levels.
+	// Returns [{classUid, className, classLevel, key}] where key = "classUid@classLevel".
+	asiSlots () {
 		const out = [];
-		for (let lv = 1; lv <= this.level; ++lv) {
-			const feats = cls.classFeatures[lv - 1] || [];
-			if (feats.some(f => f?.name && /^Ability Score Improvement/i.test(f.name))) out.push(lv);
-		}
+		this.classList().forEach(({cls, level, uid}) => {
+			const cf = cls.classFeatures || [];
+			for (let lv = 1; lv <= level; ++lv) {
+				const feats = cf[lv - 1] || [];
+				if (feats.some(f => f?.name && /^Ability Score Improvement/i.test(f.name))) out.push({classUid: uid, className: cls.name, classLevel: lv, key: `${uid}@${lv}`});
+			}
+		});
 		return out;
 	}
+	// back-compat: character levels that have an ASI (used only for messaging)
+	asiLevels () { return [...new Set(this.asiSlots().map(s => s.classLevel))].sort((a, b) => a - b); }
 
-	// Total ability bonuses from ASIs + chosen feats (only for valid, in-range ASI levels)
+	// Total ability bonuses from ASIs + chosen feats (only for valid, in-range ASI slots)
 	asiBonuses () {
 		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
-		const valid = new Set(this.asiLevels());
-		Object.entries(this.asiChoices || {}).forEach(([lv, ch]) => {
-			if (!ch || !valid.has(+lv)) return;
+		const valid = new Set(this.asiSlots().map(s => s.key));
+		Object.entries(this.asiChoices || {}).forEach(([key, ch]) => {
+			if (!ch || !valid.has(key)) return;
 			if (ch.type === "asi" && ch.inc) Object.entries(ch.inc).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
 			else if (ch.type === "feat" && ch.featUid) {
 				const feat = this._data.feats.find(f => CW.uid(f) === ch.featUid);
@@ -162,10 +211,11 @@ export class CharState {
 	}
 
 	featsTaken () {
-		const valid = new Set(this.asiLevels());
+		const slots = this.asiSlots();
+		const byKey = new Map(slots.map(s => [s.key, s]));
 		return Object.entries(this.asiChoices || {})
-			.filter(([lv, c]) => valid.has(+lv) && c?.type === "feat" && c.featUid)
-			.map(([lv, c]) => ({level: +lv, featUid: c.featUid}));
+			.filter(([key, c]) => byKey.has(key) && c?.type === "feat" && c.featUid)
+			.map(([key, c]) => { const s = byKey.get(key); return {key, level: s.classLevel, className: s.className, featUid: c.featUid}; });
 	}
 
 	// Does the character satisfy a feat's prerequisites? (checks ability/level/spellcasting/proficiency/race; unknown types pass)
@@ -201,16 +251,15 @@ export class CharState {
 	// Ability increases from class/subclass features gained so far (outside ASIs/feats)
 	classFeatureAbilityBonuses () {
 		const out = {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0};
-		const addFrom = (featuresByLevel) => {
+		const addFrom = (featuresByLevel, maxLv) => {
 			(featuresByLevel || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => {
 				if (!f?.name) return;
 				const lvl = f.level || (ix + 1);
-				if (lvl > this.level) return;
+				if (lvl > maxLv) return;
 				Object.entries(this._featureAbilityIncrease(f)).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
 			}));
 		};
-		addFrom(this.classEnt?.classFeatures);
-		addFrom(this.subclassEnt?.subclassFeatures);
+		this.classList().forEach(({cls, level, subclassEnt}) => { addFrom(cls.classFeatures, level); addFrom(subclassEnt?.subclassFeatures, level); });
 		return out;
 	}
 
@@ -226,14 +275,28 @@ export class CharState {
 
 	hitDie () { const c = this.classEnt; return c?.hd ? c.hd.faces : null; }
 
+	// e.g. "3d10, 2d6" — hit dice grouped by die size across all classes
+	hitDiceString () {
+		const byDie = {};
+		this.classList().forEach(({cls, level}) => { const f = cls.hd?.faces; if (f) byDie[f] = (byDie[f] || 0) + level; });
+		const keys = Object.keys(byDie).map(Number).sort((a, b) => b - a);
+		return keys.length ? keys.map(f => `${byDie[f]}d${f}`).join(", ") : "—";
+	}
+
 	maxHp () {
-		const c = this.classEnt; if (!c?.hd) return null;
-		const faces = c.hd.faces; const conMod = this.abilityMod("con");
-		const avg = Math.floor(faces / 2) + 1;
-		let hp = faces + conMod; // level 1: max
-		for (let lv = 2; lv <= this.level; ++lv) hp += avg + conMod;
-		hp += this.hpBonusPerLevel() * this.level; // Tough, Dwarven Toughness, etc.
-		return Math.max(this.level, hp);
+		const list = this.classList(); if (!list.length || !list[0].cls.hd) return null;
+		const conMod = this.abilityMod("con");
+		let hp = 0; let isFirstLevel = true;
+		list.forEach(({cls, level}) => {
+			const faces = cls.hd?.faces; if (!faces) return;
+			const avg = Math.floor(faces / 2) + 1;
+			for (let i = 0; i < level; ++i) {
+				if (isFirstLevel) { hp += faces + conMod; isFirstLevel = false; } // 1st character level: max die
+				else hp += avg + conMod; // every other level (any class): average
+			}
+		});
+		hp += this.hpBonusPerLevel() * this.totalLevel; // Tough, Dwarven Toughness, etc.
+		return Math.max(this.totalLevel, hp);
 	}
 
 	// Per-level bonus HP from race traits / feats / features (Tough +2, Dwarven Toughness +1, …)
@@ -249,9 +312,8 @@ export class CharState {
 		};
 		let perLevel = parse(this.raceEnt?.entries);
 		this.featsTaken().forEach(({featUid}) => { perLevel += parse(this._data.feats.find(x => CW.uid(x) === featUid)?.entries); });
-		const addF = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) perLevel += parse(f?.entries); }));
-		addF(this.classEnt?.classFeatures);
-		addF(this.subclassEnt?.subclassFeatures);
+		const addF = (fbl, maxLv) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= maxLv) perLevel += parse(f?.entries); }));
+		this.classList().forEach(({cls, level, subclassEnt}) => { addF(cls.classFeatures, level); addF(subclassEnt?.subclassFeatures, level); });
 		return perLevel;
 	}
 
@@ -368,8 +430,10 @@ export class CharState {
 	saveMod (abv) { return this.abilityMod(abv) + (this.saveProfs().has(abv) ? this.profBonus : 0); }
 
 	_hasFeature (name) {
-		const scan = (fbl) => (fbl || []).some((lvArr, ix) => (lvArr || []).some(f => f?.name === name && (f.level || (ix + 1)) <= this.level));
-		return scan(this.classEnt?.classFeatures) || scan(this.subclassEnt?.subclassFeatures);
+		return this.classList().some(({cls, level, subclassEnt}) => {
+			const scan = (fbl) => (fbl || []).some((lvArr, ix) => (lvArr || []).some(f => f?.name === name && (f.level || (ix + 1)) <= level));
+			return scan(cls.classFeatures) || scan(subclassEnt?.subclassFeatures);
+		});
 	}
 
 	// Half proficiency to ability checks not already proficient (Jack of All Trades / Remarkable Athlete)
@@ -382,8 +446,10 @@ export class CharState {
 	// number of expertise picks granted (Rogue/Bard Expertise: 2 skills each)
 	expertiseSlots () {
 		let n = 0;
-		const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (f?.name === "Expertise" && (f.level || (ix + 1)) <= this.level) n += 2; }));
-		scan(this.classEnt?.classFeatures); scan(this.subclassEnt?.subclassFeatures);
+		this.classList().forEach(({cls, level, subclassEnt}) => {
+			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (f?.name === "Expertise" && (f.level || (ix + 1)) <= level) n += 2; }));
+			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
+		});
 		return n;
 	}
 
@@ -415,10 +481,12 @@ export class CharState {
 	armorEnt () { return this.armorUid && this._hasInInventory(this.armorUid) ? this._armorById(this.armorUid) : null; }
 	isShieldEffective () { return this.isShield && this.hasShieldInInventory(); }
 
-	// armor categories the character is proficient with (from class; light/medium/heavy/shield)
+	// armor categories the character is proficient with (light/medium/heavy/shield).
+	// First class grants its full starting proficiencies; multiclassed classes grant only their limited set.
 	armorProficiencies () {
 		const out = new Set();
-		(this.classEnt?.startingProficiencies?.armor || []).forEach(a => { const s = (typeof a === "string" ? a : a.proficiency || a.full || "").toLowerCase(); if (s) out.add(s); });
+		const add = (arr) => (arr || []).forEach(a => { const s = (typeof a === "string" ? a : a.proficiency || a.full || "").toLowerCase(); if (s) out.add(s); });
+		this.classList().forEach(({cls, isPrimary}) => add(isPrimary ? cls.startingProficiencies?.armor : cls.multiclassing?.proficienciesGained?.armor));
 		return out;
 	}
 	static _ARMOR_TYPE_TO_CAT = {LA: "light", MA: "medium", HA: "heavy", S: "shield"};
@@ -482,8 +550,10 @@ export class CharState {
 
 	_initiativeFeatureAdv () {
 		let found = null;
-		const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (found || (f?.level || (ix + 1)) > this.level) return; if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; }));
-		scan(this.classEnt?.classFeatures); scan(this.subclassEnt?.subclassFeatures);
+		this.classList().forEach(({cls, level, subclassEnt}) => {
+			const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (found || (f?.level || (ix + 1)) > level) return; if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; }));
+			scan(cls.classFeatures); scan(subclassEnt?.subclassFeatures);
+		});
 		this.featsTaken().forEach(({featUid}) => { if (found) return; const f = this._data.feats.find(x => CW.uid(x) === featUid); if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; });
 		return found;
 	}
@@ -506,11 +576,13 @@ export class CharState {
 				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source, sourceTag}); }
 			}
 		};
-		const race = this.raceEnt; const cls = this.classEnt; const sc = this.subclassEnt; const bg = this.backgroundEnt;
+		const race = this.raceEnt; const bg = this.backgroundEnt;
 		parse(race?.entries, race?.name, race ? `{@race ${race.name}|${race.source}}` : null);
 		this.featsTaken().forEach(({featUid}) => { const f = this._data.feats.find(x => CW.uid(x) === featUid); parse(f?.entries, f?.name, f ? `{@feat ${f.name}|${f.source}}` : null); });
-		(cls?.classFeatures || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) parse(f?.entries, f?.name, `{@classFeature ${f.name}|${f.className || cls.name}|${f.classSource || cls.source}|${f.level || ix + 1}}`); }));
-		(sc?.subclassFeatures || []).forEach((lv) => (lv || []).forEach(f => { if ((f?.level || 0) <= this.level) parse(f?.entries, f?.name, `{@subclassFeature ${f.name}|${sc.className}|${sc.classSource}|${sc.shortName}|${sc.source}|${f.level}}`); }));
+		this.classList().forEach(({cls, level, subclassEnt: sc}) => {
+			(cls.classFeatures || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= level) parse(f?.entries, f?.name, `{@classFeature ${f.name}|${f.className || cls.name}|${f.classSource || cls.source}|${f.level || ix + 1}}`); }));
+			(sc?.subclassFeatures || []).forEach((lv) => (lv || []).forEach(f => { if ((f?.level || 0) <= level) parse(f?.entries, f?.name, `{@subclassFeature ${f.name}|${sc.className}|${sc.classSource}|${sc.shortName}|${sc.source}|${f.level}}`); }));
+		});
 		parse(bg?.entries, bg?.name, bg ? `{@background ${bg.name}|${bg.source}}` : null);
 		return out;
 	}
@@ -606,9 +678,8 @@ export class CharState {
 			const baseAc = armor.ac || 10;
 			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}`; } else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name} + Dex (max ${armor.dexterityMax ?? 2})`; } else { base = baseAc + dex; how = `${armor.name} + Dex`; }
 		} else {
-			const clsName = this.classEnt?.name;
 			// Monk Unarmored Defense requires no shield; Barbarian allows a shield
-			if (clsName === "Barbarian") { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (clsName === "Monk" && !this.isShieldEffective()) { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
+			if (this.hasClass("Barbarian")) { base = 10 + dex + this.abilityMod("con"); how = "Unarmored Defense (10 + Dex + Con)"; } else if (this.hasClass("Monk") && !this.isShieldEffective()) { base = 10 + dex + this.abilityMod("wis"); how = "Unarmored Defense (10 + Dex + Wis)"; } else { base = 10 + dex; how = "Unarmored (10 + Dex)"; }
 			// race natural armor — use if it gives a higher (or equal) AC
 			const nat = this.naturalArmor();
 			if (nat) {
@@ -638,16 +709,15 @@ export class CharState {
 	// +N ft. speed from features gained (Barbarian Fast Movement, Monk Unarmored Movement, …)
 	speedBonusFromFeatures () {
 		let bonus = 0; const armored = !!this.armorEnt();
-		const addFrom = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => {
-			if (!f?.name || (f.level || (ix + 1)) > this.level) return;
+		const addFrom = (fbl, maxLv) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => {
+			if (!f?.name || (f.level || (ix + 1)) > maxLv) return;
 			const text = JSON.stringify(f.entries || "").toLowerCase();
 			const m = text.match(/speed increases by (\d+) ?(?:feet|ft)/);
 			if (!m) return;
 			const conditional = /(?:not|aren't|are not|no) wearing armor|wearing no armor/.test(text);
 			if (!conditional || !armored) bonus += parseInt(m[1], 10);
 		}));
-		addFrom(this.classEnt?.classFeatures);
-		addFrom(this.subclassEnt?.subclassFeatures);
+		this.classList().forEach(({cls, level, subclassEnt}) => { addFrom(cls.classFeatures, level); addFrom(subclassEnt?.subclassFeatures, level); });
 		return bonus;
 	}
 
@@ -696,78 +766,124 @@ export class CharState {
 	}
 
 	armorWeaponToolProfs () {
-		const cls = this.classEnt; const sp = cls?.startingProficiencies || {};
-		const fmtList = (a) => (a || []).map(x => typeof x === "string" ? x : (x.proficiency || x.full || x.special || ""));
+		const fmtList = (a) => (a || []).map(x => typeof x === "string" ? x : (x.proficiency || x.full || x.special || "")).filter(Boolean);
 		// title-case plain words, but leave {@tag ...} strings intact for the Renderer
 		const tc = (s) => `${s}`.includes("{@") ? `${s}` : `${s}`.toTitleCase();
-		return {
-			armor: fmtList(sp.armor).map(tc),
-			weapons: fmtList(sp.weapons).map(tc),
-			tools: fmtList(sp.tools).map(tc),
-		};
+		const armor = new Set(); const weapons = new Set(); const tools = new Set();
+		this.classList().forEach(({cls, isPrimary}) => {
+			const src = isPrimary ? (cls.startingProficiencies || {}) : (cls.multiclassing?.proficienciesGained || {});
+			fmtList(src.armor).forEach(x => armor.add(tc(x)));
+			fmtList(src.weapons).forEach(x => weapons.add(tc(x)));
+			if (isPrimary) fmtList(src.tools).forEach(x => tools.add(tc(x)));
+		});
+		return {armor: [...armor], weapons: [...weapons], tools: [...tools]};
 	}
 
-	// Features gained up to current level (class + chosen subclass)
-	featuresByLevel () {
-		const cls = this.classEnt; if (!cls) return [];
+	// Features gained up to current level, grouped per class: [{title, items:[{name,entries,level,kind}]}]
+	featureSections () {
 		const out = [];
-		const clsFeats = cls.classFeatures || [];
-		const sc = this.subclassEnt;
-		const scFeats = sc?.subclassFeatures || [];
-		for (let lv = 1; lv <= this.level; ++lv) {
+		this.classList().forEach(({cls, level, subclassEnt: sc}) => {
 			const items = [];
-			(clsFeats[lv - 1] || []).forEach(f => { if (f && !f.isClassFeatureVariant) items.push({name: f.name, entries: f.entries, level: lv, kind: "class"}); });
-			(scFeats[lv - 1] || []).forEach(f => { if (f) items.push({name: f.name, entries: f.entries, level: lv, kind: "subclass"}); });
-			if (items.length) out.push({level: lv, items});
-		}
-		return out;
-	}
-
-	/* ----- spellcasting ----- */
-	isCaster () { const c = this.classEnt; return !!(c?.casterProgression || c?.spellcastingAbility); }
-
-	spellAbility () { return this.classEnt?.spellcastingAbility || null; }
-
-	spellSaveDc () { const a = this.spellAbility(); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
-	spellAtkBonus () { const a = this.spellAbility(); return a ? this.profBonus + this.abilityMod(a) : null; }
-
-	// Spell slots for current level, from the class table groups
-	spellSlots () {
-		const cls = this.classEnt; if (!cls?.classTableGroups) return null;
-		const grp = cls.classTableGroups.find(g => /spell slots/i.test(g.title || "") || g.rowsSpellProgression);
-		if (!grp) return null;
-		const rows = grp.rowsSpellProgression || grp.rows;
-		const row = rows?.[this.level - 1];
-		if (!row) return null;
-		const out = {};
-		row.forEach((cell, ix) => {
-			const n = typeof cell === "number" ? cell : parseInt(`${cell}`.replace(/[^0-9]/g, ""), 10);
-			if (n > 0) out[ix + 1] = n;
+			(cls.classFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant && (f.level || (ix + 1)) <= level) items.push({name: f.name, entries: f.entries, level: f.level || (ix + 1), kind: "class"}); }));
+			(sc?.subclassFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => { if (f?.name && (f.level || (ix + 1)) <= level) items.push({name: f.name, entries: f.entries, level: f.level || (ix + 1), kind: "subclass"}); }));
+			items.sort((a, b) => a.level - b.level);
+			if (items.length) out.push({title: `${cls.name}${sc ? ` (${sc.name})` : ""} ${level}`, items});
 		});
 		return out;
 	}
 
-	maxSpellLevel () { const s = this.spellSlots(); if (!s) return 0; return Math.max(0, ...Object.keys(s).map(Number)); }
+	/* ----- spellcasting (multiclass-aware) ----- */
+	// standard multiclass spellcaster slot table: combined caster level -> [L1..L9]
+	static _MC_SLOTS = {
+		1: [2], 2: [3], 3: [4, 2], 4: [4, 3], 5: [4, 3, 2], 6: [4, 3, 3], 7: [4, 3, 3, 1], 8: [4, 3, 3, 2],
+		9: [4, 3, 3, 3, 1], 10: [4, 3, 3, 3, 2], 11: [4, 3, 3, 3, 2, 1], 12: [4, 3, 3, 3, 2, 1],
+		13: [4, 3, 3, 3, 2, 1, 1], 14: [4, 3, 3, 3, 2, 1, 1], 15: [4, 3, 3, 3, 2, 1, 1, 1], 16: [4, 3, 3, 3, 2, 1, 1, 1],
+		17: [4, 3, 3, 3, 2, 1, 1, 1, 1], 18: [4, 3, 3, 3, 3, 1, 1, 1, 1], 19: [4, 3, 3, 3, 3, 2, 1, 1, 1], 20: [4, 3, 3, 3, 3, 2, 2, 1, 1],
+	};
 
-	cantripsKnown () { const c = this.classEnt; return c?.cantripProgression ? (c.cantripProgression[this.level - 1] || 0) : 0; }
+	// A "spell source" is a class or a caster subclass (e.g. Eldritch Knight). Each carries its own progression.
+	spellSources () {
+		const out = [];
+		this.classList().forEach(({cls, level, subclassEnt, uid}) => {
+			if (cls.casterProgression || cls.spellcastingAbility) out.push({kind: "class", uid, ent: cls, classEnt: cls, level, name: cls.name, prog: cls.casterProgression, ability: cls.spellcastingAbility, listClassName: cls.name, preparedSpells: cls.preparedSpells});
+			if (subclassEnt && (subclassEnt.casterProgression || subclassEnt.spellcastingAbility)) out.push({kind: "subclass", uid: CW.uid(subclassEnt), ent: subclassEnt, classEnt: cls, level, name: `${cls.name} (${subclassEnt.name})`, prog: subclassEnt.casterProgression, ability: subclassEnt.spellcastingAbility, listClassName: this._subclassSpellListClass(cls, subclassEnt), preparedSpells: subclassEnt.preparedSpells});
+		});
+		return out;
+	}
+	_subclassSpellListClass (cls, sc) { return /eldritch knight|arcane trickster/i.test(sc.name) ? "Wizard" : cls.name; }
+	isCaster () { return this.spellSources().length > 0; }
 
-	// Number of leveled spells known/prepared
-	leveledSpellsKnown () {
-		const c = this.classEnt; if (!c) return 0;
-		if (c.spellsKnownProgression) return c.spellsKnownProgression[this.level - 1] || 0;
-		if (c.preparedSpells) {
-			// formula like "<$level$> + <$int_mod$>"
-			const a = this.spellAbility();
-			let n = this.level + (a ? this.abilityMod(a) : 0);
-			return Math.max(1, n);
+	spellAbilityFor (src) { return src?.ability || null; }
+	spellSaveDcFor (src) { const a = this.spellAbilityFor(src); return a ? 8 + this.profBonus + this.abilityMod(a) : null; }
+	spellAtkBonusFor (src) { const a = this.spellAbilityFor(src); return a ? this.profBonus + this.abilityMod(a) : null; }
+
+	// spell slots from an entity's own progression table (class or subclass table groups)
+	_ownSpellSlots (ent, level) {
+		const groups = ent?.classTableGroups || ent?.subclassTableGroups; if (!groups) return null;
+		const grp = groups.find(g => g.rowsSpellProgression) || groups.find(g => /spell slots/i.test(g.title || ""));
+		const rows = grp?.rowsSpellProgression || grp?.rows;
+		const row = rows?.[level - 1]; if (!row) return null;
+		const out = {};
+		row.forEach((cell, ix) => { const n = typeof cell === "number" ? cell : parseInt(`${cell}`.replace(/[^0-9]/g, ""), 10); if (n > 0) out[ix + 1] = n; });
+		return Object.keys(out).length ? out : null;
+	}
+
+	// combined caster level for the multiclass spell-slot table (excludes Warlock pact magic)
+	_combinedCasterLevel () {
+		let lvl = 0;
+		this.spellSources().forEach(({prog, level}) => {
+			if (prog === "full") lvl += level;
+			else if (prog === "1/2") lvl += Math.floor(level / 2);
+			else if (prog === "artificer") lvl += Math.ceil(level / 2);
+			else if (prog === "1/3") lvl += Math.floor(level / 3);
+		});
+		return lvl;
+	}
+
+	// Pact Magic (Warlock) slots — parsed from the "Spell Slots" + "Slot Level" table columns; separate from the regular table
+	pactSlots () {
+		const src = this.spellSources().find(s => s.prog === "pact");
+		if (!src) return null;
+		for (const g of (src.ent.classTableGroups || [])) {
+			const labels = (g.colLabels || []).map(l => `${l}`);
+			const numIx = labels.findIndex(l => /spell slots/i.test(l));
+			const lvlIx = labels.findIndex(l => /slot level/i.test(l));
+			if (numIx < 0 || lvlIx < 0 || !g.rows) continue;
+			const row = g.rows[src.level - 1]; if (!row) return null;
+			const num = parseInt(`${row[numIx]}`.replace(/[^0-9]/g, ""), 10);
+			const lvlCell = `${row[lvlIx]}`;
+			const lvl = parseInt((lvlCell.match(/level=(\d+)/) || lvlCell.match(/(\d+)/) || [])[1], 10);
+			return (num > 0 && lvl > 0) ? {[lvl]: num} : null;
 		}
+		return null;
+	}
+
+	// Regular (non-pact) spell slots. One source -> its own table; multiple -> the multiclass table.
+	spellSlots () {
+		const nonPact = this.spellSources().filter(s => s.prog !== "pact");
+		if (!nonPact.length) return null;
+		if (nonPact.length === 1) return this._ownSpellSlots(nonPact[0].ent, nonPact[0].level);
+		const row = CharState._MC_SLOTS[this._combinedCasterLevel()]; if (!row) return null;
+		const out = {};
+		row.forEach((n, ix) => { if (n > 0) out[ix + 1] = n; });
+		return Object.keys(out).length ? out : null;
+	}
+
+	maxSpellLevel () { const s = this.spellSlots(); if (!s) return 0; return Math.max(0, ...Object.keys(s).map(Number)); }
+	// highest spell level a single source can know/prepare, from its own table
+	maxSpellLevelForSource (src) { const s = this._ownSpellSlots(src.ent, src.level); return s ? Math.max(0, ...Object.keys(s).map(Number)) : 0; }
+
+	cantripsKnownFor (src) { return src?.ent?.cantripProgression ? (src.ent.cantripProgression[src.level - 1] || 0) : 0; }
+	leveledSpellsKnownFor (src) {
+		const ent = src.ent;
+		if (ent.spellsKnownProgression) return ent.spellsKnownProgression[src.level - 1] || 0;
+		if (src.preparedSpells) { const a = src.ability; return Math.max(1, src.level + (a ? this.abilityMod(a) : 0)); }
 		return 0;
 	}
+	spellListForSource (src) { return this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName)); }
 
-	spellListForClass () {
-		const cls = this.classEnt; if (!cls) return [];
-		return this._data.spells.filter(sp => (sp.classes?.fromClassList || []).some(c => c.name === cls.name && (!c.source || c.source === cls.source || true)));
-	}
+	// per-source spell choices bucket {cantrips:[], leveled:[]}
+	spellChoicesFor (uid) { return this.spellChoices[uid] || (this.spellChoices[uid] = {cantrips: [], leveled: []}); }
 
 	/* ----- racial spellcasting (additionalSpells) ----- */
 	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].trim().toLowerCase()) || null; }
@@ -816,12 +932,10 @@ export class CharState {
 	/* ----- serialization ----- */
 	toJson () {
 		return {
-			_v: 1,
+			_v: 2,
 			name: this.name,
 			raceUid: this.raceUid,
-			classUid: this.classUid,
-			level: this.level,
-			subclassUid: this.subclassUid,
+			classes: this.classes,
 			backgroundUid: this.backgroundUid,
 			abilityMethod: this.abilityMethod,
 			abilitiesBase: this.abilitiesBase,
@@ -844,12 +958,31 @@ export class CharState {
 
 	fromJson (j) {
 		if (!j) return;
+		// migrate v1 single-class -> classes[]
+		let classes;
+		if (Array.isArray(j.classes)) classes = j.classes.map(c => ({uid: c.uid ?? null, level: Math.max(1, c.level || 1), subclassUid: c.subclassUid ?? null}));
+		else classes = [{uid: j.classUid ?? null, level: Math.max(1, j.level || 1), subclassUid: j.subclassUid ?? null}];
+		if (!classes.length) classes = [{uid: null, level: 1, subclassUid: null}];
+		const primaryUid = classes[0]?.uid;
+
+		// migrate asiChoices keyed by numeric level -> "uid@level" for the primary class
+		let asiChoices = j.asiChoices ?? {};
+		if (primaryUid && Object.keys(asiChoices).some(k => /^\d+$/.test(k))) {
+			const migrated = {};
+			Object.entries(asiChoices).forEach(([k, v]) => { migrated[/^\d+$/.test(k) ? `${primaryUid}@${k}` : k] = v; });
+			asiChoices = migrated;
+		}
+
+		// migrate flat spellChoices {cantrips,leveled} -> per-class {uid:{...}}
+		let spellChoices = j.spellChoices ?? {};
+		if (spellChoices && (Array.isArray(spellChoices.cantrips) || Array.isArray(spellChoices.leveled))) {
+			spellChoices = primaryUid ? {[primaryUid]: {cantrips: spellChoices.cantrips || [], leveled: spellChoices.leveled || []}} : {};
+		}
+
 		Object.assign(this, {
 			name: j.name ?? "",
 			raceUid: j.raceUid ?? null,
-			classUid: j.classUid ?? null,
-			level: j.level ?? 1,
-			subclassUid: j.subclassUid ?? null,
+			classes,
 			backgroundUid: j.backgroundUid ?? null,
 			abilityMethod: j.abilityMethod ?? "pointbuy",
 			abilitiesBase: j.abilitiesBase ?? {str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8},
@@ -860,10 +993,10 @@ export class CharState {
 			expertiseChoices: j.expertiseChoices ?? [],
 			profChoices: j.profChoices ?? {},
 			equipmentChoices: j.equipmentChoices ?? {},
-			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
+			spellChoices,
 			raceSpellChoices: j.raceSpellChoices ?? {},
 			raceSpellAbility: j.raceSpellAbility ?? null,
-			asiChoices: j.asiChoices ?? {},
+			asiChoices,
 			armorUid: j.armorUid ?? null,
 			isShield: j.isShield ?? false,
 			inventory: j.inventory ?? [],

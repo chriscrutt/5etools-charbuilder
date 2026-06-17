@@ -218,74 +218,166 @@ export class CharWizardUi {
 		});
 	}
 
-	/* ----- Step: Class ----- */
+	/* ----- Step: Class (multiclass-aware) ----- */
 	_renderStepClass (el) {
+		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
-		// level + subclass controls
-		const ctrl = ee`<div class="ve-flex-v-center ve-mb-2" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(wrp);
-		const inpLevel = ee`<input type="number" min="1" max="20" class="ve-form-control" style="width:70px" value="${this._state.level}">`
-			.onn("change", () => {
-				let v = Math.max(1, Math.min(20, parseInt(inpLevel.val(), 10) || 1));
-				this._state.level = v; inpLevel.val(v); this._save(); this.render();
-			});
-		ee(ctrl)`<label class="ve-flex-v-center" style="gap:6px">Level ${inpLevel}</label>`;
+		const chosen = st.classList();
 
-		const subs = this._state.subclassesForClass();
-		const gainLv = this._state.subclassGainLevel();
-		if (this._state.classUid && subs.length && this._state.level >= gainLv) {
-			const sel = ee`<select class="ve-form-control" style="width:auto"><option value="">— ${(this._state.classEnt?.subclassTitle || "Subclass").qq()} —</option></select>`;
-			subs.forEach(sc => { const o = ee`<option value="${CW.uid(sc).qq()}">${sc.name} (${sc.source})</option>`; o.appendTo(sel); });
-			sel.val(this._state.subclassUid || "");
-			sel.onn("change", () => { this._state.subclassUid = sel.val() || null; this._save(); this.render(); });
-			ee(ctrl)`<label class="ve-flex-v-center" style="gap:6px">${this._state.classEnt?.subclassTitle || "Subclass"}: ${sel}</label>`;
-		} else if (this._state.classUid && subs.length) {
-			ee(ctrl)`<span class="ve-muted ve-small">${this._state.classEnt?.subclassTitle || "Subclass"} chosen at level ${gainLv}</span>`;
+		// no class yet -> full chooser for the first (primary) class
+		if (!chosen.length) {
+			this._renderChooser(wrp, {
+				subtitle: "Choose your class. Hit dice, saving throws, proficiencies, features, and (if any) spellcasting come from your first class.",
+				entities: this._data.classData.classes,
+				getSel: () => st.classes[0]?.uid || null,
+				setSel: (uid) => this._setPrimaryClass(uid),
+				renderDetail: (col, cls) => this._renderClassDetail(col, cls, {level: st.classes[0]?.level || 1, subclassUid: null}),
+				onAfterSelect: () => this.render(),
+			});
+			return;
 		}
 
-		this._renderChooser(wrp, {
-			subtitle: "Choose your class. Hit dice, saving throws, proficiencies, features, and (if any) spellcasting come from here.",
-			entities: this._data.classData.classes,
-			getSel: () => this._state.classUid,
-			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.expertiseChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; this._state.clearProfChoicesForSource("class"); },
-			renderDetail: (col, cls) => this._renderClassDetail(col, cls),
-			onAfterSelect: () => this.render(),
+		ee(wrp)`<h4 class="ve-mt-0">Classes <span class="ve-muted ve-small">— total level ${st.totalLevel}, proficiency +${st.profBonus}</span></h4>`;
+		if (st.totalLevel > 20) ee(wrp)`<div class="cw__err ve-small ve-mb-2"><span class="glyphicon glyphicon-warning-sign"></span> Total level ${st.totalLevel} exceeds the maximum of 20.</div>`;
+		st.classes.forEach((row, ix) => this._renderClassRow(wrp, row, ix));
+		this._renderAddClass(wrp);
+	}
+
+	_setPrimaryClass (uid) {
+		const st = this._state;
+		const old = st.classes[0]?.uid;
+		if (old === uid) return;
+		st.classes[0] = {uid, level: st.classes[0]?.level || 1, subclassUid: null};
+		st.classSkillChoices = [];
+		st.expertiseChoices = [];
+		if (old) { delete st.spellChoices[old]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${old}@`)) delete st.asiChoices[k]; }); }
+		st.clearProfChoicesForSource("class");
+		this._save();
+	}
+
+	_addClass (uid) {
+		const st = this._state;
+		if (!st.classList().length) { this._setPrimaryClass(uid); return; }
+		if (st.classes.some(c => c.uid === uid)) return;
+		st.classes.push({uid, level: 1, subclassUid: null});
+		this._save();
+	}
+
+	_removeClass (ix) {
+		const st = this._state;
+		const uid = st.classes[ix]?.uid;
+		st.classes.splice(ix, 1);
+		if (!st.classes.length) st.classes = [{uid: null, level: 1, subclassUid: null}];
+		if (uid) { delete st.spellChoices[uid]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${uid}@`)) delete st.asiChoices[k]; }); }
+		this._save(); this.render();
+	}
+
+	// one row in the class list: name, level, subclass, remove, collapsible detail
+	_renderClassRow (wrp, row, ix) {
+		const st = this._state;
+		const cls = this._data.classData.classes.find(c => CW.uid(c) === row.uid);
+		if (!cls) return;
+		const card = ee`<div class="cw__class-row" style="border:1px solid rgba(127,127,127,.3);border-radius:6px;padding:10px;margin-bottom:10px"></div>`.appendTo(wrp);
+		const head = ee`<div class="ve-flex-v-center" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(card);
+		ee(head)`<b>${ix === 0 ? `<span class="ve-muted ve-small">1st</span> ` : ""}${renderInline(`{@class ${cls.name}|${cls.source}}`)}</b>`;
+
+		const inpLevel = ee`<input type="number" min="1" max="20" class="ve-form-control" style="width:64px" value="${row.level}">`
+			.onn("change", () => { const v = Math.max(1, Math.min(20, parseInt(inpLevel.val(), 10) || 1)); row.level = v; inpLevel.val(v); this._save(); this.render(); });
+		ee(head)`<label class="ve-flex-v-center" style="gap:6px">Level ${inpLevel}</label>`;
+
+		const subs = st.subclassesForClass(cls);
+		const gainLv = st.subclassGainLevel(cls);
+		if (subs.length && row.level >= gainLv) {
+			const sel = ee`<select class="ve-form-control" style="width:auto"><option value="">— ${(cls.subclassTitle || "Subclass").qq()} —</option></select>`;
+			subs.forEach(sc => ee`<option value="${CW.uid(sc).qq()}">${sc.name} (${sc.source})</option>`.appendTo(sel));
+			sel.val(row.subclassUid || "");
+			sel.onn("change", () => { row.subclassUid = sel.val() || null; this._save(); this.render(); });
+			ee(head)`<label class="ve-flex-v-center" style="gap:6px">${cls.subclassTitle || "Subclass"}: ${sel}</label>`;
+		} else if (subs.length) {
+			ee(head)`<span class="ve-muted ve-small">${cls.subclassTitle || "Subclass"} at level ${gainLv}</span>`;
+		}
+
+		if (st.classes.length > 1) {
+			ee(head)`${ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove this class"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => this._removeClass(ix))}`;
+		}
+
+		// multiclass ability-score requirement (secondary classes only)
+		if (ix > 0) {
+			const req = st.multiclassRequirement(cls);
+			if (req.reqText) ee(card)`<div class="ve-small ve-mt-1 ${req.ok ? "ve-muted" : "cw__err"}">Multiclass requirement: ${req.reqText.qq()}${req.ok ? " ✓" : ` — not met`}</div>`;
+		}
+
+		const det = ee`<details class="ve-mt-1"><summary class="ve-small ve-bold">Features &amp; details</summary></details>`.appendTo(card);
+		det.addEventListener("toggle", () => {
+			if (!det.open || det.dataset.rendered) return;
+			det.dataset.rendered = "1";
+			this._renderClassDetail(ee`<div class="ve-mt-1"></div>`.appendTo(det), cls, row);
 		});
 	}
 
-	_renderClassDetail (col, cls) {
+	// "add a class" — filtered to classes the character meets multiclass prerequisites for
+	_renderAddClass (wrp) {
 		const st = this._state;
+		const taken = new Set(st.classes.map(c => c.uid).filter(Boolean));
+		const available = this._data.classData.classes.filter(cls => !taken.has(CW.uid(cls)));
+		const eligible = available.filter(cls => st.canMulticlassInto(cls));
+		const hidden = available.length - eligible.length;
+
+		const det = ee`<details class="ve-mt-1"><summary class="ve-bold">＋ Add a class (multiclass)</summary></details>`.appendTo(wrp);
+		const body = ee`<div class="ve-mt-2"></div>`.appendTo(det);
+		det.addEventListener("toggle", () => {
+			if (!det.open || det.dataset.rendered) return;
+			det.dataset.rendered = "1";
+			if (!eligible.length) { ee(body)`<p class="ve-muted">No classes available to add${hidden ? ` — you don't meet the ability-score requirements for the remaining ${hidden} class${hidden > 1 ? "es" : ""}.` : "."}</p>`; return; }
+			this._renderChooser(body, {
+				subtitle: `Pick a class to add. Only classes you meet the multiclass ability-score requirements for are shown${hidden ? ` (${hidden} hidden — requirement not met)` : ""}. Your new class starts at level 1.`,
+				entities: eligible,
+				getSel: () => null,
+				setSel: (uid) => this._addClass(uid),
+				renderDetail: (col, cls) => this._renderClassDetail(col, cls, {level: 1, subclassUid: null, mc: true}),
+				onAfterSelect: () => this.render(),
+			});
+		});
+	}
+
+	_renderClassDetail (col, cls, opts = null) {
+		const st = this._state;
+		let level = 1; let subEnt = null;
+		if (opts) { level = opts.level || 1; subEnt = opts.subclassEnt ?? st._subclassEntFor(cls, opts.subclassUid); } else { const inBuild = st.classList().find(c => c.uid === CW.uid(cls)); level = inBuild?.level || 1; subEnt = inBuild?.subclassEnt || null; }
 		const hd = cls.hd ? `d${cls.hd.faces}` : "—";
 		const saves = (cls.proficiency || []).map(a => CW.ABIL_FULL[a]).join(", ") || "—";
 		const sp = cls.startingProficiencies || {};
 		const skillMeta = (sp.skills || []).find(g => g?.choose);
 		const skillsText = skillMeta ? `Choose ${skillMeta.choose.count} from ${(skillMeta.choose.from || []).map(s => s.toTitleCase()).join(", ")}` : "—";
+		// when adding as a multiclass, show the limited proficiencies gained instead of the full starting set
+		const mc = opts?.mc ? cls.multiclassing : null;
+		const mcProf = mc?.proficienciesGained;
 		ee(col)`<div>
 			<h4 class="ve-mt-0">${cls.name} <span class="ve-muted ve-small">(${cls.source})</span></h4>
-			<div><b>Hit Die:</b> ${hd} &nbsp; <b>Saving Throws:</b> ${saves}</div>
-			<div><b>Armor:</b> ${renderInline((sp.armor || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>
-			<div><b>Weapons:</b> ${renderInline((sp.weapons || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>
-			<div><b>Skills:</b> ${skillsText.qq()}</div>
+			<div><b>Hit Die:</b> ${hd}${opts?.mc ? "" : ` &nbsp; <b>Saving Throws:</b> ${saves}`}</div>
+			${opts?.mc && mc?.requirements ? `<div><b>Multiclass req:</b> ${st.multiclassRequirement(cls).reqText.qq()}</div>` : ""}
+			<div><b>${opts?.mc ? "Proficiencies gained" : "Armor"}:</b> ${renderInline((mcProf ? mcProf.armor : sp.armor || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}${opts?.mc ? "" : ""}</div>
+			${opts?.mc ? "" : `<div><b>Weapons:</b> ${renderInline((sp.weapons || []).map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>`}
+			${opts?.mc && mcProf ? `<div><b>Weapons/tools:</b> ${renderInline([...(mcProf.weapons || []), ...(mcProf.tools || [])].map(a => `${typeof a === "string" ? a : a.proficiency || ""}`).join(", ") || "—")}</div>` : ""}
+			${opts?.mc ? "" : `<div><b>Skills:</b> ${skillsText.qq()}</div>`}
 			${cls.spellcastingAbility ? `<div><b>Spellcasting:</b> ${CW.ABIL_FULL[cls.spellcastingAbility]} (${cls.casterProgression || "?"} caster)</div>` : ""}
 		</div>`;
+		if (opts?.mc) ee(col)`<div class="ve-muted ve-small ve-mt-1">Multiclassing grants only a limited set of this class's proficiencies (not its saving throws or full skill list).</div>`;
 
-		// progression table (full 1-20 at-a-glance)
 		if ((cls.classTableGroups || []).length) {
 			const tblDet = ee`<details class="ve-mt-2"><summary class="ve-bold">Class progression table</summary></details>`.appendTo(col);
 			ee`<div style="overflow-x:auto">${this._classTableHtml(cls)}</div>`.appendTo(tblDet);
 		}
 
-		// full class features, up to current level + expandable for higher
 		ee(col)`<h4 class="ve-mt-2">Class Features</h4>`;
-		this._renderFeaturesFull(col, cls.classFeatures || [], st.level);
+		this._renderFeaturesFull(col, cls.classFeatures || [], level);
 
-		// subclass features (or a prompt to pick one)
-		const sc = st.subclassEnt;
-		const subs = st.subclassesForClass();
-		if (sc) {
-			ee(col)`<h4 class="ve-mt-2">${sc.name.qq()} <span class="ve-muted ve-small">(${(cls.subclassTitle || "Subclass").qq()})</span></h4>`;
-			this._renderFeaturesFull(col, sc.subclassFeatures || [], st.level);
+		const subs = st.subclassesForClass(cls);
+		if (subEnt) {
+			ee(col)`<h4 class="ve-mt-2">${subEnt.name.qq()} <span class="ve-muted ve-small">(${(cls.subclassTitle || "Subclass").qq()})</span></h4>`;
+			this._renderFeaturesFull(col, subEnt.subclassFeatures || [], level);
 		} else if (subs.length) {
-			ee(col)`<p class="ve-muted ve-mt-2"><b>${(cls.subclassTitle || "Subclass")}s</b> (${subs.length}): ${subs.map(s => s.name).join(", ").qq()}.<br>Pick one above (available at level ${st.subclassGainLevel()}) to read its features here.</p>`;
+			ee(col)`<p class="ve-muted ve-mt-2"><b>${(cls.subclassTitle || "Subclass")}s</b> (${subs.length}): ${subs.map(s => s.name).join(", ").qq()}.<br>Available at level ${st.subclassGainLevel(cls)}.</p>`;
 		}
 	}
 
@@ -379,8 +471,8 @@ export class CharWizardUi {
 
 		// 3) ASIs & feats (merged here so the totals above reflect them)
 		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4 class="ve-mt-0">Ability Score Improvements &amp; Feats</h4>`;
-		if (st.asiLevels().length) this._renderStepAsi(wrp);
-		else ee(wrp)`<div class="ve-muted ve-small">${st.classUid ? `No Ability Score Improvements available at level ${st.level} (the first is usually level 4).` : "Choose a class first."}</div>`;
+		if (st.asiSlots().length) this._renderStepAsi(wrp);
+		else ee(wrp)`<div class="ve-muted ve-small">${st.classUid ? `No Ability Score Improvements available yet (each class's first is usually at its level 4).` : "Choose a class first."}</div>`;
 	}
 
 	/* ----- Racial ability bonuses (fixed / choose / weighted; multi-option) ----- */
@@ -522,29 +614,31 @@ export class CharWizardUi {
 		});
 	}
 
-	/* ----- Step: ASI & Feats ----- */
+	/* ----- Step: ASI & Feats (one slot per class's ASI level) ----- */
 	_renderStepAsi (el) {
 		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
-		const levels = st.asiLevels();
-		ee(wrp)`<p class="ve-muted">At level${levels.length > 1 ? "s" : ""} ${levels.join(", ")}, choose an Ability Score Improvement or a feat. Ability increases below are applied to your scores automatically.</p>`;
+		const slots = st.asiSlots();
+		ee(wrp)`<p class="ve-muted">You have ${slots.length} Ability Score Improvement${slots.length > 1 ? "s" : ""} to assign — each can instead be a feat. Ability increases below are applied to your scores automatically.</p>`;
 		const feats = [...this._data.feats].sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
-		levels.forEach(lv => {
-			if (!st.asiChoices[lv]) st.asiChoices[lv] = {type: "asi", plan: "one", inc: {}};
-			const ch = st.asiChoices[lv];
+		slots.forEach(slot => {
+			const key = slot.key;
+			if (!st.asiChoices[key]) st.asiChoices[key] = {type: "asi", plan: "one", inc: {}};
+			const ch = st.asiChoices[key];
 			const card = ee`<div style="border:1px solid rgba(127,127,127,.3);border-radius:6px;padding:10px;margin-bottom:10px"></div>`.appendTo(wrp);
-			ee(card)`<div class="ve-flex-v-center" style="gap:12px"><b>Level ${lv}</b>${this._asiModeToggle(lv, ch)}</div>`;
+			const label = st.isMulticlassed() ? `${slot.className} — level ${slot.classLevel}` : `Level ${slot.classLevel}`;
+			ee(card)`<div class="ve-flex-v-center" style="gap:12px"><b>${label.qq()}</b>${this._asiModeToggle(key, ch)}</div>`;
 			const body = ee`<div class="ve-mt-2"></div>`.appendTo(card);
 			if (ch.type === "asi") this._renderAsiAbility(body, ch);
-			else this._renderAsiFeat(body, lv, ch, feats);
+			else this._renderAsiFeat(body, key, ch, feats);
 		});
 	}
 
-	_asiModeToggle (lv, ch) {
+	_asiModeToggle (key, ch) {
 		const mk = (id, lbl) => ee`<button class="ve-btn ve-btn-xs ${ch.type === id ? "ve-btn-primary" : "ve-btn-default"}">${lbl}</button>`
 			.onn("click", () => {
 				if (ch.type === id) return;
-				this._state.asiChoices[lv] = id === "asi" ? {type: "asi", plan: "one", inc: {}} : {type: "feat", featUid: null, featAbilChoose: []};
+				this._state.asiChoices[key] = id === "asi" ? {type: "asi", plan: "one", inc: {}} : {type: "feat", featUid: null, featAbilChoose: []};
 				this._save(); this.render();
 			});
 		return ee`<div class="ve-btn-group">${mk("asi", "Ability Scores")}${mk("feat", "Feat")}</div>`;
@@ -576,13 +670,13 @@ export class CharWizardUi {
 		if (over.length) ee(body)`<div class="cw__err ve-small">Note: ${over.map(a => a.toUpperCase()).join(", ")} now exceeds 20 (ASIs normally cap at 20).</div>`;
 	}
 
-	_renderAsiFeat (body, lv, ch, feats) {
+	_renderAsiFeat (body, key, ch, feats) {
 		const st = this._state;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose a feat —</option></select>`;
 		let hiddenForPrereq = 0;
 		feats.forEach(f => {
 			const uid = CW.uid(f);
-			const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.level !== lv);
+			const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.key !== key);
 			const meets = st.meetsFeatPrereq(f);
 			if (!meets && ch.featUid !== uid) { hiddenForPrereq++; return; } // filter out feats you don't qualify for
 			ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${f.name} (${f.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
@@ -844,22 +938,32 @@ export class CharWizardUi {
 	_renderStepSpells (el) {
 		const st = this._state;
 		const wrp = ee`<div></div>`.appendTo(el);
+		const sources = st.spellSources();
+		const nonPactMulti = sources.filter(s => s.prog !== "pact").length > 1;
 
-		if (st.isCaster()) {
-			const dc = st.spellSaveDc(); const atk = st.spellAtkBonus();
-			ee(wrp)`<h4 class="ve-mt-0">${(st.classEnt?.name || "Class")} Spellcasting</h4>
-				<div class="ve-mb-2"><b>Ability:</b> ${CW.ABIL_FULL[st.spellAbility()] || "—"} &nbsp; <b>Save DC:</b> ${dc ?? "—"} &nbsp; <b>Attack:</b> ${atk == null ? "—" : CW.fmtMod(atk)}<br><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}</div>`;
-			const dedupe = (arr) => { const seen = new Set(); return arr.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }); };
-			const all = st.spellListForClass();
-			const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
-			const maxLv = st.maxSpellLevel();
-			const leveled = dedupe(all.filter(s => s.level >= 1 && s.level <= maxLv).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name)));
-			this._renderSpellPicker(wrp, `Cantrips`, cantrips, st.spellChoices.cantrips, st.cantripsKnown());
-			this._renderSpellPicker(wrp, st.classEnt?.preparedSpells ? `Prepared spells` : `Spells known`, leveled, st.spellChoices.leveled, st.leveledSpellsKnown());
+		if (sources.length) {
+			const slots = st.spellSlots(); const pact = st.pactSlots();
+			ee(wrp)`<div class="ve-mb-2"><b>Spell Slots:</b> ${this._fmtSlots(slots)}${pact ? ` &nbsp; <b>Pact Magic:</b> ${this._fmtSlots(pact)}` : ""}${nonPactMulti ? ` <span class="ve-muted ve-small">(combined multiclass slots)</span>` : ""}</div>`;
 		}
 
+		const dedupe = (arr) => { const seen = new Set(); return arr.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }); };
+		sources.forEach((src, ix) => {
+			if (ix) ee(wrp)`<hr class="hr-2 ve-mt-3">`;
+			const dc = st.spellSaveDcFor(src); const atk = st.spellAtkBonusFor(src);
+			ee(wrp)`<h4 class="ve-mt-0">${src.name.qq()} Spellcasting</h4>
+				<div class="ve-mb-2"><b>Ability:</b> ${CW.ABIL_FULL[src.ability] || "—"} &nbsp; <b>Save DC:</b> ${dc ?? "—"} &nbsp; <b>Attack:</b> ${atk == null ? "—" : CW.fmtMod(atk)}</div>`;
+			const bucket = st.spellChoicesFor(src.uid);
+			const all = st.spellListForSource(src);
+			const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
+			const maxLv = st.maxSpellLevelForSource(src);
+			const leveled = dedupe(all.filter(s => s.level >= 1 && s.level <= maxLv).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name)));
+			const nCantrips = st.cantripsKnownFor(src);
+			if (nCantrips) this._renderSpellPicker(wrp, `Cantrips`, cantrips, bucket.cantrips, nCantrips);
+			this._renderSpellPicker(wrp, src.preparedSpells ? `Prepared spells` : `Spells known`, leveled, bucket.leveled, st.leveledSpellsKnownFor(src));
+		});
+
 		if (st.hasRacialSpells()) this._renderRacialSpells(wrp);
-		if (!st.isCaster() && !st.hasRacialSpells()) ee(wrp)`<p class="ve-muted">No spellcasting.</p>`;
+		if (!sources.length && !st.hasRacialSpells()) ee(wrp)`<p class="ve-muted">No spellcasting.</p>`;
 	}
 
 	_renderRacialSpells (wrp) {
@@ -918,9 +1022,9 @@ export class CharWizardUi {
 		const wrp = ee`<div class="cw__sheet"></div>`.appendTo(el);
 		if (missing.length) ee(wrp)`<div class="cw__err no-print">Still missing: ${missing.join(", ")}. The sheet below fills in as you complete steps.</div>`;
 
-		const race = st.raceEnt; const cls = st.classEnt; const bg = st.backgroundEnt; const sc = st.subclassEnt;
+		const race = st.raceEnt; const cls = st.classEnt; const bg = st.backgroundEnt;
 		const subtitle = [race?.name, bg?.name].filter(Boolean).join(" • ");
-		const classLine = cls ? `${cls.name}${sc ? ` (${sc.name})` : ""} ${st.level}` : "";
+		const classLine = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
 
 		ee(wrp)`<div class="cw__sheet-head">
 			<div><div style="font-size:24px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
@@ -935,7 +1039,7 @@ export class CharWizardUi {
 		const box = (lbl, val) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
 		box("Armor Class", cls ? st.ac() : "—");
 		box("Hit Points", hp ?? "—");
-		box("Hit Dice", cls ? `${st.level}d${st.hitDie()}` : "—");
+		box("Hit Dice", st.classList().length ? st.hitDiceString() : "—");
 		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}</div></div>`;
 		box("Passive Perception", st.passiveScore("perception"));
 		box("Passive Investigation", st.passiveScore("investigation"));
@@ -1003,22 +1107,29 @@ export class CharWizardUi {
 		if (featList.length) {
 			const secFe = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(secFe)`<h4>Feats</h4>`;
-			featList.forEach(({level, featUid}) => {
+			featList.forEach(({level, className, featUid}) => {
 				const feat = this._data.feats.find(f => CW.uid(f) === featUid);
 				if (!feat) return;
-				ee`<details style="margin:2px 0"><summary><b>${feat.name.qq()}</b> <span class="ve-muted ve-small">(L${level})</span></summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secFe);
+				const tag = st.isMulticlassed() ? `${className} L${level}` : `L${level}`;
+				ee`<details style="margin:2px 0"><summary><b>${feat.name.qq()}</b> <span class="ve-muted ve-small">(${tag.qq()})</span></summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secFe);
 			});
 		}
 
-		// spellcasting
-		if (st.isCaster()) {
+		// spellcasting (per caster source)
+		const spellSources = st.spellSources();
+		if (spellSources.length) {
 			const secSp = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-			const spellSpans = (uids) => uids.map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
+			const spellSpans = (uids) => (uids || []).map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
+			const slots = st.spellSlots(); const pact = st.pactSlots();
 			ee(secSp)`<h4>Spellcasting</h4>
-				<div><b>Ability:</b> ${CW.ABIL_FULL[st.spellAbility()]} &nbsp; <b>Save DC:</b> ${st.spellSaveDc()} &nbsp; <b>Attack:</b> ${CW.fmtMod(st.spellAtkBonus())}</div>
-				<div><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}</div>
-				<div><b>Cantrips:</b> ${spellSpans(st.spellChoices.cantrips) || "—"}</div>
-				<div><b>${st.classEnt?.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(st.spellChoices.leveled) || "—"}</div>`;
+				<div><b>Spell Slots:</b> ${this._fmtSlots(slots)}${pact ? ` &nbsp; <b>Pact Magic:</b> ${this._fmtSlots(pact)}` : ""}</div>`;
+			spellSources.forEach(src => {
+				const bucket = st.spellChoices[src.uid] || {cantrips: [], leveled: []};
+				const atk = st.spellAtkBonusFor(src);
+				ee(secSp)`<div class="ve-mt-1"><b>${src.name.qq()}</b> <span class="ve-muted ve-small">— ${CW.ABIL_FULL[src.ability] || "—"}, DC ${st.spellSaveDcFor(src) ?? "—"}, atk ${atk == null ? "—" : CW.fmtMod(atk)}</span></div>
+					<div class="ve-pl-3"><b>Cantrips:</b> ${spellSpans(bucket.cantrips) || "—"}</div>
+					<div class="ve-pl-3"><b>${src.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(bucket.leveled) || "—"}</div>`;
+			});
 		}
 
 		// racial (innate) spellcasting
@@ -1036,15 +1147,15 @@ export class CharWizardUi {
 				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq})`).join(", ")}</div>` : ""}`;
 		}
 
-		// features
-		const feats = st.featuresByLevel();
-		if (feats.length) {
+		// features (grouped per class)
+		const sections = st.featureSections();
+		if (sections.length) {
 			const secF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-			ee(secF)`<h4>Class & Subclass Features</h4>`;
-			feats.forEach(({level, items}) => {
-				items.forEach(f => {
-					const det = ee`<details style="margin:2px 0"><summary><b>L${level}:</b> ${f.name.qq()} <span class="ve-muted ve-small">(${f.kind})</span></summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`;
-					det.appendTo(secF);
+			ee(secF)`<h4>Class &amp; Subclass Features</h4>`;
+			sections.forEach(sec => {
+				if (st.isMulticlassed()) ee(secF)`<div class="ve-bold ve-mt-2">${sec.title.qq()}</div>`;
+				sec.items.forEach(f => {
+					ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()} <span class="ve-muted ve-small">(${f.kind})</span></summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secF);
 				});
 			});
 		}
