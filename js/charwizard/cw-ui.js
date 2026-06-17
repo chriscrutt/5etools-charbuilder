@@ -12,6 +12,8 @@ const hoverAttrs = (page, ent) => {
 		return `data-vet-page="${page}" data-vet-source="${`${ent.source}`.qq()}" data-vet-hash="${`${hash}`.qq()}" onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this)" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" style="cursor:help;text-decoration:underline dotted"`;
 	} catch (e) { return ""; }
 };
+// hoverable spell name span (5etools tooltip)
+const spellSpan = (name, source) => `<span ${hoverAttrs(UrlUtil.PG_SPELLS, {name, source})}>${`${name}`.qq()}</span>`;
 // badge for {adv:[], dis:[], net} — adv + dis cancel to a straight roll
 const advDisBadge = (ad) => {
 	if (!ad || !ad.net) return "";
@@ -915,7 +917,9 @@ export class CharWizardUi {
 		box("Hit Points", hp ?? "—");
 		box("Hit Dice", cls ? `${st.level}d${st.hitDie()}` : "—");
 		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}</div></div>`;
-		box("Passive Perception", st.passivePerception());
+		box("Passive Perception", st.passiveScore("perception"));
+		box("Passive Investigation", st.passiveScore("investigation"));
+		box("Passive Insight", st.passiveScore("insight"));
 
 		// abilities + saves
 		const secA = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
@@ -989,13 +993,12 @@ export class CharWizardUi {
 		// spellcasting
 		if (st.isCaster()) {
 			const secSp = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
-			const chosenC = st.spellChoices.cantrips.map(u => u.split("|")[0]);
-			const chosenL = st.spellChoices.leveled.map(u => u.split("|")[0]);
+			const spellSpans = (uids) => uids.map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
 			ee(secSp)`<h4>Spellcasting</h4>
 				<div><b>Ability:</b> ${CW.ABIL_FULL[st.spellAbility()]} &nbsp; <b>Save DC:</b> ${st.spellSaveDc()} &nbsp; <b>Attack:</b> ${CW.fmtMod(st.spellAtkBonus())}</div>
 				<div><b>Slots:</b> ${this._fmtSlots(st.spellSlots())}</div>
-				<div><b>Cantrips:</b> ${chosenC.join(", ") || "—"}</div>
-				<div><b>${st.classEnt?.preparedSpells ? "Prepared" : "Known"}:</b> ${chosenL.join(", ") || "—"}</div>`;
+				<div><b>Cantrips:</b> ${spellSpans(st.spellChoices.cantrips) || "—"}</div>
+				<div><b>${st.classEnt?.preparedSpells ? "Prepared" : "Known"}:</b> ${spellSpans(st.spellChoices.leveled) || "—"}</div>`;
 		}
 
 		// racial (innate) spellcasting
@@ -1003,11 +1006,14 @@ export class CharWizardUi {
 		if (rsi && (rsi.knownFixed.length || rsi.innate.length || rsi.knownChoose.length)) {
 			const secR = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			const chosenRacial = rsi.knownChoose.flatMap(g => st.raceSpellChoices[g.key] || []);
-			const known = [...rsi.knownFixed.map(sp => sp.name), ...chosenRacial];
+			const knownSpans = [
+				...rsi.knownFixed.map(sp => spellSpan(sp.name, sp.source)),
+				...chosenRacial.map(n => { const sp = st._spellByName(n); return sp ? spellSpan(sp.name, sp.source) : `${n}`.qq(); }),
+			];
 			ee(secR)`<h4>${st.raceEnt.name.qq()} Innate Spellcasting</h4>
 				${rsi.ability ? `<div><b>Ability:</b> ${CW.ABIL_FULL[rsi.ability]} &nbsp; <b>Save DC:</b> ${st.racialSpellSaveDc() ?? "—"}</div>` : ""}
-				${known.length ? `<div><b>Known:</b> ${known.map(n => `${n}`.qq()).join(", ")}</div>` : ""}
-				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${`${i.sp.name}`.qq()} (${i.freq})`).join(", ")}</div>` : ""}`;
+				${knownSpans.length ? `<div><b>Known:</b> ${knownSpans.join(", ")}</div>` : ""}
+				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq})`).join(", ")}</div>` : ""}`;
 		}
 
 		// features

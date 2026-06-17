@@ -281,9 +281,10 @@ export class CharState {
 	proficiencyChoiceGroups () {
 		const groups = [];
 		const LSTD = Parser.LANGUAGES_STANDARD || []; const LALL = Parser.LANGUAGES_ALL || []; const LEXO = Parser.LANGUAGES_EXOTIC || [];
+		const STD_PLUS_EXOTIC = [...new Set([...LSTD, ...LEXO])]; // "standard" choices are loosened to also allow exotic
 		const addLang = (arr, srcKey, srcLabel) => (arr || []).forEach((grp, ix) => {
 			let n = 0; let opts = null;
-			if (grp.anyStandard) { n = grp.anyStandard; opts = LSTD; } else if (grp.anyExotic) { n = grp.anyExotic; opts = LEXO; } else if (grp.any) { n = grp.any; opts = LALL; }
+			if (grp.anyStandard) { n = grp.anyStandard; opts = STD_PLUS_EXOTIC; } else if (grp.anyExotic) { n = grp.anyExotic; opts = LEXO; } else if (grp.any) { n = grp.any; opts = LALL; }
 			if (n) groups.push({key: `language:${srcKey}:${ix}`, type: "language", label: `${srcLabel}: choose ${n} language${n > 1 ? "s" : ""}`, options: opts, count: n});
 		});
 		const NUMW = {one: 1, two: 2, three: 3, four: 4, five: 5};
@@ -611,7 +612,14 @@ export class CharState {
 		const hp = this.halfProfMeta();
 		return base + (hp && (hp.abilities === null || hp.abilities.has("dex")) ? hp.amount : 0);
 	}
-	passivePerception () { return 10 + this.skillMod("perception"); }
+	// passive score = 10 + skill modifier (+5 advantage / -5 disadvantage)
+	passiveScore (skill) {
+		let s = 10 + this.skillMod(skill);
+		const ad = this.skillAdvDis(skill);
+		if (ad?.net === "adv") s += 5; else if (ad?.net === "dis") s -= 5;
+		return s;
+	}
+	passivePerception () { return this.passiveScore("perception"); }
 
 	// +N ft. speed from features gained (Barbarian Fast Movement, Monk Unarmored Movement, …)
 	speedBonusFromFeatures () {
