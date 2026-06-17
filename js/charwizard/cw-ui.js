@@ -5,6 +5,13 @@ const renderEntries = (entries) => {
 	try { return Renderer.get().setFirstSection(true).render({type: "entries", entries: entries || []}); } catch (e) { return ""; }
 };
 const renderInline = (str) => { try { return Renderer.get().render(`${str}`); } catch (e) { return `${str}`; } };
+// inline hover attributes (5etools tooltip) for a span/element, without navigation on click
+const hoverAttrs = (page, ent) => {
+	try {
+		const hash = UrlUtil.URL_TO_HASH_BUILDER[page](ent);
+		return `data-vet-page="${page}" data-vet-source="${`${ent.source}`.qq()}" data-vet-hash="${`${hash}`.qq()}" onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this)" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" style="cursor:help;text-decoration:underline dotted"`;
+	} catch (e) { return ""; }
+};
 
 export class CharWizardUi {
 	constructor ({data, state, eleRoot, fnSave}) {
@@ -210,7 +217,7 @@ export class CharWizardUi {
 			subtitle: "Choose your class. Hit dice, saving throws, proficiencies, features, and (if any) spellcasting come from here.",
 			entities: this._data.classData.classes,
 			getSel: () => this._state.classUid,
-			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; this._state.clearProfChoicesForSource("class"); },
+			setSel: (uid) => { this._state.classUid = uid; this._state.subclassUid = null; this._state.classSkillChoices = []; this._state.expertiseChoices = []; this._state.spellChoices = {cantrips: [], leveled: []}; this._state.clearProfChoicesForSource("class"); },
 			renderDetail: (col, cls) => this._renderClassDetail(col, cls),
 			onAfterSelect: () => this.render(),
 		});
@@ -603,6 +610,17 @@ export class CharWizardUi {
 		});
 		if (bgSkills.length) ee(wrp)`<p><b>From background:</b> ${bgSkills.map(s => CW.skillName(s)).join(", ")}</p>`;
 
+		// Expertise (Rogue/Bard) — double proficiency on chosen skills you're already proficient in
+		const expSlots = st.expertiseSlots();
+		if (expSlots > 0) {
+			st.expertiseChoices = st.expertiseChoices.filter(s => st.skillProfs().has(s)); // drop stale picks
+			const proficientSkills = [...st.skillProfs()].filter(s => CW.skillAbil(s)).sort();
+			const counter = ee`<span class="ve-muted">${st.expertiseChoices.length}/${expSlots}</span>`;
+			ee(wrp)`<p class="ve-mt-2"><b>Expertise</b> <span class="ve-muted">— double your proficiency bonus on ${expSlots} skill${expSlots > 1 ? "s" : ""} you're proficient in (${counter})</span></p>`;
+			if (!proficientSkills.length) ee(wrp)`<p class="ve-muted ve-small">Choose your skill proficiencies first.</p>`;
+			else this._renderChipPicker(wrp, {items: proficientSkills, getValue: s => s, getLabel: s => CW.skillName(s), arr: st.expertiseChoices, max: expSlots, counterEle: counter});
+		}
+
 		// Languages / tools / race+bg skill choices
 		this._renderProficiencyChoices(wrp);
 
@@ -826,7 +844,7 @@ export class CharWizardUi {
 		this._renderChipPicker(wrp, {
 			items: spells,
 			getValue: sp => CW.uid(sp),
-			getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${sp.name}`,
+			getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}<span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>`,
 			getTitle: sp => `${Parser.spLevelToFull(sp.level)} ${Parser.spSchoolAbvToFull(sp.school)}`,
 			arr: chosenArr,
 			max,
@@ -863,7 +881,9 @@ export class CharWizardUi {
 		box("Armor Class", cls ? st.ac() : "—");
 		box("Hit Points", hp ?? "—");
 		box("Hit Dice", cls ? `${st.level}d${st.hitDie()}` : "—");
-		box("Initiative", CW.fmtMod(st.initiative()));
+		const iad = st.initiativeAdvDis();
+		const initBadge = iad ? ` <span class="cw__advdis cw__advdis--${iad.type}" title="${iad.source.qq()}">${iad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
+		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())}${initBadge}</div></div>`;
 		box("Passive Perception", st.passivePerception());
 
 		// abilities + saves
@@ -883,9 +903,10 @@ export class CharWizardUi {
 		// skills
 		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 		const hpMeta = st.halfProfMeta();
-		ee(secS)`<h4>Skills ${hpMeta ? `<span class="ve-muted ve-small">(◐ = half proficiency from ${hpMeta.name.qq()})</span>` : ""}</h4>`;
+		const legend = [st.expertiseSlots() ? "★ expertise" : "", "● proficient", hpMeta ? `◐ half (${hpMeta.name})` : ""].filter(Boolean).join(", ");
+		ee(secS)`<h4>Skills <span class="ve-muted ve-small">(${legend.qq()})</span></h4>`;
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
-		const MARK = {full: "●", half: "◐", none: "○"};
+		const MARK = {expertise: "★", full: "●", half: "◐", none: "○"};
 		CW.skills().sort().forEach(sk => {
 			const ad = st.skillAdvDis(sk);
 			const badge = ad ? `<span class="cw__advdis cw__advdis--${ad.type}" title="${ad.source.qq()}">${ad.type === "adv" ? "ADV" : "DIS"}</span>` : "";
@@ -901,7 +922,7 @@ export class CharWizardUi {
 			if (eff.nonProf) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Str/Dex checks, saves &amp; attacks — wearing armor/shield you're not proficient with.</div>`;
 			if (eff.stealthDis) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Stealth checks — ${eff.stealthDis.qq()}.</div>`;
 			if (eff.strReqUnmet) ee(secAd)`<div class="ve-muted ve-small">Speed −10 ft. — ${eff.strReqUnmet.armor.qq()} requires Str ${eff.strReqUnmet.req}.</div>`;
-			notes.forEach(n => ee(secAd)`<div><span class="cw__advdis cw__advdis--${n.type}">${n.type === "adv" ? "ADV" : "DIS"}</span> ${n.text.qq()} <span class="ve-muted ve-small">(${n.source.qq()})</span></div>`);
+			notes.forEach(n => ee(secAd)`<div><span class="cw__advdis cw__advdis--${n.type}">${n.type === "adv" ? "ADV" : "DIS"}</span> ${n.text.qq()} <span class="ve-muted ve-small">(${n.sourceTag ? renderInline(n.sourceTag) : `${n.source}`.qq()})</span></div>`);
 		}
 
 		// proficiencies & languages

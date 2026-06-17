@@ -56,6 +56,7 @@ export class CharState {
 		this.raceAbilChoices = []; // simple "choose N" ability picks
 		this.raceAbilWeighted = []; // weighted assignment: ability per weight slot (e.g. ["str","dex"] for +2/+1)
 		this.classSkillChoices = [];
+		this.expertiseChoices = []; // skills with expertise (double proficiency)
 		this.profChoices = {}; // choice-group key -> [chosen values] (languages, tools, race/bg skill choices)
 		this.equipmentChoices = {}; // line index -> chosen option index
 		this.spellChoices = {cantrips: [], leveled: []}; // arrays of "name|source"
@@ -361,8 +362,18 @@ export class CharState {
 		return null;
 	}
 
+	// number of expertise picks granted (Rogue/Bard Expertise: 2 skills each)
+	expertiseSlots () {
+		let n = 0;
+		const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (f?.name === "Expertise" && (f.level || (ix + 1)) <= this.level) n += 2; }));
+		scan(this.classEnt?.classFeatures); scan(this.subclassEnt?.subclassFeatures);
+		return n;
+	}
+
 	skillProfType (skill) {
-		if (this.skillProfs().has(skill)) return "full";
+		const isProf = this.skillProfs().has(skill);
+		if (isProf && this.expertiseChoices.includes(skill)) return "expertise";
+		if (isProf) return "full";
 		const hp = this.halfProfMeta();
 		if (hp && (hp.abilities === null || hp.abilities.has(CW.skillAbil(skill)))) return "half";
 		return "none";
@@ -371,6 +382,7 @@ export class CharState {
 	skillMod (skill) {
 		const base = this.abilityMod(CW.skillAbil(skill));
 		const type = this.skillProfType(skill);
+		if (type === "expertise") return base + this.profBonus * 2;
 		if (type === "full") return base + this.profBonus;
 		if (type === "half") return base + this.halfProfMeta().amount;
 		return base;
@@ -439,10 +451,25 @@ export class CharState {
 		return null;
 	}
 
+	_initiativeFeatureAdv () {
+		let found = null;
+		const scan = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if (found || (f?.level || (ix + 1)) > this.level) return; if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; }));
+		scan(this.classEnt?.classFeatures); scan(this.subclassEnt?.subclassFeatures);
+		this.featsTaken().forEach(({featUid}) => { if (found) return; const f = this._data.feats.find(x => CW.uid(x) === featUid); if (/advantage on initiative/i.test(JSON.stringify(f?.entries || ""))) found = f.name; });
+		return found;
+	}
+
+	// Initiative is a Dexterity check: non-proficient armor -> disadvantage; some features -> advantage
+	initiativeAdvDis () {
+		if (this.armorEffects().nonProf) return {type: "dis", source: "non-proficient armor"};
+		const adv = this._initiativeFeatureAdv();
+		return adv ? {type: "adv", source: adv} : null;
+	}
+
 	// best-effort parse of "advantage/disadvantage on saving throws/checks/rolls ..." from features
 	advantageNotes () {
 		const out = []; const seen = new Set();
-		const parse = (entries, source) => {
+		const parse = (entries, source, sourceTag) => {
 			if (!source) return;
 			const text = JSON.stringify(entries || "").replace(/\{@\w+ ([^}|]+)(?:\|[^}]*)?\}/g, "$1");
 			const re = /([^.>"{}]*\b(?:advantage|disadvantage)\b[^.>"{}]*\bon\b[^.>"{}]*?(?:saving throws?|checks?|rolls?)[^.>"{}]*)\./gi;
@@ -450,14 +477,15 @@ export class CharState {
 			while ((m = re.exec(text)) !== null) {
 				const s = m[1].trim().replace(/^[,\s]+/, "");
 				const key = `${source}|${s.toLowerCase()}`;
-				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source}); }
+				if (s.length > 8 && s.length < 170 && !seen.has(key)) { seen.add(key); out.push({type: /disadvantage/i.test(s) ? "dis" : "adv", text: s, source, sourceTag}); }
 			}
 		};
-		parse(this.raceEnt?.entries, this.raceEnt?.name);
-		this.featsTaken().forEach(({featUid}) => { const f = this._data.feats.find(x => CW.uid(x) === featUid); parse(f?.entries, f?.name); });
-		const addF = (fbl) => (fbl || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) parse(f?.entries, f?.name); }));
-		addF(this.classEnt?.classFeatures); addF(this.subclassEnt?.subclassFeatures);
-		parse(this.backgroundEnt?.entries, this.backgroundEnt?.name);
+		const race = this.raceEnt; const cls = this.classEnt; const sc = this.subclassEnt; const bg = this.backgroundEnt;
+		parse(race?.entries, race?.name, race ? `{@race ${race.name}|${race.source}}` : null);
+		this.featsTaken().forEach(({featUid}) => { const f = this._data.feats.find(x => CW.uid(x) === featUid); parse(f?.entries, f?.name, f ? `{@feat ${f.name}|${f.source}}` : null); });
+		(cls?.classFeatures || []).forEach((lv, ix) => (lv || []).forEach(f => { if ((f?.level || (ix + 1)) <= this.level) parse(f?.entries, f?.name, `{@classFeature ${f.name}|${f.className || cls.name}|${f.classSource || cls.source}|${f.level || ix + 1}}`); }));
+		(sc?.subclassFeatures || []).forEach((lv) => (lv || []).forEach(f => { if ((f?.level || 0) <= this.level) parse(f?.entries, f?.name, `{@subclassFeature ${f.name}|${sc.className}|${sc.classSource}|${sc.shortName}|${sc.source}|${f.level}}`); }));
+		parse(bg?.entries, bg?.name, bg ? `{@background ${bg.name}|${bg.source}}` : null);
 		return out;
 	}
 
@@ -724,6 +752,7 @@ export class CharState {
 			raceAbilChoices: this.raceAbilChoices,
 			raceAbilWeighted: this.raceAbilWeighted,
 			classSkillChoices: this.classSkillChoices,
+			expertiseChoices: this.expertiseChoices,
 			profChoices: this.profChoices,
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
@@ -749,6 +778,7 @@ export class CharState {
 			raceAbilChoices: j.raceAbilChoices ?? [],
 			raceAbilWeighted: j.raceAbilWeighted ?? [],
 			classSkillChoices: j.classSkillChoices ?? [],
+			expertiseChoices: j.expertiseChoices ?? [],
 			profChoices: j.profChoices ?? {},
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices: j.spellChoices ?? {cantrips: [], leveled: []},
