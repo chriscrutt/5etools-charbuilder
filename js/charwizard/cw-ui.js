@@ -28,6 +28,15 @@ const advDisBadge = (ad) => {
 	return `<span class="cw__advdis cw__advdis--${ad.net}" title="${srcs.qq()}">${ad.net === "adv" ? "ADV" : "DIS"}</span>`;
 };
 
+// common tool proficiencies offered to an Expert sidekick (humanoid / weapon-wielding)
+const SIDEKICK_TOOL_OPTIONS = [
+	"Alchemist's Supplies", "Brewer's Supplies", "Calligrapher's Supplies", "Carpenter's Tools", "Cartographer's Tools", "Cobbler's Tools", "Cook's Utensils", "Glassblower's Tools", "Jeweler's Tools", "Leatherworker's Tools", "Mason's Tools", "Painter's Supplies", "Potter's Tools", "Smith's Tools", "Tinker's Tools", "Weaver's Tools", "Woodcarver's Tools",
+	"Disguise Kit", "Forgery Kit", "Herbalism Kit", "Navigator's Tools", "Poisoner's Kit", "Thieves' Tools",
+	"Dice Set", "Dragonchess Set", "Playing Card Set", "Three-Dragon Ante Set",
+	"Bagpipes", "Drum", "Dulcimer", "Flute", "Lute", "Lyre", "Horn", "Pan Flute", "Shawm", "Viol",
+	"Land Vehicles", "Water Vehicles",
+];
+
 export class CharWizardUi {
 	constructor ({data, state, eleRoot, fnSave}) {
 		this._data = data;
@@ -493,9 +502,18 @@ export class CharWizardUi {
 			this._renderChipPicker(wrp, {items: proficient, getValue: s => s, getLabel: s => CW.skillName(s), arr: sk.expertiseChoices, max: expSlots, counterEle: expCounter});
 		}
 
-		// ASIs
+		// tool proficiencies (Expert, if the creature qualifies)
+		const toolCount = st.sidekickToolProfCount();
+		if (toolCount) {
+			ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Tool Proficiencies <span class="ve-muted ve-small">(choose ${toolCount})</span></h4>`;
+			const tCounter = ee`<span class="ve-muted ve-small">${sk.toolChoices.length}/${toolCount}</span>`;
+			ee(wrp)`<div class="ve-mb-1">${tCounter}</div>`;
+			this._renderChipPicker(wrp, {items: SIDEKICK_TOOL_OPTIONS, getValue: t => t, getLabel: t => `${t}`.qq(), arr: sk.toolChoices, max: toolCount, counterEle: tCounter, gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px"});
+		}
+
+		// ASIs (ability scores or — if the DM allows — a feat)
 		const asiLevels = st.sidekickAsiLevels();
-		if (asiLevels.length) { ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Ability Score Improvements <span class="ve-muted ve-small">(+2 total per level, max 20)</span></h4>`; asiLevels.forEach(lv => this._renderSidekickAsi(wrp, lv)); }
+		if (asiLevels.length) { ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Ability Score Improvements <span class="ve-muted ve-small">(+2 total per level, max 20 — or take a feat)</span></h4>`; asiLevels.forEach(lv => this._renderSidekickAsi(wrp, lv)); }
 
 		// spellcasting
 		if (meta.spellcaster) this._renderSidekickSpells(wrp);
@@ -503,9 +521,21 @@ export class CharWizardUi {
 
 	_renderSidekickAsi (wrp, lv) {
 		const st = this._state; const sk = st.sidekick;
-		const cur = sk.asi[lv] || (sk.asi[lv] = {inc: {}});
+		const cur = sk.asi[lv] || (sk.asi[lv] = {type: "asi", inc: {}});
+		if (!cur.type) cur.type = "asi";
+		const row = ee`<div class="ve-mb-2" style="border-left:2px solid rgba(127,127,127,.25);padding-left:8px"></div>`.appendTo(wrp);
+		const typeSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="asi">Ability Scores</option><option value="feat">Feat</option></select>`;
+		typeSel.val(cur.type);
+		typeSel.onn("change", () => { cur.type = typeSel.val(); if (cur.type === "asi") { delete cur.featUid; cur.featAbilChoose = []; } else cur.inc = {}; this._save(); this.render(); });
+		ee(row)`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="min-width:60px">Level ${lv}</b>${typeSel}</div>`;
+		if (cur.type === "feat") this._renderSidekickFeat(row, cur);
+		else this._renderSidekickAsiSteppers(row, cur);
+	}
+
+	_renderSidekickAsiSteppers (wrp, cur) {
+		const st = this._state; cur.inc = cur.inc || {};
 		const spent = () => CW.ABILITIES.reduce((a, abv) => a + (cur.inc[abv] || 0), 0);
-		const box = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:60px">Level ${lv}</b></div>`.appendTo(wrp);
+		const box = ee`<div class="ve-flex-v-center" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
 		CW.ABILITIES.forEach(abv => {
 			const n = cur.inc[abv] || 0;
 			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${n <= 0 ? "disabled" : ""}>−</button>`.onn("click", () => { cur.inc[abv] = Math.max(0, n - 1); this._save(); this.render(); });
@@ -513,6 +543,27 @@ export class CharWizardUi {
 			ee(box)`<span class="ve-flex-v-center" style="gap:2px"><span class="ve-small" style="width:26px">${abv.toUpperCase()}</span>${dec}<span class="ve-small" style="width:20px;text-align:center">+${n}</span>${inc}</span>`;
 		});
 		ee(box)`<span class="ve-muted ve-small">${2 - spent()} left</span>`;
+	}
+
+	_renderSidekickFeat (wrp, cur) {
+		const st = this._state;
+		const feats = st.filterVisible(this._data.feats).slice().sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:260px"><option value="">— choose a feat —</option></select>`;
+		feats.forEach(f => ee`<option value="${CW.uid(f).qq()}">${f.name.qq()}${f.source !== "PHB" ? ` (${f.source})` : ""}</option>`.appendTo(sel));
+		sel.val(cur.featUid || "");
+		sel.onn("change", () => { cur.featUid = sel.val() || null; cur.featAbilChoose = []; this._save(); this.render(); });
+		ee(wrp)`<div>${sel}</div>`;
+		if (!cur.featUid) return;
+		const feat = this._data.feats.find(f => CW.uid(f) === cur.featUid); if (!feat) return;
+		(feat.ability || []).forEach(ab => {
+			if (!ab.choose) return;
+			cur.featAbilChoose = cur.featAbilChoose || [];
+			const counter = ee`<span class="ve-muted ve-small">${cur.featAbilChoose.length}/${ab.choose.count || 1}</span>`;
+			ee(wrp)`<div class="ve-small ve-mt-1"><b>+${ab.choose.amount || 1}</b> to ${counter}:</div>`;
+			this._renderChipPicker(wrp, {items: ab.choose.from || CW.ABILITIES, getValue: a => a, getLabel: a => CW.ABIL_FULL[a] || a, arr: cur.featAbilChoose, max: ab.choose.count || 1, counterEle: counter});
+		});
+		if (feat.prerequisite) ee(wrp)`<div class="ve-muted ve-small ve-mt-1">Prerequisite: ${st._featPrereqText(feat).qq() || "see feat"} <span class="ve-muted">(not enforced for sidekicks — DM's call)</span></div>`;
+		ee(wrp)`<details class="ve-small ve-mt-1"><summary class="ve-muted">${feat.name.qq()} details</summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`;
 	}
 
 	_renderSidekickSpells (wrp) {
@@ -566,8 +617,23 @@ export class CharWizardUi {
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
 		CW.skills().sort().forEach(sk => ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.sidekickSkillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.sidekickSkillMod(sk))}</b></div>`);
 
+		// proficiencies granted by the sidekick class
+		const profParts = [];
+		if (st.sidekickArmorProfs().length) profParts.push(`<b>Armor:</b> ${st.sidekickArmorProfs().join(", ").qq()}`);
+		if (st.sidekickWeaponProfs().length) profParts.push(`<b>Weapons:</b> ${st.sidekickWeaponProfs().join(", ").qq()}`);
+		if (st.sidekickToolProfs().length) profParts.push(`<b>Tools:</b> ${st.sidekickToolProfs().join(", ").qq()}`);
+		if (profParts.length) ee(wrp)`<div class="cw__sheet-section"><h4>Proficiencies</h4><div>${profParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
+
 		// senses
 		if (st.sidekickSenses()) ee(wrp)`<div class="cw__sheet-section"><h4>Senses</h4><div>${st.sidekickSenses().qq()}</div></div>`;
+
+		// feats taken in place of an ASI
+		const skFeats = st.sidekickFeats();
+		if (skFeats.length) {
+			const secSkF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secSkF)`<h4>Feats</h4>`;
+			skFeats.forEach(({level, feat}) => ee`<details style="margin:2px 0"><summary><b>L${level}:</b> ${refLink(UrlUtil.PG_FEATS, feat)}</summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secSkF));
+		}
 
 		// spellcasting
 		if (st.sidekickIsCaster()) {

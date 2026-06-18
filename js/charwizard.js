@@ -1685,9 +1685,31 @@ export class CharState {
 	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }
 	sidekickAbility (abv) {
 		let v = this.sidekickAbilityBase(abv);
-		Object.values(this.sidekick.asi || {}).forEach(a => { if (a?.inc?.[abv]) v += a.inc[abv]; });
+		Object.values(this.sidekick.asi || {}).forEach(a => {
+			if (a?.type === "feat") { if (a.featUid) v += this._featAbilityBonus(a.featUid, a.featAbilChoose)[abv] || 0; }
+			else if (a?.inc?.[abv]) v += a.inc[abv];
+		});
 		return Math.min(20, v);
 	}
+	// feats the sidekick took in place of an ASI (TCE allows this at the DM's option): [{level, feat, choice}]
+	sidekickFeats () {
+		const out = [];
+		Object.entries(this.sidekick.asi || {}).forEach(([lv, a]) => { if (a?.type === "feat" && a.featUid) { const f = this._data.feats.find(x => CW.uid(x) === a.featUid); if (f) out.push({level: +lv, feat: f, choice: a}); } });
+		return out.sort((a, b) => a.level - b.level);
+	}
+
+	// proficiencies granted by the sidekick class (armor always; weapons/tools only if the creature is a humanoid or wields a weapon)
+	sidekickArmorProfs () { const meta = this.sidekickMeta(); return meta ? meta.armor.map(a => `${a} armor`) : []; }
+	sidekickWeaponProfs () {
+		const meta = this.sidekickMeta(); if (!meta) return [];
+		const out = []; const q = this.sidekickQualifiesWeapons();
+		if (meta.simpleIfQualified && q) out.push("simple weapons");
+		if (meta.martialIfQualified && q) out.push("martial weapons");
+		if (meta.shieldsIfQualified && q) out.push("shields");
+		return out;
+	}
+	sidekickToolProfCount () { const meta = this.sidekickMeta(); return (meta?.toolsIfQualified && this.sidekickQualifiesWeapons()) ? meta.toolsIfQualified : 0; }
+	sidekickToolProfs () { return (this.sidekick.toolChoices || []).filter(Boolean); }
 	sidekickAbilityMod (abv) { return CW.mod(this.sidekickAbility(abv)); }
 
 	// HP: creature's base HP + (size hit-die average + Con mod, min 1) per level above 1st (Tasha's)
