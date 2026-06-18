@@ -1665,7 +1665,22 @@ export class CharState {
 	sidekickReady () { return !!this.sidekickCreature(); }
 
 	_creatureSize () { const s = this.sidekickCreature()?.size; return (Array.isArray(s) ? s[0] : s) || "M"; }
-	sidekickHitDie () { return SIDEKICK_SIZE_DIE[this._creatureSize()] || 8; }
+	// TCE: HP per level uses "the type of die [that] appears in the sidekick's stat block" — read it from the hp formula, fall back to the size table
+	sidekickHitDie () { const m = /\d+\s*d\s*(\d+)/i.exec(`${this.sidekickCreature()?.hp?.formula || ""}`); return m ? +m[1] : (SIDEKICK_SIZE_DIE[this._creatureSize()] || 8); }
+	// every eligible creature is CR ≤ 1/2 → base proficiency +2; sidekick PB rises with class level. TCE adds the difference to the stat block's attacks & DCs.
+	sidekickPbDelta () { return Math.max(0, this.sidekickProfBonus() - 2); }
+	// return a copy of stat-block entries with {@hit}/{@dc} bumped by the proficiency-bonus increase (for the review display)
+	sidekickAdjustEntries (arr) {
+		const delta = this.sidekickPbDelta(); if (!delta || !arr) return arr;
+		const bump = (s) => `${s}`.replace(/\{@hit (-?\d+)\}/g, (m, n) => `{@hit ${+n + delta}}`).replace(/\{@dc (\d+)([^}]*)\}/g, (m, n, rest) => `{@dc ${+n + delta}${rest}}`);
+		const walk = (e) => {
+			if (typeof e === "string") return bump(e);
+			if (Array.isArray(e)) return e.map(walk);
+			if (e && typeof e === "object") { const o = {...e}; if (o.entries) o.entries = walk(o.entries); if (o.items) o.items = walk(o.items); return o; }
+			return e;
+		};
+		return arr.map(walk);
+	}
 
 	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }
 	sidekickAbility (abv) {

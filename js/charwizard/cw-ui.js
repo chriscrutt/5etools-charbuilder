@@ -580,17 +580,23 @@ export class CharWizardUi {
 				<div class="ve-pl-3"><b>Spells:</b> ${spans(st.sidekick.spellChoices.leveled) || "—"}</div>`;
 		}
 
-		// traits & actions from the stat block
+		// traits & actions from the stat block — attack to-hit / save DCs bumped by the proficiency-bonus increase (TCE)
+		const pbDelta = st.sidekickPbDelta();
 		const monBlock = (title, arr) => {
-			if (!arr?.length) return;
+			const adj = st.sidekickAdjustEntries(arr);
+			if (!adj?.length) return;
 			const sec = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			ee(sec)`<h4>${title}</h4>`;
-			arr.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
+			adj.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
 		};
 		monBlock("Traits", m.trait);
 		monBlock("Actions", m.action);
 		monBlock("Bonus Actions", m.bonus);
 		monBlock("Reactions", m.reaction);
+		if (cls && (m.trait?.length || m.action?.length)) {
+			const asiTaken = Object.values(st.sidekick.asi || {}).some(a => Object.values(a?.inc || {}).some(v => v > 0));
+			ee(wrp)`<div class="ve-muted ve-small ve-mt-1">${pbDelta ? `Stat-block attack bonuses and save DCs include the sidekick's <b>+${pbDelta}</b> proficiency increase (TCE). ` : ""}${asiTaken ? "Per TCE, also raise any attack/damage that uses an ability score you improved — apply that by hand (the rules let an unclear melee attack use Strength or Dexterity)." : ""}</div>`;
+		}
 
 		// class features
 		const feats = st.sidekickFeatures();
