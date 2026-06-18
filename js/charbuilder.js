@@ -289,6 +289,7 @@ export class CharState {
 			save: (sp.savingThrow && sp.savingThrow.length) ? {abil: sp.savingThrow[0], dc: this.spellSaveDcFor(src)} : null,
 			damage: this._spellDamageDice(sp, this.totalLevel),
 			scaleNote: this._spellScaleNote(sp),
+			typeTable: this.spellDamageTypeTable(sp),
 		};
 	}
 	// Sidekick (Spellcaster): same, using the sidekick's attack/DC and caster level
@@ -298,7 +299,24 @@ export class CharState {
 			save: (sp.savingThrow && sp.savingThrow.length) ? {abil: sp.savingThrow[0], dc: this.sidekickSpellSaveDc()} : null,
 			damage: this._spellDamageDice(sp, this.sidekick?.level || 1),
 			scaleNote: this._spellScaleNote(sp),
+			typeTable: this.spellDamageTypeTable(sp),
 		};
+	}
+	// a roll-determined damage-type table (Chaos Bolt's d8 → type) parsed from a spell's {@table} entry: {faces, map:{n:typeName}} or null
+	spellDamageTypeTable (sp) {
+		const tbl = (sp.entries || []).find(e => e && e.type === "table" && /damage type/i.test(JSON.stringify(e.colLabels || e.caption || "")));
+		if (!tbl || !tbl.rows || !tbl.rows.length) return null;
+		const dieM = JSON.stringify(tbl.colLabels || "").match(/d(\d+)/);
+		const map = {};
+		tbl.rows.forEach(r => {
+			const roll = r[0] && r[0].roll; if (!roll) return;
+			const type = `${r[r.length - 1]}`.replace(/\{@\w+\s+([^}|]+)(?:\|[^}]*)?\}/g, "$1").trim(); // strip any {@tag …}
+			if (roll.exact != null) map[roll.exact] = type;
+			else if (roll.min != null) for (let i = roll.min; i <= (roll.max != null ? roll.max : roll.min); ++i) map[i] = type;
+		});
+		const keys = Object.keys(map).map(Number);
+		if (!keys.length) return null;
+		return {faces: dieM ? +dieM[1] : Math.max(...keys), map};
 	}
 	// base damage/heal dice for a spell — cantrips scale by caster level (scalingLevelDice); leveled spells use the base {@damage} tag
 	_spellDamageDice (sp, casterLevel) {

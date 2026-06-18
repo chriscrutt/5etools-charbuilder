@@ -495,8 +495,22 @@ export class CharBuilderUi {
 			const lbl = heal ? `Heal ${d.dice}` : `Dmg ${d.dice}${d.type ? ` ${d.type}` : ""}`;
 			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll ${heal ? "healing" : "damage"}">${lbl.qq()}</button>`.onn("click", () => this._roll(`${sp.name} ${heal ? "healing" : `damage${d.type ? ` (${d.type})` : ""}`}`, d.dice))}`;
 		});
+		// roll-determined damage type (Chaos Bolt): roll the die, show which type came up
+		if (info.typeTable) {
+			const tt = info.typeTable;
+			const tip = `Roll a d${tt.faces} to determine the damage type: ${Object.keys(tt.map).map(Number).sort((a, b) => a - b).map(n => `${n}=${tt.map[n]}`).join(", ")}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="${tip.qq()}">Roll type (d${tt.faces})</button>`.onn("click", () => this._rollSpellType(sp, tt))}`;
+		}
 		if (info.scaleNote) ee(row)`<span class="ve-muted ve-small" title="Damage increases when cast with a higher-level slot">${info.scaleNote.qq()}</span>`;
 		row.appendTo(sec);
+	}
+
+	// roll a spell's damage-type die (Chaos Bolt's d8) and report which type came up
+	async _rollSpellType (sp, tt) {
+		const n = await this._roll(`${sp.name} damage type (d${tt.faces})`, `1d${tt.faces}`);
+		if (n == null) return;
+		const type = tt.map[n] || "?";
+		JqueryUtil.doToast({type: "info", content: `${sp.name}: rolled ${n} → ${type} damage`});
 	}
 
 	_renderPlaySpellbook (sec) {
