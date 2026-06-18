@@ -281,6 +281,52 @@ export class CharState {
 		return null;
 	}
 
+	/* ----- play-mode spell rolls: attack bonus / save DC / damage dice (mirrors weaponAttack for spells) ----- */
+	// PC: roll info for a spell cast from a given spell source
+	spellRollInfo (sp, src) {
+		return {
+			atk: (sp.spellAttack && sp.spellAttack.length) ? this.spellAtkBonusFor(src) : null,
+			save: (sp.savingThrow && sp.savingThrow.length) ? {abil: sp.savingThrow[0], dc: this.spellSaveDcFor(src)} : null,
+			damage: this._spellDamageDice(sp, this.totalLevel),
+			scaleNote: this._spellScaleNote(sp),
+		};
+	}
+	// Sidekick (Spellcaster): same, using the sidekick's attack/DC and caster level
+	sidekickSpellRollInfo (sp) {
+		return {
+			atk: (sp.spellAttack && sp.spellAttack.length) ? this.sidekickSpellAtk() : null,
+			save: (sp.savingThrow && sp.savingThrow.length) ? {abil: sp.savingThrow[0], dc: this.sidekickSpellSaveDc()} : null,
+			damage: this._spellDamageDice(sp, this.sidekick?.level || 1),
+			scaleNote: this._spellScaleNote(sp),
+		};
+	}
+	// base damage/heal dice for a spell — cantrips scale by caster level (scalingLevelDice); leveled spells use the base {@damage} tag
+	_spellDamageDice (sp, casterLevel) {
+		const entries = JSON.stringify(sp.entries || "");
+		const dmgType = (sp.damageInflict && sp.damageInflict.length === 1) ? sp.damageInflict[0] : null; // a single fixed type (Chaos Bolt etc. have many → undefined)
+		if (!sp.level && sp.scalingLevelDice) {
+			const slds = Array.isArray(sp.scalingLevelDice) ? sp.scalingLevelDice : [sp.scalingLevelDice];
+			return slds.map(s => {
+				const ts = Object.keys(s.scaling || {}).map(Number).sort((a, b) => a - b);
+				let dice = null; ts.forEach(t => { if (casterLevel >= t) dice = s.scaling[t]; });
+				return dice ? {dice, type: dmgType || this._dmgTypeFromLabel(s.label), kind: "damage"} : null;
+			}).filter(Boolean);
+		}
+		let m = entries.match(/\{@damage ([^}|]+)/);
+		if (m) return [{dice: m[1].trim(), type: dmgType, kind: "damage"}];
+		m = entries.match(/\{@dice ([^}|]+)/);
+		if (m && /\bregain|heal|hit point/i.test(entries)) return [{dice: m[1].trim(), kind: "heal"}]; // healing (Cure Wounds etc.)
+		return [];
+	}
+	_dmgTypeFromLabel (label) { const m = `${label || ""}`.match(/acid|bludgeoning|cold|fire|force|lightning|necrotic|piercing|poison|psychic|radiant|slashing|thunder/i); return m ? m[0].toLowerCase() : null; }
+	// upcast scaling note parsed from "At Higher Levels" (e.g. Fireball "+1d6/slot above Lv 3")
+	_spellScaleNote (sp) {
+		if (!sp.level) return null;
+		const txt = JSON.stringify(sp.entriesHigherLevel || "");
+		const m = txt.match(/\{@scale(?:damage|dice) [^}|]+\|[^}|]+\|([^}|]+)/);
+		return m ? `+${m[1].trim()}/slot above Lv ${sp.level}` : null;
+	}
+
 	/* ----- action economy: what you can do on your turn ----- */
 	_spellCastCategory (sp) { const u = sp?.time?.[0]?.unit; return u === "action" ? "action" : u === "bonus" ? "bonus" : u === "reaction" ? "reaction" : "other"; }
 	// features that grant a bonus action / reaction (heuristic scan; "action" is omitted as Attack/Cast-a-Spell already cover it)

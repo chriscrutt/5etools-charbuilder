@@ -483,24 +483,41 @@ export class CharBuilderUi {
 		this._save(); this.render();
 	}
 
+	// shared play-mode spell row: name + Cast (leveled) + spell-attack / save-DC / damage roll buttons (mirrors the weapon-attack row)
+	_renderSpellRollRow (sec, sp, info, opts) {
+		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b style="min-width:140px">${refLink(UrlUtil.PG_SPELLS, sp)}</b></div>`;
+		if (opts.cantrip) ee(row)`<span class="ve-muted ve-small" style="min-width:50px">at will</span>`;
+		else ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="${opts.can ? "Cast — expend a spell slot" : "No slot available"}" ${opts.can ? "" : "disabled"}>Cast ⚡</button>`.onn("click", opts.onCast)}`;
+		if (info.atk != null) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll spell attack (d20 ${CW.fmtMod(info.atk)})">Attack ${CW.fmtMod(info.atk)}</button>`.onn("click", () => this._d20Roll(`${sp.name} attack`, info.atk, opts.attackAd, opts.attackExtra))}`;
+		if (info.save) ee(row)`<span class="cb__save-dc" title="The target makes this saving throw — DC = 8 + proficiency + spell ability mod">DC ${info.save.dc} ${`${info.save.abil}`.slice(0, 3).toUpperCase()} save</span>`;
+		info.damage.forEach(d => {
+			const heal = d.kind === "heal";
+			const lbl = heal ? `Heal ${d.dice}` : `Dmg ${d.dice}${d.type ? ` ${d.type}` : ""}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll ${heal ? "healing" : "damage"}">${lbl.qq()}</button>`.onn("click", () => this._roll(`${sp.name} ${heal ? "healing" : `damage${d.type ? ` (${d.type})` : ""}`}`, d.dice))}`;
+		});
+		if (info.scaleNote) ee(row)`<span class="ve-muted ve-small" title="Damage increases when cast with a higher-level slot">${info.scaleNote.qq()}</span>`;
+		row.appendTo(sec);
+	}
+
 	_renderPlaySpellbook (sec) {
 		const st = this._state; const books = st.playSpellbook(); if (!books.length) return;
 		const multi = st.spellSources().length > 1;
-		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(click a leveled spell to cast)</span></h4>`;
+		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(roll buttons for attacks &amp; damage; Cast expends a slot)</span></h4>`;
+		const attackAd = this._pcRollAd("attack", null, null); const attackExtra = st.effectAttackDice();
 		books.forEach(({src, cantrips, leveled}) => {
 			if (multi) ee(sec)`<div class="ve-bold ve-small ve-mt-1">${src.name.qq()}</div>`;
-			if (cantrips.length) ee(sec)`<div class="ve-mb-1"><b class="ve-small">Cantrips:</b> ${cantrips.map(sp => refLink(UrlUtil.PG_SPELLS, sp)).join(", ")}</div>`;
+			if (cantrips.length) {
+				ee(sec)`<div class="ve-muted ve-small ve-bold ve-mt-1">Cantrips</div>`;
+				cantrips.forEach(sp => this._renderSpellRollRow(sec, sp, st.spellRollInfo(sp, src), {cantrip: true, attackAd, attackExtra}));
+			}
 			const byLvl = {}; leveled.forEach(sp => (byLvl[sp.level] = byLvl[sp.level] || []).push(sp));
 			Object.keys(byLvl).map(Number).sort((a, b) => a - b).forEach(lvl => {
-				const wrap = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b class="ve-small" style="width:42px">Lv ${lvl}</b></div>`;
+				ee(sec)`<div class="ve-muted ve-small ve-bold ve-mt-1">Level ${lvl}</div>`;
 				byLvl[lvl].forEach(sp => {
 					let can = false; for (let L = lvl; L <= 9; ++L) if (st.playSlotsRemaining(L) > 0) { can = true; break; }
 					if (!can && st.playPactRemaining() > 0 && st.playPactLevel() >= lvl) can = true;
-					const chip = ee`<span class="cb__spell-chip ${can ? "" : "cb__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
-					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._castSpell(sp); });
-					ee(wrap)`${chip}`;
+					this._renderSpellRollRow(sec, sp, st.spellRollInfo(sp, src), {cantrip: false, can, onCast: () => this._castSpell(sp), attackAd, attackExtra});
 				});
-				wrap.appendTo(sec);
 			});
 		});
 	}
@@ -1047,17 +1064,18 @@ export class CharBuilderUi {
 			row.appendTo(sec);
 		});
 		if (book && (book.cantrips.length || book.leveled.length)) {
-			if (book.cantrips.length) ee(sec)`<div class="ve-mb-1 ve-mt-1"><b class="ve-small">Cantrips:</b> ${book.cantrips.map(sp => refLink(UrlUtil.PG_SPELLS, sp)).join(", ")}</div>`;
+			const attackAd = this._mergeExhaustion(null, "attack");
+			if (book.cantrips.length) {
+				ee(sec)`<div class="ve-muted ve-small ve-bold ve-mt-1">Cantrips</div>`;
+				book.cantrips.forEach(sp => this._renderSpellRollRow(sec, sp, st.sidekickSpellRollInfo(sp), {cantrip: true, attackAd, attackExtra: ""}));
+			}
 			const byLvl = {}; book.leveled.forEach(sp => (byLvl[sp.level] = byLvl[sp.level] || []).push(sp));
 			Object.keys(byLvl).map(Number).sort((a, b) => a - b).forEach(lvl => {
-				const wrap = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b class="ve-small" style="width:42px">Lv ${lvl}</b></div>`;
+				ee(sec)`<div class="ve-muted ve-small ve-bold ve-mt-1">Level ${lvl}</div>`;
 				byLvl[lvl].forEach(sp => {
 					let can = false; for (let L = lvl; L <= 9; ++L) if (st.skSlotsRemaining(L) > 0) { can = true; break; }
-					const chip = ee`<span class="cb__spell-chip ${can ? "" : "cb__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
-					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._skCastSpell(sp); });
-					ee(wrap)`${chip}`;
+					this._renderSpellRollRow(sec, sp, st.sidekickSpellRollInfo(sp), {cantrip: false, can, onCast: () => this._skCastSpell(sp), attackAd, attackExtra: ""});
 				});
-				wrap.appendTo(sec);
 			});
 		} else ee(sec)`<div class="ve-muted ve-small">No spells chosen yet — pick them on the Class &amp; Level step.</div>`;
 	}

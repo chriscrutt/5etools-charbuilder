@@ -70,6 +70,8 @@
 .cb__buff-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(0,107,196,.5); background: rgba(0,107,196,.10); border-radius: 4px; padding: 1px 7px; font-size: 12px; }
 .cb__cond-chip .cb__cond-x { cursor: pointer; opacity: .7; }
 .cb__cond-chip .cb__cond-x:hover { opacity: 1; color: #c0392b; }
+/* spell save-DC badge (the target rolls the save, so it's info, not a button) */
+.cb__save-dc { display: inline-flex; align-items: center; border: 1px dashed rgba(127,127,127,.5); border-radius: 4px; padding: 1px 7px; font-size: 12px; white-space: nowrap; }
 .cb__ds-pip { display: inline-block; width: 15px; height: 15px; border-radius: 50%; margin: 0 2px; cursor: pointer; vertical-align: middle; }
 /* a clickable "roll me" zone (ability checks, saves, skills) */
 .cb__roll { cursor: pointer; border-radius: 4px; }
