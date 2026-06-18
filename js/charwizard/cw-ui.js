@@ -104,15 +104,15 @@ export class CharWizardUi {
 			${inpName}
 			${modeToggle}
 			${btnSources}
-			${isSidekick ? "" : btnPlay}
+			${btnPlay}
 			${this._getToolbarButtons()}
 		</div>`;
 
 		// Sources panel (replaces the stepper/body while open)
 		if (this._showSources) { this._renderSourcesPanel(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
-		// Play mode (replaces the stepper/body while active)
-		if (this._playMode) { this._renderPlayMode(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
+		// Play mode (replaces the stepper/body while active) — PC or sidekick
+		if (this._playMode) { const body = ee`<div class="cw__step-body"></div>`.appendTo(wrp); if (isSidekick) this._renderSidekickPlayMode(body); else this._renderPlayMode(body); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// Sidekick builder (creature-first) replaces the PC stepper/body
 		if (isSidekick) { this._renderSidekickBuilder(wrp); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
@@ -335,21 +335,22 @@ export class CharWizardUi {
 		}
 	}
 
-	async _rollDeathSave () {
-		const st = this._state;
+	// generic death-save roll on any play object (PC or sidekick)
+	async _rollDeathSaveFor (play, healFn) {
 		const r = await this._roll("Death save", "1d20");
 		if (r == null) return;
-		const ds = st.play.deathSaves || (st.play.deathSaves = {success: 0, fail: 0});
+		const ds = play.deathSaves || (play.deathSaves = {success: 0, fail: 0});
 		let msg; let type = "info";
-		if (r === 20) { st.applyHealing(1); st.play.deathSaves = {success: 0, fail: 0}; msg = "natural 20 — regain 1 HP and conscious!"; type = "success"; }
+		if (r === 20) { healFn(1); play.deathSaves = {success: 0, fail: 0}; msg = "natural 20 — regain 1 HP and conscious!"; type = "success"; }
 		else if (r === 1) { ds.fail = Math.min(3, ds.fail + 2); msg = "natural 1 — two failures"; type = "danger"; }
 		else if (r >= 10) { ds.success = Math.min(3, ds.success + 1); msg = "success"; type = "success"; }
 		else { ds.fail = Math.min(3, ds.fail + 1); msg = "failure"; type = "danger"; }
-		if (st.play.deathSaves.success >= 3) msg += " — stabilized";
-		if (st.play.deathSaves.fail >= 3) { msg += " — the character dies"; type = "danger"; }
+		if (play.deathSaves.success >= 3) msg += " — stabilized";
+		if (play.deathSaves.fail >= 3) { msg += " — the character dies"; type = "danger"; }
 		JqueryUtil.doToast({type, content: `Death save (rolled ${r}): ${msg}.`});
 		this._save(); this.render();
 	}
+	_rollDeathSave () { const st = this._state; return this._rollDeathSaveFor(st.play, n => st.applyHealing(n)); }
 
 	_renderPlayRests (sec) {
 		const st = this._state;
@@ -367,15 +368,15 @@ export class CharWizardUi {
 		});
 	}
 
-	async _spendHitDie (faces) {
-		const st = this._state; if (st.hitDiceRemaining(faces) <= 0) return;
-		const con = st.abilityMod("con");
-		const heal = await this._roll(`Hit Die d${faces}`, `1d${faces}${con >= 0 ? "+" : ""}${con}`);
+	// generic Hit Die spend (rolls die + Con mod, heals)
+	async _spendHitDieFor (faces, conMod, spendFn, healFn) {
+		const heal = await this._roll(`Hit Die d${faces}`, `1d${faces}${conMod >= 0 ? "+" : ""}${conMod}`);
 		if (heal == null) return;
-		st.spendHitDie(faces); st.applyHealing(Math.max(0, heal));
+		spendFn(); healFn(Math.max(0, heal));
 		JqueryUtil.doToast({type: "success", content: `Spent a d${faces} Hit Die — healed ${Math.max(0, heal)}.`});
 		this._save(); this.render();
 	}
+	_spendHitDie (faces) { const st = this._state; if (st.hitDiceRemaining(faces) <= 0) return; return this._spendHitDieFor(faces, st.abilityMod("con"), () => st.spendHitDie(faces), n => st.applyHealing(n)); }
 
 	_castSpell (sp) {
 		const st = this._state;
@@ -823,6 +824,202 @@ export class CharWizardUi {
 			ee(secF)`<h4>${(cls?.name || "Class").qq()} Features</h4>`;
 			feats.forEach(f => ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()}</summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secF));
 		}
+	}
+
+	/* ====================================================================== */
+	/* Sidekick play mode                                                     */
+	/* ====================================================================== */
+	_renderSidekickPlayMode (wrp) {
+		const st = this._state;
+		if (!st.sidekickCreature()) { ee(wrp)`<div class="cw__err">Pick a creature (and class) on the build steps first, then switch to Play mode.</div>`; return; }
+		const cls = st.sidekickClassEnt(); const p = st.skPlay();
+		const star = ee`<button class="ve-btn ve-btn-sm ${p.inspiration ? "ve-btn-primary" : "ve-btn-default"}" title="Toggle Inspiration">${p.inspiration ? "★" : "☆"} Inspiration</button>`
+			.onn("click", () => { p.inspiration = !p.inspiration; this._save(); this.render(); });
+		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:12px;flex-wrap:wrap">
+			<div style="flex:1 1 auto"><div style="font-size:22px;font-weight:bold">${st.sidekickName().qq()}</div>
+			<div class="ve-muted ve-small">${(cls ? `${cls.name.replace(/ Sidekick$/, "")} ${st.sidekickLevel()}` : "no class chosen").qq()} • CR ${`${this._skCrText(st.sidekickCreature())}`.qq()}</div></div>
+			${star}</div>`;
+		if (!cls) ee(wrp)`<div class="cw__err no-print ve-mb-2">Choose a sidekick class &amp; level on the build steps for full play features.</div>`;
+
+		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
+		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cw__stat-box ${onClick ? "cw__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
+		box("Armor Class", st.sidekickAc() ?? "—");
+		box("Initiative", `${CW.fmtMod(st.sidekickAbilityMod("dex"))}${st.sidekickInitiativeAdv() ? ` <span class="cw__advdis cw__advdis--adv">ADV</span>` : ""}`, () => this._d20Roll("Initiative", st.sidekickAbilityMod("dex"), st.sidekickInitiativeAdv() ? {net: "adv", adv: ["Battle Readiness"]} : null), "Click to roll initiative");
+		box("Prof. Bonus", CW.fmtMod(st.sidekickProfBonus()));
+		box("Passive Perc.", 10 + st.sidekickSkillMod("perception"));
+		box("Speed", st.sidekickSpeed());
+		if (st.sidekickIsCaster()) { box("Spell DC", st.sidekickSpellSaveDc()); box("Spell Atk", CW.fmtMod(st.sidekickSpellAtk())); }
+
+		this._renderSkPlayHp(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayRests(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		if (st.sidekickIsCaster()) this._renderSkPlaySpells(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayFeatures(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		ee(wrp)`<div class="ve-muted ve-small ve-mt-3 no-print">Rolls open in the dice tray (bottom-right). Attack to-hit and damage in the stat block below are clickable.</div>`;
+	}
+
+	_renderSkPlayHp (sec) {
+		const st = this._state; const p = st.skPlay();
+		const cur = st.skCurHp(); const max = st.skMaxHp(); const temp = st.skTempHp();
+		const pct = max ? Math.round((cur / max) * 100) : 0;
+		const colour = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
+		ee(sec)`<h4>Hit Points</h4>`;
+		ee(sec)`<div class="ve-mb-2"><div style="position:relative;height:26px;border:1px solid rgba(127,127,127,.4);border-radius:4px;overflow:hidden;background:rgba(127,127,127,.12)">
+			<div style="position:absolute;inset:0 ${100 - pct}% 0 0;background:${colour};opacity:.55"></div>
+			<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:bold">${cur} / ${max}${temp ? ` (+${temp} temp)` : ""}</div>
+		</div></div>`;
+		const inpAmt = ee`<input class="ve-form-control" type="number" min="0" style="width:80px" placeholder="0">`;
+		const amt = () => Math.max(0, parseInt(inpAmt.val(), 10) || 0);
+		const btnDmg = ee`<button class="ve-btn ve-btn-danger ve-btn-sm">− Damage</button>`.onn("click", () => { const d = amt(); st.skApplyDamage(d); if (d && p.concentration && !st._skHasFeature("Focused Casting")) JqueryUtil.doToast({type: "warning", content: `Concentration: make a DC ${Math.max(10, Math.floor(d / 2))} Constitution save.`}); inpAmt.val(""); this._save(); this.render(); });
+		const btnHeal = ee`<button class="ve-btn ve-btn-success ve-btn-sm">+ Heal</button>`.onn("click", () => { st.skApplyHealing(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnTemp = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Temp HP doesn't stack — keeps the higher">Temp HP</button>`.onn("click", () => { st.skSetTempHp(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnFull = ee`<button class="ve-btn ve-btn-default ve-btn-sm">Full</button>`.onn("click", () => { st.skApplyHealing(st.skMaxHp()); st.skClearTempHp(); this._save(); this.render(); });
+		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap">${inpAmt}${btnDmg}${btnHeal}${btnTemp}${btnFull}</div>`;
+		if (p.concentration) {
+			const row = ee`<div class="ve-flex-v-center ve-mt-2" style="gap:6px;flex-wrap:wrap"><b>Concentrating:</b> ${renderInline(`{@spell ${p.concentration}}`)}${st._skHasFeature("Focused Casting") ? ` <span class="ve-muted ve-small">(damage can't break it)</span>` : ""}</div>`.appendTo(sec);
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs">Con save ${CW.fmtMod(st.sidekickSaveMod("con"))}</button>`.onn("click", () => this._d20Roll("Concentration (Con)", st.sidekickSaveMod("con"), null))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs">Drop</button>`.onn("click", () => { p.concentration = null; this._save(); this.render(); })}`;
+		}
+		const ds = p.deathSaves || (p.deathSaves = {success: 0, fail: 0});
+		if (cur === 0 || ds.success || ds.fail) {
+			ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
+			const pip = (type, n, colour, i) => ee`<span class="cw__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}"></span>`.onn("click", () => { ds[type === "Success" ? "success" : "fail"] = (n === i ? i - 1 : i); this._save(); this.render(); });
+			const dsRow = ee`<div class="ve-flex-v-center ve-mt-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
+			ee(dsRow)`<span class="ve-small">Successes</span>${[1, 2, 3].map(i => pip("Success", ds.success, "#4caf50", i))}`;
+			ee(dsRow)`<span class="ve-small ve-ml-2">Failures</span>${[1, 2, 3].map(i => pip("Fail", ds.fail, "#f44336", i))}`;
+			ee(dsRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs ve-ml-2">🎲 Death Save</button>`.onn("click", () => this._rollDeathSaveFor(p, n => st.skApplyHealing(n)))}`;
+			if (ds.success >= 3) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Stable — unconscious.</div>`;
+			if (ds.fail >= 3) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-1" style="display:inline-block">The sidekick has died.</div>`;
+		}
+	}
+
+	_renderSkPlayRests (sec) {
+		const st = this._state;
+		ee(sec)`<h4>Rest, Hit Dice &amp; Features</h4>`;
+		const btnShort = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Spend Hit Dice to heal; Second Wind returns">Short Rest</button>`.onn("click", () => { st.skShortRest(); JqueryUtil.doToast({type: "success", content: "Short rest — spend Hit Dice to heal; Second Wind restored."}); this._save(); this.render(); });
+		const btnLong = ee`<button class="ve-btn ve-btn-primary ve-btn-sm" title="Full HP, spell slots, features, half Hit Dice">Long Rest</button>`.onn("click", () => { st.skLongRest(); JqueryUtil.doToast({type: "success", content: "Long rest — HP, slots, features, and half your Hit Dice restored."}); this._save(); this.render(); });
+		ee(sec)`<div class="ve-flex-v-center ve-mb-2" style="gap:6px;flex-wrap:wrap">${btnShort}${btnLong}</div>`;
+		const f = st.sidekickHitDie(); const rem = st.skHitDiceRemaining(f); const total = st.sidekickLevel();
+		const hdRow = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="width:42px">Hit Dice</b><span class="ve-muted ve-small" style="width:64px">${rem}/${total} d${f}</span></div>`;
+		ee(hdRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem ? "" : "disabled"} title="Roll d${f} + Con to heal">Spend</button>`.onn("click", () => this._spendHitDieFor(f, st.sidekickAbilityMod("con"), () => st.skSpendHitDie(f), n => st.skApplyHealing(n)))}`;
+		ee(hdRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem < total ? "" : "disabled"}>↺</button>`.onn("click", () => { st.skRestoreHitDie(f); this._save(); this.render(); })}`;
+		hdRow.appendTo(sec);
+		st.sidekickFeatureResources().forEach(res => {
+			const r = st.skFeatureRemaining(res);
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:104px">${res.name.qq()}</b><span class="ve-muted ve-small" style="width:34px">${r}/${res.max}</span></div>`;
+			if (res.roll) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${r ? "" : "disabled"} title="Roll ${res.roll} to heal">Use</button>`.onn("click", () => this._skUseSecondWind(res))}`;
+			else ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${r ? "" : "disabled"} title="${res.note.qq()}">Use</button>`.onn("click", () => { st.skUseFeature(res.key); this._save(); this.render(); })}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${st.skFeatureUsed(res.key) ? "" : "disabled"}>↺</button>`.onn("click", () => { st.skRestoreFeature(res.key); this._save(); this.render(); })}`;
+			ee(row)`<span class="ve-muted ve-small">${res.note.qq()} • recharges on a ${res.recharge.qq()}</span>`;
+			row.appendTo(sec);
+		});
+	}
+
+	async _skUseSecondWind (res) {
+		const st = this._state; if (st.skFeatureRemaining(res) <= 0) return;
+		const heal = await this._roll("Second Wind", res.roll); if (heal == null) return;
+		st.skUseFeature(res.key); st.skApplyHealing(Math.max(0, heal));
+		JqueryUtil.doToast({type: "success", content: `Second Wind — healed ${Math.max(0, heal)}.`});
+		this._save(); this.render();
+	}
+
+	_renderSkPlaySpells (sec) {
+		const st = this._state; const prog = st.sidekickSpellProgress(); const book = st.skSpellbook();
+		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(${CW.ABIL_FULL[st.sidekickSpellAbility()]} • DC ${st.sidekickSpellSaveDc()} • click a spell to cast)</span></h4>`;
+		const pip = (filled) => `<span style="display:inline-block;width:15px;height:15px;border-radius:50%;border:2px solid #2196f3;margin:0 2px;vertical-align:middle;background:${filled ? "#2196f3" : "transparent"}"></span>`;
+		Object.keys(prog?.slots || {}).map(Number).sort((a, b) => a - b).forEach(lvl => {
+			const total = st.skSlotsTotal(lvl); const rem = st.skSlotsRemaining(lvl);
+			const pips = Array.from({length: total}, (_, i) => pip(i < rem)).join("");
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="width:62px">Level ${lvl}</b><div style="flex:1">${pips}</div></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem ? "" : "disabled"}>Use</button>`.onn("click", () => { st.skExpendSlot(lvl); this._save(); this.render(); })}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem < total ? "" : "disabled"}>↺</button>`.onn("click", () => { st.skRestoreSlot(lvl); this._save(); this.render(); })}`;
+			ee(row)`<span class="ve-muted ve-small">${rem}/${total}</span>`;
+			row.appendTo(sec);
+		});
+		if (book && (book.cantrips.length || book.leveled.length)) {
+			if (book.cantrips.length) ee(sec)`<div class="ve-mb-1 ve-mt-1"><b class="ve-small">Cantrips:</b> ${book.cantrips.map(sp => refLink(UrlUtil.PG_SPELLS, sp)).join(", ")}</div>`;
+			const byLvl = {}; book.leveled.forEach(sp => (byLvl[sp.level] = byLvl[sp.level] || []).push(sp));
+			Object.keys(byLvl).map(Number).sort((a, b) => a - b).forEach(lvl => {
+				const wrap = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b class="ve-small" style="width:42px">Lv ${lvl}</b></div>`;
+				byLvl[lvl].forEach(sp => {
+					let can = false; for (let L = lvl; L <= 9; ++L) if (st.skSlotsRemaining(L) > 0) { can = true; break; }
+					const chip = ee`<span class="cw__spell-chip ${can ? "" : "cw__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
+					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._skCastSpell(sp); });
+					ee(wrap)`${chip}`;
+				});
+				wrap.appendTo(sec);
+			});
+		} else ee(sec)`<div class="ve-muted ve-small">No spells chosen yet — pick them on the Class &amp; Level step.</div>`;
+	}
+
+	_skCastSpell (sp) {
+		const st = this._state; const used = st.skCastSpell(sp);
+		if (used == null) { JqueryUtil.doToast({type: "warning", content: `No spell slot available for ${sp.name}.`}); return; }
+		if (/concentration/i.test(JSON.stringify(sp.duration || ""))) st.skPlay().concentration = sp.name;
+		JqueryUtil.doToast({type: "info", content: `Cast ${sp.name} — expended a level ${used} slot${used > sp.level ? ` (upcast from ${sp.level})` : ""}.`});
+		this._save(); this.render();
+	}
+
+	_renderSkPlayConditions (sec) {
+		const st = this._state; const p = st.skPlay(); const active = p.conditions || [];
+		ee(sec)`<h4>Conditions</h4>`;
+		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
+		if (active.length) active.forEach(c => ee(row)`<span class="cw__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { p.conditions = active.filter(x => x !== c); this._save(); this.render(); })}</span>`);
+		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add condition…</option></select>`;
+		CONDITIONS.filter(c => !active.includes(c)).forEach(c => ee`<option value="${c}">${c}</option>`.appendTo(sel));
+		sel.onn("change", () => { if (sel.val()) { (p.conditions = p.conditions || []).push(sel.val()); this._save(); this.render(); } });
+		ee(sec)`${sel}`;
+	}
+
+	_renderSkPlayAbilities (sec) {
+		const st = this._state;
+		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(sec);
+		CW.ABILITIES.forEach(abv => {
+			const mod = st.sidekickAbilityMod(abv); const save = st.sidekickSaveMod(abv); const saveProf = st.sidekickSaveProfs().has(abv);
+			const card = ee`<div class="cw__abil" style="padding:4px"></div>`;
+			ee`<div class="cw__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check"><div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.sidekickAbility(abv)}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, null)).appendTo(card);
+			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save"><span>save ${CW.fmtMod(save)}${saveProf ? " ●" : ""}</span></div>`
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, null)).appendTo(card);
+			card.appendTo(grid);
+		});
+		if (st._skHasFeature("Reliable Talent")) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Reliable Talent: treat a d20 of 9 or lower as 10 for any check using your full proficiency bonus.</div>`;
+	}
+
+	_renderSkPlayAttacks (sec) {
+		const st = this._state; const m = st.sidekickCreature();
+		const actions = st.sidekickAdjustEntries(m.action);
+		if (!actions?.length) return;
+		ee(sec)`<h4>Attacks &amp; Actions <span class="ve-muted ve-small">(click a to-hit or damage to roll)</span></h4>`;
+		actions.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
+		const combat = [];
+		if (st.sidekickExtraAttacks() > 1) combat.push(`Extra Attack: ${st.sidekickExtraAttacks()}× (or its Multiattack)`);
+		if (st.sidekickCritRange() < 20) combat.push(`crits on ${st.sidekickCritRange()}–20`);
+		if (st.sidekickMartialRole() === "attacker") combat.push("Attacker: +2 to-hit (included above)");
+		if (combat.length) ee(sec)`<div class="ve-muted ve-small">${combat.join(" • ").qq()}</div>`;
+	}
+
+	_renderSkPlaySkills (sec) {
+		const st = this._state;
+		ee(sec)`<h4>Skills <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		const MARK = {expertise: "★", full: "●", none: "○"};
+		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
+		CW.skills().sort().forEach(sk => {
+			const mod = st.sidekickSkillMod(sk);
+			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.sidekickSkillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b></div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, null))}`;
+		});
+	}
+
+	_renderSkPlayFeatures (sec) {
+		const st = this._state; const feats = st.sidekickFeatures().filter(f => f.name !== "Sidekick Class");
+		if (!feats.length) return;
+		ee(sec)`<h4>Class Features</h4>`;
+		feats.forEach(f => ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()}</summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(sec));
 	}
 
 	/* ----- generic chooser (list + preview) ----- */

@@ -130,6 +130,7 @@ export class CharState {
 			empoweredSchool: null, // Spellcaster L14 Empowered Spells: chosen school
 			spellChoices: {cantrips: [], leveled: []}, // Spellcaster chosen spells "name|source"
 			name: "", // optional sidekick name (overrides the creature name)
+			play: {...this._defaultPlayState(), featureUses: {}}, // runtime play-mode state for the sidekick (separate from the PC's this.play)
 		};
 	}
 	// Tasha's Spellcaster sidekick roles -> spell list + ability
@@ -1852,6 +1853,60 @@ export class CharState {
 	}
 	sidekickMaxSpellLevel () { const p = this.sidekickSpellProgress(); return p ? Math.max(0, ...Object.keys(p.slots).map(Number)) : 0; }
 
+	/* ===================================================================== */
+	/* Sidekick play mode (live HP / rests / resources) — separate runtime    */
+	/* ===================================================================== */
+	skPlay () { const sk = this.sidekick; if (!sk.play) sk.play = {...this._defaultPlayState(), featureUses: {}}; if (!sk.play.featureUses) sk.play.featureUses = {}; return sk.play; }
+	skMaxHp () { return this.sidekickMaxHp() || 0; }
+	skCurHp () { const c = this.skPlay().curHp; const mx = this.skMaxHp(); return c == null ? mx : Math.max(0, Math.min(c, mx)); }
+	skTempHp () { return Math.max(0, Math.floor(this.skPlay().tempHp || 0)); }
+	skApplyDamage (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; const p = this.skPlay(); const t = this.skTempHp(); if (t > 0) { const f = Math.min(t, n); p.tempHp = t - f; n -= f; } if (n > 0) p.curHp = Math.max(0, this.skCurHp() - n); }
+	skApplyHealing (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; const p = this.skPlay(); const was = this.skCurHp(); p.curHp = Math.min(this.skMaxHp(), was + n); if (was === 0 && p.curHp > 0) p.deathSaves = {success: 0, fail: 0}; }
+	skSetTempHp (n) { this.skPlay().tempHp = Math.max(this.skTempHp(), Math.max(0, Math.floor(n || 0))); }
+	skClearTempHp () { this.skPlay().tempHp = 0; }
+
+	// Hit Dice: a sidekick gains one Hit Die per level, all of its size-based type
+	skHitDicePool () { const f = this.sidekickHitDie(); return f ? {[f]: this.sidekickLevel()} : {}; }
+	skHitDiceUsed (f) { return this.skPlay().hitDiceUsed?.[f] || 0; }
+	skHitDiceRemaining (f) { return Math.max(0, (this.skHitDicePool()[f] || 0) - this.skHitDiceUsed(f)); }
+	skSpendHitDie (f) { if (this.skHitDiceRemaining(f) <= 0) return; const p = this.skPlay(); (p.hitDiceUsed = p.hitDiceUsed || {})[f] = this.skHitDiceUsed(f) + 1; }
+	skRestoreHitDie (f) { const u = this.skHitDiceUsed(f); if (u > 0) this.skPlay().hitDiceUsed[f] = u - 1; }
+
+	// spell slots (Spellcaster sidekick)
+	skSlotsTotal (lvl) { return (this.sidekickSpellProgress()?.slots || {})[lvl] || 0; }
+	skSlotsRemaining (lvl) { return Math.max(0, this.skSlotsTotal(lvl) - (this.skPlay().expended[lvl] || 0)); }
+	skExpendSlot (lvl) { const p = this.skPlay(); const u = p.expended[lvl] || 0; if (u < this.skSlotsTotal(lvl)) p.expended[lvl] = u + 1; }
+	skRestoreSlot (lvl) { const p = this.skPlay(); const u = p.expended[lvl] || 0; if (u > 0) p.expended[lvl] = u - 1; }
+	skCastSpell (sp) { for (let L = sp.level; L <= 9; ++L) { if (this.skSlotsRemaining(L) > 0) { this.skExpendSlot(L); return L; } } return null; }
+	// the sidekick's chosen spells, grouped (Spellcaster) — for casting in play
+	skSpellbook () {
+		if (!this.sidekickIsCaster()) return null;
+		const byUid = (u) => this._byUid(this._data.spells, u);
+		const cantrips = (this.sidekick.spellChoices.cantrips || []).map(byUid).filter(Boolean).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const leveled = (this.sidekick.spellChoices.leveled || []).map(byUid).filter(Boolean).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+		return {cantrips, leveled};
+	}
+
+	// limited-use class features (Warrior Second Wind / Indomitable)
+	sidekickFeatureResources () {
+		const names = this.sidekickFeatureNames(); const lv = this.sidekickLevel(); const out = [];
+		if (names.has("Second Wind")) out.push({key: "secondWind", name: "Second Wind", max: lv >= 20 ? 2 : 1, recharge: "short rest", roll: `1d10+${lv}`, note: "bonus action — regain HP"});
+		if (names.has("Indomitable")) out.push({key: "indomitable", name: "Indomitable", max: lv >= 18 ? 2 : 1, recharge: "long rest", note: "reroll a failed saving throw"});
+		return out;
+	}
+	skFeatureUsed (key) { return this.skPlay().featureUses?.[key] || 0; }
+	skFeatureRemaining (res) { return Math.max(0, res.max - this.skFeatureUsed(res.key)); }
+	skUseFeature (key) { const p = this.skPlay(); (p.featureUses = p.featureUses || {})[key] = this.skFeatureUsed(key) + 1; }
+	skRestoreFeature (key) { const u = this.skFeatureUsed(key); if (u > 0) this.skPlay().featureUses[key] = u - 1; }
+
+	skShortRest () { const p = this.skPlay(); p.featureUses = p.featureUses || {}; this.sidekickFeatureResources().forEach(r => { if (/short/.test(r.recharge)) p.featureUses[r.key] = 0; }); }
+	skLongRest () {
+		const p = this.skPlay();
+		p.curHp = this.skMaxHp(); p.tempHp = 0; p.expended = {}; p.deathSaves = {success: 0, fail: 0}; p.concentration = null; p.featureUses = {};
+		const f = this.sidekickHitDie(); const restore = Math.max(1, Math.floor(this.sidekickLevel() / 2)); const used = p.hitDiceUsed?.[f] || 0;
+		if (p.hitDiceUsed) p.hitDiceUsed[f] = Math.max(0, used - restore);
+	}
+
 	/* ----- serialization ----- */
 	toJson () {
 		return {
@@ -1964,6 +2019,8 @@ export class CharState {
 		if (this.shieldUid == null && j.isShield) { const sh = this.inventory.find(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); this.shieldUid = sh?.uid || null; }
 		// migrate old sidekick spellAbility (int/wis/cha) -> spellRole (mage/healer/prodigy)
 		if (!j.sidekick?.spellRole && j.sidekick?.spellAbility) this.sidekick.spellRole = {int: "mage", wis: "healer", cha: "prodigy"}[j.sidekick.spellAbility] || "mage";
+		// ensure the sidekick play-state has all fields (old saves predate it)
+		this.sidekick.play = {...this._defaultPlayState(), featureUses: {}, ...(this.sidekick.play || {})};
 	}
 }
 
