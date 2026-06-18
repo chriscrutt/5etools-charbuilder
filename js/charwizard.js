@@ -1669,17 +1669,17 @@ export class CharState {
 	sidekickHitDie () { const m = /\d+\s*d\s*(\d+)/i.exec(`${this.sidekickCreature()?.hp?.formula || ""}`); return m ? +m[1] : (SIDEKICK_SIZE_DIE[this._creatureSize()] || 8); }
 	// every eligible creature is CR ≤ 1/2 → base proficiency +2; sidekick PB rises with class level. TCE adds the difference to the stat block's attacks & DCs.
 	sidekickPbDelta () { return Math.max(0, this.sidekickProfBonus() - 2); }
-	// return a copy of stat-block entries with {@hit}/{@dc} bumped by the proficiency-bonus increase (for the review display)
-	sidekickAdjustEntries (arr) {
-		const delta = this.sidekickPbDelta(); if (!delta || !arr) return arr;
+	// deep-copy stat-block data with every {@hit}/{@dc} bumped by the proficiency-bonus increase (TCE) — works on traits/actions AND spellcasting headerEntries
+	sidekickAdjustEntries (data) {
+		const delta = this.sidekickPbDelta(); if (!delta || data == null) return data;
 		const bump = (s) => `${s}`.replace(/\{@hit (-?\d+)\}/g, (m, n) => `{@hit ${+n + delta}}`).replace(/\{@dc (\d+)([^}]*)\}/g, (m, n, rest) => `{@dc ${+n + delta}${rest}}`);
 		const walk = (e) => {
 			if (typeof e === "string") return bump(e);
 			if (Array.isArray(e)) return e.map(walk);
-			if (e && typeof e === "object") { const o = {...e}; if (o.entries) o.entries = walk(o.entries); if (o.items) o.items = walk(o.items); return o; }
+			if (e && typeof e === "object") { const o = {}; for (const k in e) o[k] = walk(e[k]); return o; }
 			return e;
 		};
-		return arr.map(walk);
+		return walk(data);
 	}
 
 	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }

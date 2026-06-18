@@ -646,6 +646,19 @@ export class CharWizardUi {
 				<div class="ve-pl-3"><b>Spells:</b> ${spans(st.sidekick.spellChoices.leveled) || "—"}</div>`;
 		}
 
+		// creature's own stat-block spellcasting (Sage, Acolyte, etc.) — innate/prepared; DC & attack bumped by the PB increase, kept separate from any Spellcaster-class spellcasting
+		if (m.spellcasting?.length) {
+			try {
+				const adjMon = {...m, spellcasting: st.sidekickAdjustEntries(m.spellcasting)};
+				const traits = ["trait", "action", "bonus", "reaction"].flatMap(prop => { try { return Renderer.monster.getSpellcastingRenderedTraits(Renderer.get(), adjMon, {displayAsProp: prop}); } catch (e) { return []; } });
+				if (traits.length) {
+					const secSc = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+					ee(secSc)`<h4>Stat-Block Spellcasting <span class="ve-muted ve-small">(from the creature — separate from any class)</span></h4>`;
+					traits.forEach(t => ee(secSc)`<div class="ve-mb-1"><b>${`${t.name}`.qq()}.</b> ${t.rendered}</div>`);
+				}
+			} catch (e) { /* ignore render issues */ }
+		}
+
 		// traits & actions from the stat block — attack to-hit / save DCs bumped by the proficiency-bonus increase (TCE)
 		const pbDelta = st.sidekickPbDelta();
 		const monBlock = (title, arr) => {
