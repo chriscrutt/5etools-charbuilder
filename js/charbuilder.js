@@ -1,7 +1,7 @@
 import {VetoolsConfig} from "./utils-config/utils-config-config.js";
 import {UtilsEntityBackground} from "./utils/utils-entity-background.js";
 import {UtilsEntityRace} from "./utils/utils-entity-race.js";
-import {CharWizardUi} from "./charwizard/cw-ui.js";
+import {CharBuilderUi} from "./charbuilder/cb-ui.js";
 
 /* -------------------------------------------------------------------------- */
 /* Shared constants/helpers                                                   */
@@ -2193,8 +2193,8 @@ export class CharState {
 /* Page controller                                                            */
 /* -------------------------------------------------------------------------- */
 
-class CharWizardPage {
-	static _STORAGE_KEY = "charwizard_state";
+class CharBuilderPage {
+	static _STORAGE_KEY = "charbuilder_state";
 
 	async pInit () {
 		await Promise.all([PrereleaseUtil.pInit(), BrewUtil2.pInit()]);
@@ -2240,17 +2240,19 @@ class CharWizardPage {
 		bestiary.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 
 		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, fightingStyles, optionalFeatures, styleHint, bestiary, sidekickClasses: classData.sidekickClasses};
-		globalThis.dbg_cw = data;
+		globalThis.dbg_cb = data;
 
 		const state = new CharState(data);
-		const saved = await StorageUtil.pGetForPage(CharWizardPage._STORAGE_KEY);
+		let saved = await StorageUtil.pGetForPage(CharBuilderPage._STORAGE_KEY);
+		// migrate a save made under the previous "charwizard" name (both the key and the page filename changed)
+		if (saved == null) saved = await StorageUtil.pGet("charwizard_state_charwizard.html");
 		if (saved) { try { state.fromJson(saved); } catch (e) { /* ignore bad save */ } }
 
-		this._ui = new CharWizardUi({
+		this._ui = new CharBuilderUi({
 			data,
 			state,
-			eleRoot: es(`#charwizard-main`),
-			fnSave: () => StorageUtil.pSetForPage(CharWizardPage._STORAGE_KEY, state.toJson()),
+			eleRoot: es(`#charbuilder-main`),
+			fnSave: () => StorageUtil.pSetForPage(CharBuilderPage._STORAGE_KEY, state.toJson()),
 		});
 		this._ui.render();
 
@@ -2279,7 +2281,7 @@ class CharWizardPage {
 			});
 		} catch (e) {
 			// eslint-disable-next-line no-console
-			console.error("charwizard: item load failed", e);
+			console.error("charbuilder: item load failed", e);
 			return [];
 		}
 	}
@@ -2290,7 +2292,7 @@ class CharWizardPage {
 			return (raw.optionalfeature || []).filter(o => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_OPT_FEATURES](o), "optionalfeature", o.source));
 		} catch (e) {
 			// eslint-disable-next-line no-console
-			console.error("charwizard: optional feature load failed", e);
+			console.error("charbuilder: optional feature load failed", e);
 			return [];
 		}
 	}
@@ -2327,17 +2329,17 @@ class CharWizardPage {
 			}));
 		} catch (e) {
 			// eslint-disable-next-line no-console
-			console.error("charwizard: bestiary load failed", e);
+			console.error("charbuilder: bestiary load failed", e);
 			return [];
 		}
 	}
 }
 
-const charWizardPage = new CharWizardPage();
-window.addEventListener("load", () => charWizardPage.pInit().catch(e => {
-	const root = es(`#charwizard-main`);
-	if (root) { root.empty(); ee(root)`<div class="cw__err">Failed to initialise: ${e.message}<br><pre>${e.stack || ""}</pre></div>`; }
+const charBuilderPage = new CharBuilderPage();
+window.addEventListener("load", () => charBuilderPage.pInit().catch(e => {
+	const root = es(`#charbuilder-main`);
+	if (root) { root.empty(); ee(root)`<div class="cb__err">Failed to initialise: ${e.message}<br><pre>${e.stack || ""}</pre></div>`; }
 	// eslint-disable-next-line no-console
 	console.error(e);
 }));
-globalThis.dbg_charWizardPage = charWizardPage;
+globalThis.dbg_charBuilderPage = charBuilderPage;

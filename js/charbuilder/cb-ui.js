@@ -1,4 +1,4 @@
-import {CW, SIDEKICK_META, EFFECT_DEFS} from "../charwizard.js";
+import {CW, SIDEKICK_META, EFFECT_DEFS} from "../charbuilder.js";
 
 /* Small render helper: 5etools entries -> HTML string */
 const renderEntries = (entries) => {
@@ -23,9 +23,9 @@ const spellSpan = (name, source) => refLink(UrlUtil.PG_SPELLS, {name, source});
 // badge for {adv:[], dis:[], net} — adv + dis cancel to a straight roll
 const advDisBadge = (ad) => {
 	if (!ad || !ad.net) return "";
-	if (ad.net === "both") return `<span class="cw__advdis cw__advdis--none" title="Advantage (${ad.adv.join(", ").qq()}) and disadvantage (${ad.dis.join(", ").qq()}) cancel — roll a straight d20">ADV+DIS</span>`;
+	if (ad.net === "both") return `<span class="cb__advdis cb__advdis--none" title="Advantage (${ad.adv.join(", ").qq()}) and disadvantage (${ad.dis.join(", ").qq()}) cancel — roll a straight d20">ADV+DIS</span>`;
 	const srcs = (ad.net === "adv" ? ad.adv : ad.dis).join(", ");
-	return `<span class="cw__advdis cw__advdis--${ad.net}" title="${srcs.qq()}">${ad.net === "adv" ? "ADV" : "DIS"}</span>`;
+	return `<span class="cb__advdis cb__advdis--${ad.net}" title="${srcs.qq()}">${ad.net === "adv" ? "ADV" : "DIS"}</span>`;
 };
 
 // common tool proficiencies offered to an Expert sidekick (humanoid / weapon-wielding)
@@ -49,7 +49,7 @@ const PLAY_EFFECTS = [
 	"Protection from Evil and Good", "Death Ward", "Freedom of Movement", "Stoneskin", "Foresight",
 ];
 
-export class CharWizardUi {
+export class CharBuilderUi {
 	constructor ({data, state, eleRoot, fnSave}) {
 		this._data = data;
 		this._state = state;
@@ -94,7 +94,7 @@ export class CharWizardUi {
 		const steps = this._steps();
 		if (this._ixStep >= steps.length) this._ixStep = steps.length - 1;
 
-		const wrp = ee`<div class="cw__wrp ve-p-2"></div>`.appendTo(this._eleRoot);
+		const wrp = ee`<div class="cb__wrp ve-p-2"></div>`.appendTo(this._eleRoot);
 
 		const isSidekick = this._state.mode === "sidekick";
 
@@ -118,10 +118,10 @@ export class CharWizardUi {
 		</div>`;
 
 		// Sources panel (replaces the stepper/body while open)
-		if (this._showSources) { this._renderSourcesPanel(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
+		if (this._showSources) { this._renderSourcesPanel(ee`<div class="cb__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// Play mode (replaces the stepper/body while active) — PC or sidekick
-		if (this._playMode) { const body = ee`<div class="cw__step-body"></div>`.appendTo(wrp); if (isSidekick) this._renderSidekickPlayMode(body); else this._renderPlayMode(body); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
+		if (this._playMode) { const body = ee`<div class="cb__step-body"></div>`.appendTo(wrp); if (isSidekick) this._renderSidekickPlayMode(body); else this._renderPlayMode(body); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// Sidekick builder (creature-first) replaces the PC stepper/body
 		if (isSidekick) { this._renderSidekickBuilder(wrp); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
@@ -132,19 +132,19 @@ export class CharWizardUi {
 		issues.forEach(i => (issuesByStep[i.step] = issuesByStep[i.step] || []).push(i));
 
 		// Stepper
-		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
+		const eleSteps = ee`<div class="cb__steps no-print"></div>`.appendTo(wrp);
 		steps.forEach((st, ix) => {
 			const isActive = ix === this._ixStep;
 			const stepIssues = issuesByStep[st.id] || [];
 			const warn = stepIssues.length && !isActive;
 			const title = stepIssues.length ? stepIssues.map(i => i.message).join("\n") : "";
-			const btn = ee`<div class="cw__step ${isActive ? "cw__step--active" : ""} ${warn ? "cw__step--warn" : st.done() && !isActive ? "cw__step--done" : ""}" title="${`${title}`.qq()}"><span class="cw__step-num">${ix + 1}</span>${st.label}</div>`
+			const btn = ee`<div class="cb__step ${isActive ? "cb__step--active" : ""} ${warn ? "cb__step--warn" : st.done() && !isActive ? "cb__step--done" : ""}" title="${`${title}`.qq()}"><span class="cb__step-num">${ix + 1}</span>${st.label}</div>`
 				.onn("click", () => { this._ixStep = ix; this.render(); });
 			btn.appendTo(eleSteps);
 		});
 
 		// Body
-		const eleBody = ee`<div class="cw__step-body"></div>`.appendTo(wrp);
+		const eleBody = ee`<div class="cb__step-body"></div>`.appendTo(wrp);
 		const curStepId = steps[this._ixStep].id;
 		// show this step's issues (and, on Review, every issue) as a banner above the body
 		const bannerIssues = curStepId === "review" ? issues : (issuesByStep[curStepId] || []);
@@ -158,7 +158,7 @@ export class CharWizardUi {
 		const isLast = this._ixStep === steps.length - 1;
 		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`
 			.onn("click", () => { if (!isLast) { this._ixStep++; this.render(); } });
-		ee(wrp)`<div class="cw__footer no-print">${btnBack}${btnNext}</div>`;
+		ee(wrp)`<div class="cb__footer no-print">${btnBack}${btnNext}</div>`;
 
 		if (scrollTop) this._eleRoot.scrollTop = scrollTop;
 	}
@@ -176,10 +176,10 @@ export class CharWizardUi {
 		const btnSave = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Saved automatically; click to confirm"><span class="glyphicon glyphicon-floppy-disk"></span> Saved</button>`
 			.onn("click", () => { this._save(); JqueryUtil.doToast({type: "success", content: "Character saved to this browser."}); });
 		const btnExport = ee`<button class="ve-btn ve-btn-default ve-btn-sm"><span class="glyphicon glyphicon-download-alt"></span> Export</button>`
-			.onn("click", () => DataUtil.userDownload(`${this._state.name || "character"}`, this._state.toJson(), {fileType: "charwizard"}));
+			.onn("click", () => DataUtil.userDownload(`${this._state.name || "character"}`, this._state.toJson(), {fileType: "charbuilder"}));
 		const btnImport = ee`<button class="ve-btn ve-btn-default ve-btn-sm"><span class="glyphicon glyphicon-upload"></span> Import</button>`
 			.onn("click", async () => {
-				const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: ["charwizard"]});
+				const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: ["charbuilder", "charwizard"]}); // accept exports made under the old "charwizard" name
 				DataUtil.doHandleFileLoadErrorsGeneric(errors);
 				if (!jsons?.length) return;
 				this._state.fromJson(jsons[0]); this._save(); this._ixStep = 0; this.render();
@@ -231,7 +231,7 @@ export class CharWizardUi {
 		ee`<button class="ve-btn ve-btn-default ve-btn-xs">Show all</button>`.onn("click", () => setHidden(allCodes, false)).appendTo(presets);
 		ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Hide homebrew, partnered, and Unearthed Arcana">Official only</button>`.onn("click", () => { st.hiddenSources = sources.filter(s => s.group !== 0).map(s => s.source); this._save(); this.render(); }).appendTo(presets);
 		ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Core + Forgotten Realms + setting-neutral supplements; hide other campaign settings">Forgotten Realms + neutral</button>`
-			.onn("click", () => { const hide = sources.filter(s => s.group !== 0 || CharWizardUi._NON_FR_SOURCES.has(s.source)).map(s => s.source); st.hiddenSources = hide; st.hideLegacy = true; this._save(); this.render(); }).appendTo(presets);
+			.onn("click", () => { const hide = sources.filter(s => s.group !== 0 || CharBuilderUi._NON_FR_SOURCES.has(s.source)).map(s => s.source); st.hiddenSources = hide; st.hideLegacy = true; this._save(); this.render(); }).appendTo(presets);
 
 		// grouped checklist
 		const groupName = {0: "Core & Official", 1: "Partnered", 2: "Unearthed Arcana / Non-standard", 3: "Prerelease", 4: "Homebrew"};
@@ -291,7 +291,7 @@ export class CharWizardUi {
 		ee(sec)`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b>Exhaustion</b> ${dec} <span style="min-width:34px;text-align:center"><b style="font-size:15px">${lvl}</b> / 6</span> ${inc} <span class="ve-muted ve-small">a long rest removes 1 level</span></div>`;
 		if (lvl > 0) {
 			const effects = []; for (let i = 1; i <= Math.min(lvl, 5); ++i) effects.push(`<b>${i}.</b> ${EXHAUSTION_EFFECTS[i]}`);
-			ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mb-2" style="display:block;padding:6px;border-radius:4px">${lvl >= 6 ? "<b>Level 6 — the character dies.</b>" : effects.join(" &nbsp;•&nbsp; ")}</div>`;
+			ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mb-2" style="display:block;padding:6px;border-radius:4px">${lvl >= 6 ? "<b>Level 6 — the character dies.</b>" : effects.join(" &nbsp;•&nbsp; ")}</div>`;
 		}
 	}
 
@@ -301,7 +301,7 @@ export class CharWizardUi {
 		ee(sec)`<h4>Buffs &amp; Effects <span class="ve-muted ve-small">(Bless, Bardic Inspiration, Hex…)</span></h4>`;
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
 		const effLabel = (eff) => { const sp = this._state.effectSpell(eff); return sp ? refLink(UrlUtil.PG_SPELLS, sp) : `${eff}`.qq(); };
-		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip" title="${(EFFECT_DEFS[eff]?.note || "").qq()}">${effLabel(eff)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
+		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cb__buff-chip" title="${(EFFECT_DEFS[eff]?.note || "").qq()}">${effLabel(eff)} ${ee`<span class="cb__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add buff/effect…</option></select>`;
 		PLAY_EFFECTS.filter(e => !effects.includes(e)).forEach(e => ee`<option value="${e.qq()}">${e.qq()}</option>`.appendTo(sel));
@@ -353,7 +353,7 @@ export class CharWizardUi {
 
 	_renderPlayMode (wrp) {
 		const st = this._state;
-		if (!st.classUid) { ee(wrp)`<div class="cw__err">Build your character first (choose at least a class), then switch to Play mode to track HP, spell slots, and roll checks.</div>`; return; }
+		if (!st.classUid) { ee(wrp)`<div class="cb__err">Build your character first (choose at least a class), then switch to Play mode to track HP, spell slots, and roll checks.</div>`; return; }
 
 		const classLine = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
 		const star = ee`<button class="ve-btn ve-btn-sm ${st.play.inspiration ? "ve-btn-primary" : "ve-btn-default"}" title="Toggle Inspiration">${st.play.inspiration ? "★" : "☆"} Inspiration</button>`
@@ -364,8 +364,8 @@ export class CharWizardUi {
 			${star}</div>`;
 
 		// top stat row
-		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
-		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cw__stat-box ${onClick ? "cw__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
+		const boxes = ee`<div class="cb__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
+		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cb__stat-box ${onClick ? "cb__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
 		const acD = st.playAc() - st.ac();
 		box("Armor Class", `${st.playAc()}${acD ? ` <span class="ve-muted ve-small">(${CW.fmtMod(acD)})</span>` : ""}`);
 		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(this._pcRollAd("check", "dex", st.initiativeAdvDis()))}`, () => this._d20Roll("Initiative", st.initiative(), this._pcRollAd("check", "dex", st.initiativeAdvDis())), "Click to roll initiative");
@@ -376,17 +376,17 @@ export class CharWizardUi {
 		const srcs = st.spellSources();
 		if (srcs.length) { const s0 = srcs[0]; const atk = st.spellAtkBonusFor(s0); box("Spell DC", st.spellSaveDcFor(s0) ?? "—"); box("Spell Atk", atk == null ? "—" : CW.fmtMod(atk)); }
 
-		this._renderPlayHp(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlayRests(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlaySlots(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlaySpellbook(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderEffects(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.play);
-		this._renderActiveEffectMods(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderTurnOptions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.turnOptions());
-		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayHp(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayRests(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySlots(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySpellbook(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayConditions(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderEffects(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp), st.play);
+		this._renderActiveEffectMods(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayAbilities(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderTurnOptions(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp), st.turnOptions());
+		this._renderPlayAttacks(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySkills(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
 		ee(wrp)`<div class="ve-muted ve-small ve-mt-3 no-print">Rolls open in the dice tray (bottom-right); click the × there to dismiss it.</div>`;
 	}
 
@@ -419,15 +419,15 @@ export class CharWizardUi {
 		// death saves — shown when at 0 HP or any are marked
 		const ds = st.play.deathSaves || (st.play.deathSaves = {success: 0, fail: 0});
 		if (cur === 0 || ds.success || ds.fail) {
-			ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
-			const pip = (type, n, colour, i) => ee`<span class="cw__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}" title="${type} ${i}"></span>`
+			ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
+			const pip = (type, n, colour, i) => ee`<span class="cb__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}" title="${type} ${i}"></span>`
 				.onn("click", () => { ds[type === "Success" ? "success" : "fail"] = (n === i ? i - 1 : i); this._save(); this.render(); });
 			const dsRow = ee`<div class="ve-flex-v-center ve-mt-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
 			ee(dsRow)`<span class="ve-small">Successes</span>${[1, 2, 3].map(i => pip("Success", ds.success, "#4caf50", i))}`;
 			ee(dsRow)`<span class="ve-small ve-ml-2">Failures</span>${[1, 2, 3].map(i => pip("Fail", ds.fail, "#f44336", i))}`;
 			ee(dsRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs ve-ml-2">🎲 Death Save</button>`.onn("click", () => this._rollDeathSave())}`;
 			if (ds.success >= 3) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Stable — unconscious but no longer making death saves.</div>`;
-			if (ds.fail >= 3) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-1" style="display:inline-block">The character has died.</div>`;
+			if (ds.fail >= 3) ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mt-1" style="display:inline-block">The character has died.</div>`;
 		}
 	}
 
@@ -496,7 +496,7 @@ export class CharWizardUi {
 				byLvl[lvl].forEach(sp => {
 					let can = false; for (let L = lvl; L <= 9; ++L) if (st.playSlotsRemaining(L) > 0) { can = true; break; }
 					if (!can && st.playPactRemaining() > 0 && st.playPactLevel() >= lvl) can = true;
-					const chip = ee`<span class="cw__spell-chip ${can ? "" : "cw__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
+					const chip = ee`<span class="cb__spell-chip ${can ? "" : "cb__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
 					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._castSpell(sp); });
 					ee(wrap)`${chip}`;
 				});
@@ -510,7 +510,7 @@ export class CharWizardUi {
 		ee(sec)`<h4>Exhaustion &amp; Conditions</h4>`;
 		this._renderExhaustion(sec, st.play);
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
-		if (active.length) active.forEach(c => ee(row)`<span class="cw__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { st.removeCondition(c); this._save(); this.render(); })}</span>`);
+		if (active.length) active.forEach(c => ee(row)`<span class="cb__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cb__cond-x" title="Remove">✕</span>`.onn("click", () => { st.removeCondition(c); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add condition…</option></select>`;
 		CONDITIONS.filter(c => !active.includes(c)).forEach(c => ee`<option value="${c}">${c}</option>`.appendTo(sel));
@@ -548,15 +548,15 @@ export class CharWizardUi {
 	_renderPlayAbilities (sec) {
 		const st = this._state;
 		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click a score to roll a check, or the save line for a save)</span></h4>`;
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(sec);
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(sec);
 		CW.ABILITIES.forEach(abv => {
 			const mod = st.abilityMod(abv); const save = st.saveMod(abv); const saveProf = st.saveProfs().has(abv);
-			const card = ee`<div class="cw__abil" style="padding:4px"></div>`;
-			ee`<div class="cw__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check">
-				<div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.finalAbility(abv)}</div>
-				<div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
+			const card = ee`<div class="cb__abil" style="padding:4px"></div>`;
+			ee`<div class="cb__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check">
+				<div class="cb__abil-name">${abv}</div><div class="cb__abil-score">${st.finalAbility(abv)}</div>
+				<div class="cb__abil-mod">${CW.fmtMod(mod)}</div></div>`
 				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, this._pcRollAd("check", abv, st.abilityCheckAdvDis?.(abv)))).appendTo(card);
-			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._pcRollAd("save", abv, st.saveAdvDis(abv)))}</div>`
+			ee`<div class="cb__roll cb__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._pcRollAd("save", abv, st.saveAdvDis(abv)))}</div>`
 				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, this._pcRollAd("save", abv, st.saveAdvDis(abv)), st.effectSaveDice())).appendTo(card);
 			card.appendTo(grid);
 		});
@@ -593,7 +593,7 @@ export class CharWizardUi {
 		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
 		CW.skills().sort().forEach(sk => {
 			const mod = st.skillMod(sk);
-			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk)))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk))))}`;
+			ee(grid)`${ee`<div class="cb__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk)))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk))))}`;
 		});
 	}
 
@@ -616,21 +616,21 @@ export class CharWizardUi {
 
 		ee(wrp)`<p class="ve-muted ve-small ve-mb-2 no-print">A <b>sidekick</b> (Tasha's Cauldron of Everything) starts from a creature of challenge rating ½ or lower, then gains levels in a Warrior, Expert, or Spellcaster class. The creature's stat block supplies its ability scores, AC, hit points, speed, senses, traits, and actions; the class layers on proficiency bonus, saving throws, skills, and features. Hit points per level use a Hit Die set by the creature's size.</p>`;
 
-		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
+		const eleSteps = ee`<div class="cb__steps no-print"></div>`.appendTo(wrp);
 		steps.forEach((s, ix) => {
 			const isActive = ix === this._skStep;
-			ee`<div class="cw__step ${isActive ? "cw__step--active" : s.done() && !isActive ? "cw__step--done" : ""}"><span class="cw__step-num">${ix + 1}</span>${s.label}</div>`
+			ee`<div class="cb__step ${isActive ? "cb__step--active" : s.done() && !isActive ? "cb__step--done" : ""}"><span class="cb__step-num">${ix + 1}</span>${s.label}</div>`
 				.onn("click", () => { this._skStep = ix; this.render(); }).appendTo(eleSteps);
 		});
 
-		const eleBody = ee`<div class="cw__step-body"></div>`.appendTo(wrp);
+		const eleBody = ee`<div class="cb__step-body"></div>`.appendTo(wrp);
 		steps[this._skStep].render(eleBody);
 
 		const btnBack = ee`<button class="ve-btn ve-btn-default">‹ Back</button>`.onn("click", () => { if (this._skStep > 0) { this._skStep--; this.render(); } });
 		if (this._skStep === 0) btnBack.attr("disabled", "true");
 		const isLast = this._skStep === steps.length - 1;
 		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`.onn("click", () => { if (!isLast) { this._skStep++; this.render(); } });
-		ee(wrp)`<div class="cw__footer no-print">${btnBack}${btnNext}</div>`;
+		ee(wrp)`<div class="cb__footer no-print">${btnBack}${btnNext}</div>`;
 	}
 
 	_skCrText (m) { const cr = m?.cr; return cr == null ? "?" : (typeof cr === "object" ? cr.cr : cr); }
@@ -653,7 +653,7 @@ export class CharWizardUi {
 
 	_renderSidekickClass (el) {
 		const st = this._state; const sk = st.sidekick;
-		if (!st.sidekickCreature()) { ee(el)`<div class="cw__err">Choose a creature first (Creature step).</div>`; return; }
+		if (!st.sidekickCreature()) { ee(el)`<div class="cb__err">Choose a creature first (Creature step).</div>`; return; }
 		const wrp = ee`<div></div>`.appendTo(el);
 
 		ee(wrp)`<h4 class="ve-mt-0">Sidekick Class</h4>`;
@@ -815,23 +815,23 @@ export class CharWizardUi {
 
 	_renderSidekickReview (el) {
 		const st = this._state; const m = st.sidekickCreature();
-		const wrp = ee`<div class="cw__sheet"></div>`.appendTo(el);
-		if (!m) { ee(wrp)`<div class="cw__err">Choose a creature to begin (Creature step).</div>`; return; }
+		const wrp = ee`<div class="cb__sheet"></div>`.appendTo(el);
+		if (!m) { ee(wrp)`<div class="cb__err">Choose a creature to begin (Creature step).</div>`; return; }
 		const cls = st.sidekickClassEnt();
 		const sub = [m.name !== st.sidekickName() ? m.name : null, cls ? `${cls.name.replace(/ Sidekick$/, "")} ${st.sidekickLevel()}` : null, `CR ${this._skCrText(m)}`, Parser.sizeAbvToFull(st._creatureSize())].filter(Boolean).join(" • ");
-		ee(wrp)`<div class="cw__sheet-head">
+		ee(wrp)`<div class="cb__sheet-head">
 			<div><div style="font-size:24px;font-weight:bold">${st.sidekickName().qq()}</div><div class="ve-muted">${sub.qq()}</div></div>
 			<div class="ve-text-right"><div><b>Proficiency Bonus</b> +${st.sidekickProfBonus()}</div><div><b>Speed</b> ${st.sidekickSpeed().qq()}</div></div>
 		</div>`;
 
-		const boxes = ee`<div class="cw__sheet-grid"></div>`.appendTo(wrp);
-		const box = (l, v) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+		const boxes = ee`<div class="cb__sheet-grid"></div>`.appendTo(wrp);
+		const box = (l, v) => ee(boxes)`<div class="cb__stat-box"><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
 		box("Armor Class", st.sidekickAc() ?? "—");
 		box("Hit Points", st.sidekickMaxHp() ?? "—");
 		box("Hit Die", `d${st.sidekickHitDie()}`);
-		box("Initiative", `${CW.fmtMod(st.sidekickAbilityMod("dex"))}${st.sidekickInitiativeAdv() ? ` <span class="cw__advdis cw__advdis--adv" title="Battle Readiness">ADV</span>` : ""}`);
+		box("Initiative", `${CW.fmtMod(st.sidekickAbilityMod("dex"))}${st.sidekickInitiativeAdv() ? ` <span class="cb__advdis cb__advdis--adv" title="Battle Readiness">ADV</span>` : ""}`);
 		box("Passive Perception", 10 + st.sidekickSkillMod("perception"));
-		if (!cls) ee(wrp)`<div class="cw__err no-print ve-mt-2">Pick a sidekick class &amp; level (Class &amp; Level step) to finish the build.</div>`;
+		if (!cls) ee(wrp)`<div class="cb__err no-print ve-mt-2">Pick a sidekick class &amp; level (Class &amp; Level step) to finish the build.</div>`;
 
 		// combat features (Martial Role, Improved Critical, Extra Attack, Battle Readiness)
 		const names = st.sidekickFeatureNames(); const combatParts = [];
@@ -839,20 +839,20 @@ export class CharWizardUi {
 		if (st.sidekickCritRange() < 20) combatParts.push(`<b>Improved Critical:</b> crits on ${st.sidekickCritRange()}–20`);
 		if (st.sidekickExtraAttacks() > 1) combatParts.push(`<b>Extra Attack:</b> ${st.sidekickExtraAttacks()}× (or its Multiattack — not both)`);
 		if (st.sidekickInitiativeAdv()) combatParts.push("<b>Battle Readiness:</b> advantage on initiative");
-		if (combatParts.length) ee(wrp)`<div class="cw__sheet-section"><h4>Combat</h4><div>${combatParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
+		if (combatParts.length) ee(wrp)`<div class="cb__sheet-section"><h4>Combat</h4><div>${combatParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
 
 		// abilities + saves
-		const secA = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const secA = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 		ee(secA)`<h4>Ability Scores &amp; Saving Throws</h4>`;
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(secA);
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(secA);
 		CW.ABILITIES.forEach(abv => {
-			ee(grid)`<div class="cw__abil"><div class="cw__abil-name">${abv}</div>
-				<div class="cw__abil-score">${st.sidekickAbility(abv)}</div><div class="cw__abil-mod">${CW.fmtMod(st.sidekickAbilityMod(abv))}</div>
-				<div class="cw__abil-sub">save ${CW.fmtMod(st.sidekickSaveMod(abv))}${st.sidekickSaveProfs().has(abv) ? " ●" : ""}</div></div>`;
+			ee(grid)`<div class="cb__abil"><div class="cb__abil-name">${abv}</div>
+				<div class="cb__abil-score">${st.sidekickAbility(abv)}</div><div class="cb__abil-mod">${CW.fmtMod(st.sidekickAbilityMod(abv))}</div>
+				<div class="cb__abil-sub">save ${CW.fmtMod(st.sidekickSaveMod(abv))}${st.sidekickSaveProfs().has(abv) ? " ●" : ""}</div></div>`;
 		});
 
 		// skills
-		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const secS = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 		ee(secS)`<h4>Skills <span class="ve-muted ve-small">(★ expertise, ● proficient)</span></h4>`;
 		const MARK = {expertise: "★", full: "●", none: "○"};
 		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
@@ -863,15 +863,15 @@ export class CharWizardUi {
 		if (st.sidekickArmorProfs().length) profParts.push(`<b>Armor:</b> ${st.sidekickArmorProfs().join(", ").qq()}`);
 		if (st.sidekickWeaponProfs().length) profParts.push(`<b>Weapons:</b> ${st.sidekickWeaponProfs().join(", ").qq()}`);
 		if (st.sidekickToolProfs().length) profParts.push(`<b>Tools:</b> ${st.sidekickToolProfs().join(", ").qq()}`);
-		if (profParts.length) ee(wrp)`<div class="cw__sheet-section"><h4>Proficiencies</h4><div>${profParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
+		if (profParts.length) ee(wrp)`<div class="cb__sheet-section"><h4>Proficiencies</h4><div>${profParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
 
 		// senses
-		if (st.sidekickSenses()) ee(wrp)`<div class="cw__sheet-section"><h4>Senses</h4><div>${st.sidekickSenses().qq()}</div></div>`;
+		if (st.sidekickSenses()) ee(wrp)`<div class="cb__sheet-section"><h4>Senses</h4><div>${st.sidekickSenses().qq()}</div></div>`;
 
 		// feats taken in place of an ASI
 		const skFeats = st.sidekickFeats();
 		if (skFeats.length) {
-			const secSkF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secSkF = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secSkF)`<h4>Feats</h4>`;
 			skFeats.forEach(({level, feat}) => ee`<details style="margin:2px 0"><summary><b>L${level}:</b> ${refLink(UrlUtil.PG_FEATS, feat)}</summary><div class="ve-pl-3">${renderEntries(feat.entries)}</div></details>`.appendTo(secSkF));
 		}
@@ -880,7 +880,7 @@ export class CharWizardUi {
 		if (st.sidekickIsCaster()) {
 			const prog = st.sidekickSpellProgress();
 			const spans = (arr) => (arr || []).map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
-			const secSp = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secSp = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secSp)`<h4>Spellcasting</h4>
 				<div><b>${CW.ABIL_FULL[st.sidekickSpellAbility()]}</b> — Save DC ${st.sidekickSpellSaveDc()}, attack ${CW.fmtMod(st.sidekickSpellAtk())}, slots ${this._fmtSlots(prog?.slots)}</div>
 				<div class="ve-pl-3"><b>Cantrips:</b> ${spans(st.sidekick.spellChoices.cantrips) || "—"}</div>
@@ -893,7 +893,7 @@ export class CharWizardUi {
 				const adjMon = {...m, spellcasting: st.sidekickAdjustEntries(m.spellcasting)};
 				const traits = ["trait", "action", "bonus", "reaction"].flatMap(prop => { try { return Renderer.monster.getSpellcastingRenderedTraits(Renderer.get(), adjMon, {displayAsProp: prop}); } catch (e) { return []; } });
 				if (traits.length) {
-					const secSc = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+					const secSc = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 					ee(secSc)`<h4>Stat-Block Spellcasting <span class="ve-muted ve-small">(from the creature — separate from any class)</span></h4>`;
 					traits.forEach(t => ee(secSc)`<div class="ve-mb-1"><b>${`${t.name}`.qq()}.</b> ${t.rendered}</div>`);
 				}
@@ -905,7 +905,7 @@ export class CharWizardUi {
 		const monBlock = (title, arr) => {
 			const adj = st.sidekickAdjustEntries(arr);
 			if (!adj?.length) return;
-			const sec = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const sec = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(sec)`<h4>${title}</h4>`;
 			adj.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
 		};
@@ -925,7 +925,7 @@ export class CharWizardUi {
 		// class features
 		const feats = st.sidekickFeatures();
 		if (feats.length) {
-			const secF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secF = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secF)`<h4>${(cls?.name || "Class").qq()} Features</h4>`;
 			feats.forEach(f => ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()}</summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secF));
 		}
@@ -936,7 +936,7 @@ export class CharWizardUi {
 	/* ====================================================================== */
 	_renderSidekickPlayMode (wrp) {
 		const st = this._state;
-		if (!st.sidekickCreature()) { ee(wrp)`<div class="cw__err">Pick a creature (and class) on the build steps first, then switch to Play mode.</div>`; return; }
+		if (!st.sidekickCreature()) { ee(wrp)`<div class="cb__err">Pick a creature (and class) on the build steps first, then switch to Play mode.</div>`; return; }
 		const cls = st.sidekickClassEnt(); const p = st.skPlay();
 		const star = ee`<button class="ve-btn ve-btn-sm ${p.inspiration ? "ve-btn-primary" : "ve-btn-default"}" title="Toggle Inspiration">${p.inspiration ? "★" : "☆"} Inspiration</button>`
 			.onn("click", () => { p.inspiration = !p.inspiration; this._save(); this.render(); });
@@ -944,27 +944,27 @@ export class CharWizardUi {
 			<div style="flex:1 1 auto"><div style="font-size:22px;font-weight:bold">${st.sidekickName().qq()}</div>
 			<div class="ve-muted ve-small">${(cls ? `${cls.name.replace(/ Sidekick$/, "")} ${st.sidekickLevel()}` : "no class chosen").qq()} • CR ${`${this._skCrText(st.sidekickCreature())}`.qq()}</div></div>
 			${star}</div>`;
-		if (!cls) ee(wrp)`<div class="cw__err no-print ve-mb-2">Choose a sidekick class &amp; level on the build steps for full play features.</div>`;
+		if (!cls) ee(wrp)`<div class="cb__err no-print ve-mb-2">Choose a sidekick class &amp; level on the build steps for full play features.</div>`;
 
-		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
-		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cw__stat-box ${onClick ? "cw__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
+		const boxes = ee`<div class="cb__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
+		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cb__stat-box ${onClick ? "cb__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
 		box("Armor Class", st.sidekickAc() ?? "—");
 		box("Initiative", `${CW.fmtMod(st.sidekickAbilityMod("dex"))} ${advDisBadge(this._mergeExhaustion(st.sidekickInitiativeAdv() ? {net: "adv", adv: ["Battle Readiness"]} : null, "check"))}`, () => this._d20Roll("Initiative", st.sidekickAbilityMod("dex"), this._mergeExhaustion(st.sidekickInitiativeAdv() ? {net: "adv", adv: ["Battle Readiness"]} : null, "check")), "Click to roll initiative");
 		box("Prof. Bonus", CW.fmtMod(st.sidekickProfBonus()));
 		box("Passive Perc.", 10 + st.sidekickSkillMod("perception"));
-		box("Speed", `${st.sidekickSpeed()}${(p.exhaustion || 0) >= 5 ? ` <span class="cw__advdis cw__advdis--dis">→ 0</span>` : (p.exhaustion || 0) >= 2 ? ` <span class="ve-muted ve-small">(½)</span>` : ""}`);
+		box("Speed", `${st.sidekickSpeed()}${(p.exhaustion || 0) >= 5 ? ` <span class="cb__advdis cb__advdis--dis">→ 0</span>` : (p.exhaustion || 0) >= 2 ? ` <span class="ve-muted ve-small">(½)</span>` : ""}`);
 		if (st.sidekickIsCaster()) { box("Spell DC", st.sidekickSpellSaveDc()); box("Spell Atk", CW.fmtMod(st.sidekickSpellAtk())); }
 
-		this._renderSkPlayHp(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderSkPlayRests(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		if (st.sidekickIsCaster()) this._renderSkPlaySpells(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderSkPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderEffects(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.skPlay());
-		this._renderSkPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderTurnOptions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.sidekickTurnOptions());
-		this._renderSkPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderSkPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderSkPlayFeatures(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayHp(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayRests(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		if (st.sidekickIsCaster()) this._renderSkPlaySpells(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayConditions(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderEffects(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp), st.skPlay());
+		this._renderSkPlayAbilities(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderTurnOptions(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp), st.sidekickTurnOptions());
+		this._renderSkPlayAttacks(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlaySkills(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
+		this._renderSkPlayFeatures(ee`<div class="cb__sheet-section"></div>`.appendTo(wrp));
 		ee(wrp)`<div class="ve-muted ve-small ve-mt-3 no-print">Rolls open in the dice tray (bottom-right). Attack to-hit and damage in the stat block below are clickable.</div>`;
 	}
 
@@ -992,14 +992,14 @@ export class CharWizardUi {
 		}
 		const ds = p.deathSaves || (p.deathSaves = {success: 0, fail: 0});
 		if (cur === 0 || ds.success || ds.fail) {
-			ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
-			const pip = (type, n, colour, i) => ee`<span class="cw__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}"></span>`.onn("click", () => { ds[type === "Success" ? "success" : "fail"] = (n === i ? i - 1 : i); this._save(); this.render(); });
+			ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
+			const pip = (type, n, colour, i) => ee`<span class="cb__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}"></span>`.onn("click", () => { ds[type === "Success" ? "success" : "fail"] = (n === i ? i - 1 : i); this._save(); this.render(); });
 			const dsRow = ee`<div class="ve-flex-v-center ve-mt-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
 			ee(dsRow)`<span class="ve-small">Successes</span>${[1, 2, 3].map(i => pip("Success", ds.success, "#4caf50", i))}`;
 			ee(dsRow)`<span class="ve-small ve-ml-2">Failures</span>${[1, 2, 3].map(i => pip("Fail", ds.fail, "#f44336", i))}`;
 			ee(dsRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs ve-ml-2">🎲 Death Save</button>`.onn("click", () => this._rollDeathSaveFor(p, n => st.skApplyHealing(n)))}`;
 			if (ds.success >= 3) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Stable — unconscious.</div>`;
-			if (ds.fail >= 3) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-1" style="display:inline-block">The sidekick has died.</div>`;
+			if (ds.fail >= 3) ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mt-1" style="display:inline-block">The sidekick has died.</div>`;
 		}
 	}
 
@@ -1053,7 +1053,7 @@ export class CharWizardUi {
 				const wrap = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b class="ve-small" style="width:42px">Lv ${lvl}</b></div>`;
 				byLvl[lvl].forEach(sp => {
 					let can = false; for (let L = lvl; L <= 9; ++L) if (st.skSlotsRemaining(L) > 0) { can = true; break; }
-					const chip = ee`<span class="cw__spell-chip ${can ? "" : "cw__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
+					const chip = ee`<span class="cb__spell-chip ${can ? "" : "cb__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
 					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._skCastSpell(sp); });
 					ee(wrap)`${chip}`;
 				});
@@ -1075,7 +1075,7 @@ export class CharWizardUi {
 		ee(sec)`<h4>Exhaustion &amp; Conditions</h4>`;
 		this._renderExhaustion(sec, p);
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
-		if (active.length) active.forEach(c => ee(row)`<span class="cw__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { p.conditions = active.filter(x => x !== c); this._save(); this.render(); })}</span>`);
+		if (active.length) active.forEach(c => ee(row)`<span class="cb__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cb__cond-x" title="Remove">✕</span>`.onn("click", () => { p.conditions = active.filter(x => x !== c); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add condition…</option></select>`;
 		CONDITIONS.filter(c => !active.includes(c)).forEach(c => ee`<option value="${c}">${c}</option>`.appendTo(sel));
@@ -1086,13 +1086,13 @@ export class CharWizardUi {
 	_renderSkPlayAbilities (sec) {
 		const st = this._state;
 		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click to roll)</span></h4>`;
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(sec);
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(sec);
 		CW.ABILITIES.forEach(abv => {
 			const mod = st.sidekickAbilityMod(abv); const save = st.sidekickSaveMod(abv); const saveProf = st.sidekickSaveProfs().has(abv);
-			const card = ee`<div class="cw__abil" style="padding:4px"></div>`;
-			ee`<div class="cw__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check"><div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.sidekickAbility(abv)}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
+			const card = ee`<div class="cb__abil" style="padding:4px"></div>`;
+			ee`<div class="cb__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check"><div class="cb__abil-name">${abv}</div><div class="cb__abil-score">${st.sidekickAbility(abv)}</div><div class="cb__abil-mod">${CW.fmtMod(mod)}</div></div>`
 				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, this._mergeExhaustion(null, "check"))).appendTo(card);
-			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save"><span>save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._mergeExhaustion(null, "save"))}</span></div>`
+			ee`<div class="cb__roll cb__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save"><span>save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._mergeExhaustion(null, "save"))}</span></div>`
 				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, this._mergeExhaustion(null, "save"))).appendTo(card);
 			card.appendTo(grid);
 		});
@@ -1110,7 +1110,7 @@ export class CharWizardUi {
 		if (st.sidekickCritRange() < 20) combat.push(`crits on ${st.sidekickCritRange()}–20`);
 		if (st.sidekickMartialRole() === "attacker") combat.push("Attacker: +2 to-hit (included above)");
 		if (combat.length) ee(sec)`<div class="ve-muted ve-small">${combat.join(" • ").qq()}</div>`;
-		if ((st.skPlay().exhaustion || 0) >= 3) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-1" style="display:inline-block">Exhaustion: attacks have disadvantage — CTRL-click the to-hit to roll it.</div>`;
+		if ((st.skPlay().exhaustion || 0) >= 3) ee(sec)`<div class="cb__advdis cb__advdis--dis ve-mt-1" style="display:inline-block">Exhaustion: attacks have disadvantage — CTRL-click the to-hit to roll it.</div>`;
 	}
 
 	_renderSkPlaySkills (sec) {
@@ -1120,7 +1120,7 @@ export class CharWizardUi {
 		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
 		CW.skills().sort().forEach(sk => {
 			const mod = st.sidekickSkillMod(sk);
-			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.sidekickSkillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._mergeExhaustion(st.skillAdvDis?.(sk), "check"))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._mergeExhaustion(st.skillAdvDis?.(sk), "check")))}`;
+			ee(grid)`${ee`<div class="cb__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.sidekickSkillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._mergeExhaustion(st.skillAdvDis?.(sk), "check"))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._mergeExhaustion(st.skillAdvDis?.(sk), "check")))}`;
 		});
 	}
 
@@ -1135,13 +1135,13 @@ export class CharWizardUi {
 	_renderChooser (eleBody, {entities, getSel, setSel, renderDetail, subtitle, onAfterSelect = null}) {
 		const wrp = ee`<div></div>`.appendTo(eleBody);
 		if (subtitle) ee(wrp)`<p class="ve-muted ve-mb-1">${subtitle}</p>`;
-		const body = ee`<div class="cw__body"></div>`.appendTo(wrp);
-		const colList = ee`<div class="cw__col-list"></div>`.appendTo(body);
-		const colDetail = ee`<div class="cw__col-detail"></div>`.appendTo(body);
+		const body = ee`<div class="cb__body"></div>`.appendTo(wrp);
+		const colList = ee`<div class="cb__col-list"></div>`.appendTo(body);
+		const colDetail = ee`<div class="cb__col-detail"></div>`.appendTo(body);
 
 		const inpSearch = ee`<input class="ve-form-control ve-mb-1" placeholder="Search…">`;
 		colList.appendChild(inpSearch);
-		const listWrp = ee`<div class="cw__pick-list"></div>`.appendTo(colList);
+		const listWrp = ee`<div class="cb__pick-list"></div>`.appendTo(colList);
 
 		const renderDetailFor = (uid) => {
 			colDetail.empty();
@@ -1157,13 +1157,13 @@ export class CharWizardUi {
 				.filter(e => !t || e.name.toLowerCase().includes(t) || `${e.source}`.toLowerCase().includes(t))
 				.forEach(ent => {
 					const uid = CW.uid(ent);
-					const row = ee`<div class="cw__pick ${getSel() === uid ? "cw__pick--sel" : ""}"><span>${ent.name}</span><span class="cw__pick-src" title="${Parser.sourceJsonToFull(ent.source).qq()}">${ent.source}</span></div>`
+					const row = ee`<div class="cb__pick ${getSel() === uid ? "cb__pick--sel" : ""}"><span>${ent.name}</span><span class="cb__pick-src" title="${Parser.sourceJsonToFull(ent.source).qq()}">${ent.source}</span></div>`
 						.onn("click", () => {
 							setSel(uid);
 							this._save();
 							if (onAfterSelect) { onAfterSelect(); return; }
-							[...listWrp.children].forEach(c => c.classList.remove("cw__pick--sel"));
-							row.classList.add("cw__pick--sel");
+							[...listWrp.children].forEach(c => c.classList.remove("cb__pick--sel"));
+							row.classList.add("cb__pick--sel");
 							renderDetailFor(uid);
 						});
 					row.appendTo(listWrp);
@@ -1190,7 +1190,7 @@ export class CharWizardUi {
 			const val = getValue(item);
 			const isChosen = arr.includes(val);
 			const lock = disabledFn ? disabledFn(item) : null; // string reason or null
-			const chip = ee`<label class="cw__chip ${lock ? "cw__chip--locked" : ""}" style="cursor:${lock ? "not-allowed" : "pointer"}" title="${(lock || (getTitle ? getTitle(item) : "")).qq()}">${getLabel(item)}${lock ? " ✓" : ""} <input type="checkbox" ${isChosen ? "checked" : ""}></label>`;
+			const chip = ee`<label class="cb__chip ${lock ? "cb__chip--locked" : ""}" style="cursor:${lock ? "not-allowed" : "pointer"}" title="${(lock || (getTitle ? getTitle(item) : "")).qq()}">${getLabel(item)}${lock ? " ✓" : ""} <input type="checkbox" ${isChosen ? "checked" : ""}></label>`;
 			if (lock) chip.dataset.lockedReason = lock;
 			const input = chip.querySelector("input");
 			input.addEventListener("change", () => {
@@ -1245,7 +1245,7 @@ export class CharWizardUi {
 		}
 
 		ee(wrp)`<h4 class="ve-mt-0">Classes <span class="ve-muted ve-small">— total level ${st.totalLevel}, proficiency +${st.profBonus}</span></h4>`;
-		if (st.totalLevel > 20) ee(wrp)`<div class="cw__err ve-small ve-mb-2"><span class="glyphicon glyphicon-warning-sign"></span> Total level ${st.totalLevel} exceeds the maximum of 20.</div>`;
+		if (st.totalLevel > 20) ee(wrp)`<div class="cb__err ve-small ve-mb-2"><span class="glyphicon glyphicon-warning-sign"></span> Total level ${st.totalLevel} exceeds the maximum of 20.</div>`;
 		st.classes.forEach((row, ix) => this._renderClassRow(wrp, row, ix));
 		this._renderAddClass(wrp);
 	}
@@ -1319,7 +1319,7 @@ export class CharWizardUi {
 		const st = this._state;
 		const cls = this._data.classData.classes.find(c => CW.uid(c) === row.uid);
 		if (!cls) return;
-		const card = ee`<div class="cw__class-row" style="border:1px solid rgba(127,127,127,.3);border-radius:6px;padding:10px;margin-bottom:10px"></div>`.appendTo(wrp);
+		const card = ee`<div class="cb__class-row" style="border:1px solid rgba(127,127,127,.3);border-radius:6px;padding:10px;margin-bottom:10px"></div>`.appendTo(wrp);
 		const head = ee`<div class="ve-flex-v-center" style="gap:12px;flex-wrap:wrap"></div>`.appendTo(card);
 		ee(head)`<b>${ix === 0 ? `<span class="ve-muted ve-small">1st</span> ` : ""}${renderInline(`{@class ${cls.name}|${cls.source}}`)}</b>`;
 
@@ -1347,7 +1347,7 @@ export class CharWizardUi {
 		// multiclass ability-score requirement (secondary classes only)
 		if (ix > 0) {
 			const req = st.multiclassRequirement(cls);
-			if (req.reqText) ee(card)`<div class="ve-small ve-mt-1 ${req.ok ? "ve-muted" : "cw__err"}">Multiclass requirement: ${req.reqText.qq()}${req.ok ? " ✓" : ` — not met`}</div>`;
+			if (req.reqText) ee(card)`<div class="ve-small ve-mt-1 ${req.ok ? "ve-muted" : "cb__err"}">Multiclass requirement: ${req.reqText.qq()}${req.ok ? " ✓" : ` — not met`}</div>`;
 		}
 
 		const det = ee`<details class="ve-mt-1"><summary class="ve-small ve-bold">Features &amp; details</summary></details>`.appendTo(card);
@@ -1465,10 +1465,10 @@ export class CharWizardUi {
 			if (v.value != null) return `${v.value}`;
 			return "—";
 		};
-		let html = `<table class="w-100 ve-small cw__class-tbl"><thead><tr><th>Level</th><th>Prof</th><th>Features</th>${cols.map(c => `<th>${renderInline(c.lbl)}</th>`).join("")}</tr></thead><tbody>`;
+		let html = `<table class="w-100 ve-small cb__class-tbl"><thead><tr><th>Level</th><th>Prof</th><th>Features</th>${cols.map(c => `<th>${renderInline(c.lbl)}</th>`).join("")}</tr></thead><tbody>`;
 		for (let lv = 1; lv <= 20; ++lv) {
 			const feats = (cls.classFeatures[lv - 1] || []).filter(f => f?.name && !f.isClassFeatureVariant).map(f => f.name.qq()).join(", ") || "—";
-			html += `<tr><td>${Parser.getOrdinalForm(lv)}</td><td>${CW.fmtMod(CW.profBonus(lv))}</td><td class="cw__class-tbl-feat">${feats}</td>`;
+			html += `<tr><td>${Parser.getOrdinalForm(lv)}</td><td>${CW.fmtMod(CW.profBonus(lv))}</td><td class="cb__class-tbl-feat">${feats}</td>`;
 			cols.forEach(c => { html += `<td>${cell(c.rows?.[lv - 1]?.[c.ci])}</td>`; });
 			html += `</tr>`;
 		}
@@ -1688,20 +1688,20 @@ export class CharWizardUi {
 		if (clsf) parts.push(`${CW.fmtMod(clsf)} class`);
 		if (itemBonus) parts.push(`${CW.fmtMod(itemBonus)} item`);
 		if (base != null && itemSet != null && itemSet > computed) parts.push(`set ${itemSet} (item)`);
-		return ee`<div class="cw__abil">
-			<div class="cw__abil-name">${abv}</div>
+		return ee`<div class="cb__abil">
+			<div class="cb__abil-name">${abv}</div>
 			${inner}
-			<div class="cw__abil-score">${total == null ? "—" : total}</div>
-			<div class="cw__abil-mod">${mod == null ? "" : CW.fmtMod(mod)}</div>
-			<div class="cw__abil-sub">${base == null ? "" : parts.join(" ")}</div>
+			<div class="cb__abil-score">${total == null ? "—" : total}</div>
+			<div class="cb__abil-mod">${mod == null ? "" : CW.fmtMod(mod)}</div>
+			<div class="cb__abil-sub">${base == null ? "" : parts.join(" ")}</div>
 		</div>`;
 	}
 
 	_renderPointBuy (wrp) {
 		const st = this._state;
 		const info = ee`<div class="ve-mb-2"></div>`.appendTo(wrp);
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(wrp);
-		const update = () => { const spent = st.pointBuySpent(); info.html(`<b>Points:</b> ${spent} / ${CW.POINT_BUY_BUDGET} spent &nbsp; <span class="ve-muted">(scores 8–15)</span>${spent > CW.POINT_BUY_BUDGET ? ` <span class="cw__err">over budget!</span>` : ""}`); };
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(wrp);
+		const update = () => { const spent = st.pointBuySpent(); info.html(`<b>Points:</b> ${spent} / ${CW.POINT_BUY_BUDGET} spent &nbsp; <span class="ve-muted">(scores 8–15)</span>${spent > CW.POINT_BUY_BUDGET ? ` <span class="cb__err">over budget!</span>` : ""}`); };
 		CW.ABILITIES.forEach(abv => {
 			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (st.abilitiesBase[abv] > 8) { st.abilitiesBase[abv]--; this._save(); this.render(); } });
 			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => {
@@ -1716,7 +1716,7 @@ export class CharWizardUi {
 	_renderStandardArray (wrp) {
 		const st = this._state;
 		ee(wrp)`<p class="ve-muted">Assign each value (15, 14, 13, 12, 10, 8) to one ability.</p>`;
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(wrp);
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(wrp);
 		const used = CW.ABILITIES.map(a => st.abilitiesBase[a]).filter(v => v != null);
 		CW.ABILITIES.forEach(abv => {
 			const sel = ee`<select class="ve-form-control ve-input-xs" style="margin:2px 0"><option value="">—</option></select>`;
@@ -1733,7 +1733,7 @@ export class CharWizardUi {
 	_renderManual (wrp) {
 		const st = this._state;
 		ee(wrp)`<p class="ve-muted">Enter scores directly (e.g. rolled 4d6-drop-lowest).</p>`;
-		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(wrp);
+		const grid = ee`<div class="cb__abil-grid"></div>`.appendTo(wrp);
 		CW.ABILITIES.forEach(abv => {
 			const inp = ee`<input type="number" min="1" max="30" class="ve-form-control ve-input-xs" style="width:64px;margin:2px auto" value="${st.abilitiesBase[abv] ?? 10}">`
 				.onn("change", () => { st.abilitiesBase[abv] = Math.max(1, Math.min(30, parseInt(inp.val(), 10) || 10)); this._save(); this.render(); });
@@ -1794,7 +1794,7 @@ export class CharWizardUi {
 		if (ch.plan === "two") { mkAbilSel(0, 1).appendTo(row); mkAbilSel(1, 1).appendTo(row); } else mkAbilSel(0, 2).appendTo(row);
 		// cap warning
 		const over = CW.ABILITIES.filter(a => st.finalAbility(a) > 20);
-		if (over.length) ee(body)`<div class="cw__err ve-small">Note: ${over.map(a => a.toUpperCase()).join(", ")} now exceeds 20 (ASIs normally cap at 20).</div>`;
+		if (over.length) ee(body)`<div class="cb__err ve-small">Note: ${over.map(a => a.toUpperCase()).join(", ")} now exceeds 20 (ASIs normally cap at 20).</div>`;
 	}
 
 	_renderAsiFeat (body, key, ch, feats) {
@@ -1961,7 +1961,7 @@ export class CharWizardUi {
 		ee(defWrp)`<label class="ve-flex-v-center" style="gap:6px">Armor ${armorSel}</label><label class="ve-flex-v-center" style="gap:6px">Shield ${shieldSel}</label>`;
 		ee(wrp)`<div class="ve-mb-1"><b>Armor Class: ${st.ac()}</b> <span class="ve-muted ve-small">— ${st.acBreakdown().how.qq()}</span></div>`;
 		if (!invArmors.length && !invShields.length) ee(wrp)`<div class="ve-muted ve-small ve-mb-2">Add armor or a shield to your inventory below to equip it.</div>`;
-		st.armorProficiencyWarnings().forEach(w => ee(wrp)`<div class="cw__err ve-small ve-mb-1"><span class="glyphicon glyphicon-warning-sign"></span> ${w.qq()}</div>`);
+		st.armorProficiencyWarnings().forEach(w => ee(wrp)`<div class="cb__err ve-small ve-mb-1"><span class="glyphicon glyphicon-warning-sign"></span> ${w.qq()}</div>`);
 		[st.armorEnt(), st.shieldEnt()].filter(Boolean).forEach(it => { if (st.requiresAttunement(it) && !st.isAttuned(CW.uid(it))) ee(wrp)`<div class="ve-muted ve-small ve-mb-1"><span class="glyphicon glyphicon-flash"></span> ${it.name.qq()} requires attunement — its magic bonus isn't applied until you Attune it in the Inventory below.</div>`; });
 
 		// Equipment choices (a)/(b)
@@ -1989,7 +1989,7 @@ export class CharWizardUi {
 		// search-add (results flow inline below the input)
 		const searchWrp = ee`<div style="max-width:320px"></div>`.appendTo(wrp);
 		const search = ee`<input class="ve-form-control ve-input-xs" placeholder="Search items to add…">`.appendTo(searchWrp);
-		const results = ee`<div class="cw__pick-list" style="max-height:200px;display:none"></div>`.appendTo(searchWrp);
+		const results = ee`<div class="cb__pick-list" style="max-height:200px;display:none"></div>`.appendTo(searchWrp);
 		const listWrp = ee`<div class="ve-mt-2"></div>`.appendTo(wrp);
 		const renderList = () => this._renderInventoryList(listWrp);
 		search.onn("input", () => {
@@ -2003,7 +2003,7 @@ export class CharWizardUi {
 				.slice(0, 25);
 			results.style.display = matches.length ? "block" : "none";
 			matches.forEach(it => {
-				ee`<div class="cw__pick"><span>${it.name}</span><span class="cw__pick-src">${it.source}</span></div>`
+				ee`<div class="cb__pick"><span>${it.name}</span><span class="cb__pick-src">${it.source}</span></div>`
 					.onn("click", () => { st.addToInventory({uid: CW.uid(it), name: it.name, qty: 1}); this._save(); search.val(""); results.empty(); results.style.display = "none"; renderList(); })
 					.appendTo(results);
 			});
@@ -2090,7 +2090,7 @@ export class CharWizardUi {
 				const box = ee`<div class="ve-mb-1"><span class="ve-muted ve-small">${ln.src}:</span></div>`.appendTo(wrp);
 				opts.forEach((opt, optIx) => {
 					const chosen = (st.equipmentChoices[ix] ?? 0) === optIx;
-					const radio = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="radio" name="cw-eq-${ix}" ${chosen ? "checked" : ""}> <span>${renderInline(opt)}</span></label>`;
+					const radio = ee`<label class="ve-flex-v-center" style="gap:6px;cursor:pointer"><input type="radio" name="cb-eq-${ix}" ${chosen ? "checked" : ""}> <span>${renderInline(opt)}</span></label>`;
 					radio.querySelector("input").addEventListener("change", () => { st.equipmentChoices[ix] = optIx; this._save(); });
 					radio.appendTo(box);
 				});
@@ -2316,14 +2316,14 @@ export class CharWizardUi {
 		if (!st.raceUid) missing.push(this._raceWord().toLowerCase());
 		if (!st.classUid) missing.push("class");
 		if (!st.backgroundUid) missing.push("background");
-		const wrp = ee`<div class="cw__sheet"></div>`.appendTo(el);
-		if (missing.length) ee(wrp)`<div class="cw__err no-print">Still missing: ${missing.join(", ")}. The sheet below fills in as you complete steps.</div>`;
+		const wrp = ee`<div class="cb__sheet"></div>`.appendTo(el);
+		if (missing.length) ee(wrp)`<div class="cb__err no-print">Still missing: ${missing.join(", ")}. The sheet below fills in as you complete steps.</div>`;
 
 		const race = st.raceEnt; const cls = st.classEnt; const bg = st.backgroundEnt;
 		const subtitle = [race?.name, bg?.name].filter(Boolean).join(" • ");
 		const classLine = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
 
-		ee(wrp)`<div class="cw__sheet-head">
+		ee(wrp)`<div class="cb__sheet-head">
 			<div><div style="font-size:24px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
 			<div class="ve-muted">${[classLine, subtitle].filter(Boolean).join(" — ").qq()}</div></div>
 			<div class="ve-text-right"><div><b>Proficiency Bonus</b> ${CW.fmtMod(st.profBonus)}</div>
@@ -2333,26 +2333,26 @@ export class CharWizardUi {
 
 		// core stat boxes
 		const hp = st.maxHp();
-		const boxes = ee`<div class="cw__sheet-grid"></div>`.appendTo(wrp);
-		const box = (lbl, val) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
+		const boxes = ee`<div class="cb__sheet-grid"></div>`.appendTo(wrp);
+		const box = (lbl, val) => ee(boxes)`<div class="cb__stat-box"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
 		box("Armor Class", cls ? st.ac() : "—");
 		box("Hit Points", hp ?? "—");
 		box("Hit Dice", st.classList().length ? st.hitDiceString() : "—");
-		ee(boxes)`<div class="cw__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}</div></div>`;
+		ee(boxes)`<div class="cb__stat-box"><div class="lbl">Initiative</div><div class="val">${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}</div></div>`;
 		box("Passive Perception", st.passiveScore("perception"));
 		box("Passive Investigation", st.passiveScore("investigation"));
 		box("Passive Insight", st.passiveScore("insight"));
 
 		// abilities + saves
-		const secA = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const secA = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 		ee(secA)`<h4>Ability Scores & Saving Throws</h4>`;
-		const abilGrid = ee`<div class="cw__abil-grid"></div>`.appendTo(secA);
+		const abilGrid = ee`<div class="cb__abil-grid"></div>`.appendTo(secA);
 		CW.ABILITIES.forEach(abv => {
 			const total = st.finalAbility(abv); const mod = st.abilityMod(abv);
 			const saveProf = st.saveProfs().has(abv);
-			ee(abilGrid)`<div class="cw__abil"><div class="cw__abil-name">${abv}</div>
-				<div class="cw__abil-score">${total}</div><div class="cw__abil-mod">${CW.fmtMod(mod)}</div>
-				<div class="cw__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
+			ee(abilGrid)`<div class="cb__abil"><div class="cb__abil-name">${abv}</div>
+				<div class="cb__abil-score">${total}</div><div class="cb__abil-mod">${CW.fmtMod(mod)}</div>
+				<div class="cb__abil-sub">save ${CW.fmtMod(st.saveMod(abv))}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div></div>`;
 		});
 		const saveNotes = [st._featureSaveBonus() ? `Aura of Protection (${CW.fmtMod(st._featureSaveBonus())} to all saves)` : "", st._hasAllSaveProficiency() ? "proficient in all saving throws" : ""].filter(Boolean);
 		if (saveNotes.length) ee(secA)`<div class="ve-muted ve-small ve-mt-1">${saveNotes.join("; ").qq()} (included above).</div>`;
@@ -2360,24 +2360,24 @@ export class CharWizardUi {
 		// attacks (wielded weapons) — build the whole table in one pass so the <tr>/<td> parse in table context
 		const wielded = st.wieldedWeapons();
 		if (wielded.length) {
-			const secAtk = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secAtk = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secAtk)`<h4>Attacks</h4>`;
 			const rowsHtml = wielded.map(it => {
 				const a = st.weaponAttack(it);
 				const dmg = `${st.fmtWeaponDamage(a.dmg1, a)}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a)} 2H)</span>` : ""}`;
 				const notes = [a.ranged && a.range ? `range ${a.range}` : "", a.critThreshold ? `crit ${a.critThreshold}–20` : "", ...a.properties].filter(Boolean).join(", ");
-				const noProf = a.prof ? "" : ` <span class="cw__advdis cw__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`;
+				const noProf = a.prof ? "" : ` <span class="cb__advdis cb__advdis--dis" title="Not proficient — proficiency bonus not added">no prof</span>`;
 				return `<tr style="border-top:1px solid rgba(127,127,127,.15)"><td class="ve-py-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted ve-small">(${a.ability})</span>${noProf}</td><td class="ve-py-1 ve-text-center"><b>${CW.fmtMod(a.toHit)}</b></td><td class="ve-py-1">${dmg}</td><td class="ve-py-1 ve-muted ve-small">${notes.qq()}</td></tr>`;
 			}).join("");
-			ee(secAtk)`<table class="w-100 ve-small cw__atk-tbl"><thead><tr><th class="ve-text-left">Weapon</th><th class="ve-text-center">Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+			ee(secAtk)`<table class="w-100 ve-small cb__atk-tbl"><thead><tr><th class="ve-text-left">Weapon</th><th class="ve-text-center">Attack</th><th class="ve-text-left">Damage</th><th class="ve-text-left">Notes</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
 			if (st.numAttacks() > 1) ee(secAtk)`<div class="ve-small ve-mt-1"><b>Extra Attack:</b> you can attack ${st.numAttacks()} times when you take the Attack action.</div>`;
 			ee(secAtk)`<div class="ve-muted ve-small ve-mt-1">Attack bonus = ability mod (Str, or Dex for finesse/ranged) + proficiency (if proficient) + magic. Wield weapons from your Inventory on the Skills &amp; Gear step.</div>`;
 		}
 		const fstyles = st.chosenFightingStyles();
-		if (fstyles.length) { const secFs = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp); ee(secFs)`<h4>Fighting Style</h4><div>${fstyles.map(o => `${o.name}`.qq()).join(", ")}</div>`; }
+		if (fstyles.length) { const secFs = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp); ee(secFs)`<h4>Fighting Style</h4><div>${fstyles.map(o => `${o.name}`.qq()).join(", ")}</div>`; }
 
 		// skills
-		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const secS = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 		const hpMeta = st.halfProfMeta();
 		const legend = [st.expertiseSlots() ? "★ expertise" : "", "● proficient", hpMeta ? `◐ half (${hpMeta.name})` : ""].filter(Boolean).join(", ");
 		ee(secS)`<h4>Skills <span class="ve-muted ve-small">(${legend.qq()})</span></h4>`;
@@ -2391,17 +2391,17 @@ export class CharWizardUi {
 		const notes = st.advantageNotes();
 		const eff = st.armorEffects();
 		if (notes.length || eff.nonProf || eff.stealthDis || eff.strReqUnmet) {
-			const secAd = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secAd = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secAd)`<h4>Advantages &amp; Disadvantages</h4>`;
-			if (eff.nonProf) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Str/Dex checks, saves &amp; attacks — wearing armor/shield you're not proficient with.</div>`;
-			if (eff.stealthDis) ee(secAd)`<div><span class="cw__advdis cw__advdis--dis">DIS</span> Stealth checks — ${eff.stealthDis.qq()}.</div>`;
+			if (eff.nonProf) ee(secAd)`<div><span class="cb__advdis cb__advdis--dis">DIS</span> Str/Dex checks, saves &amp; attacks — wearing armor/shield you're not proficient with.</div>`;
+			if (eff.stealthDis) ee(secAd)`<div><span class="cb__advdis cb__advdis--dis">DIS</span> Stealth checks — ${eff.stealthDis.qq()}.</div>`;
 			if (eff.strReqUnmet) ee(secAd)`<div class="ve-muted ve-small">Speed −10 ft. — ${eff.strReqUnmet.armor.qq()} requires Str ${eff.strReqUnmet.req}.</div>`;
-			notes.forEach(n => ee(secAd)`<div><span class="cw__advdis cw__advdis--${n.type}">${n.type === "adv" ? "ADV" : "DIS"}</span> ${n.text.qq()} <span class="ve-muted ve-small">(${n.sourceTag ? renderInline(n.sourceTag) : `${n.source}`.qq()})</span></div>`);
+			notes.forEach(n => ee(secAd)`<div><span class="cb__advdis cb__advdis--${n.type}">${n.type === "adv" ? "ADV" : "DIS"}</span> ${n.text.qq()} <span class="ve-muted ve-small">(${n.sourceTag ? renderInline(n.sourceTag) : `${n.source}`.qq()})</span></div>`);
 		}
 
 		// proficiencies & languages
 		const awt = st.armorWeaponToolProfs();
-		const secP = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		const secP = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 		const tools = st.chosenTools();
 		ee(secP)`<h4>Proficiencies & Languages</h4>
 			<div><b>Armor:</b> ${renderInline(awt.armor.join(", ") || "—")}</div>
@@ -2417,7 +2417,7 @@ export class CharWizardUi {
 		const def = st.defenses();
 		const capList = (arr) => arr.map(x => `${x}`.toTitleCase()).join(", ");
 		if (def.resist.length || def.immune.length || def.vulnerable.length || def.conditionImmune.length) {
-			const secDef = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secDef = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secDef)`<h4>Defenses</h4>`;
 			if (def.resist.length) ee(secDef)`<div><b>Damage Resistance:</b> ${capList(def.resist).qq()}</div>`;
 			if (def.immune.length) ee(secDef)`<div><b>Damage Immunity:</b> ${capList(def.immune).qq()}</div>`;
@@ -2426,7 +2426,7 @@ export class CharWizardUi {
 		}
 
 		if (eqfx.saveBonus || eqfx.spellAtk || eqfx.spellDc || eqfx.abilitySet.length || eqfx.focus.length || eqfx.attuned.length || eqfx.needAttune.length || eqfx.spells.length || eqfx.speed.length) {
-			const secMi = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secMi = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secMi)`<h4>Magic Item Effects <span class="ve-muted ve-small">(equipped gear: armor, shield, weapons, rings &amp; wondrous)</span></h4>`;
 			const itemRefs = (arr) => arr.map(r => itemLink(r.name, r.source)).join(", ");
 			eqfx.abilitySet.forEach(s => ee(secMi)`<div><b>${CW.ABIL_FULL[s.abil]} set to ${s.value}</b> <span class="ve-muted ve-small">(${itemLink(s.item, s.source)})</span></div>`);
@@ -2439,12 +2439,12 @@ export class CharWizardUi {
 				ee(secMi)`<div><b>${itemLink(grp.item, grp.source)} grants:</b> ${parts.join(", ")}</div>`;
 			});
 			if (eqfx.attuned.length) ee(secMi)`<div class="ve-muted ve-small"><span class="glyphicon glyphicon-flash"></span> Attuned (${st.attunedCount()}/${st.attuneMax()}): ${itemRefs(eqfx.attuned)}</div>`;
-			eqfx.needAttune.forEach(r => ee(secMi)`<div class="cw__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${itemLink(r.name, r.source)} is equipped but not attuned — its magic benefits are inactive.</div>`);
+			eqfx.needAttune.forEach(r => ee(secMi)`<div class="cb__err ve-small"><span class="glyphicon glyphicon-warning-sign"></span> ${itemLink(r.name, r.source)} is equipped but not attuned — its magic benefits are inactive.</div>`);
 		}
 
 		// inventory
 		if (st.inventory.length) {
-			const secInv = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secInv = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secInv)`<h4>Inventory</h4>`;
 			const ul = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secInv);
 			st.inventory.forEach(row => {
@@ -2456,7 +2456,7 @@ export class CharWizardUi {
 		// feats
 		const featList = st.featsTaken();
 		if (featList.length) {
-			const secFe = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secFe = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secFe)`<h4>Feats</h4>`;
 			featList.forEach(({level, className, featUid}) => {
 				const feat = this._data.feats.find(f => CW.uid(f) === featUid);
@@ -2469,7 +2469,7 @@ export class CharWizardUi {
 		// spellcasting (per caster source)
 		const spellSources = st.spellSources();
 		if (spellSources.length) {
-			const secSp = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secSp = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			const spellSpans = (uids) => (uids || []).map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
 			const slots = st.spellSlots(); const pact = st.pactSlots();
 			ee(secSp)`<h4>Spellcasting</h4>
@@ -2493,7 +2493,7 @@ export class CharWizardUi {
 			return {...o, chosen, show: o.info.knownFixed.length || o.info.innate.length || chosen.length};
 		}).filter(o => o.show);
 		if (scSpellInfos.length) {
-			const secScS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secScS = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secScS)`<h4>Subclass Spells</h4>`;
 			scSpellInfos.forEach(o => {
 				const known = [...o.info.knownFixed, ...o.chosen].map(sp => spellSpan(sp.name, sp.source));
@@ -2506,7 +2506,7 @@ export class CharWizardUi {
 		// background-granted spells (Ravnica guilds, Strixhaven)
 		const bgsi = st.backgroundSpellsInfo();
 		if (bgsi && (bgsi.knownFixed.length || bgsi.innate.length || bgsi.expanded.length || bgsi.knownChoose.length)) {
-			const secBgS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secBgS = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			const chosen = bgsi.knownChoose.flatMap(g => (st.bgSpellChoices[g.key] || []).map(n => st._spellByName(n)).filter(Boolean));
 			const known = [...bgsi.knownFixed, ...chosen].map(sp => spellSpan(sp.name, sp.source));
 			ee(secBgS)`<h4>${st.backgroundEnt.name.qq()} Background Spells</h4>
@@ -2519,7 +2519,7 @@ export class CharWizardUi {
 		// racial (innate) spellcasting
 		const rsi = st.hasRacialSpells() ? st.racialSpellsInfo() : null;
 		if (rsi && (rsi.knownFixed.length || rsi.innate.length || rsi.knownChoose.length || rsi.prepared.length || rsi.expanded.length)) {
-			const secR = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secR = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			const chosenRacial = rsi.knownChoose.flatMap(g => st.raceSpellChoices[g.key] || []);
 			const knownSpans = [
 				...rsi.knownFixed.map(sp => spellSpan(sp.name, sp.source)),
@@ -2536,7 +2536,7 @@ export class CharWizardUi {
 		// feat-granted spells (Magic Initiate, Fey Touched, …)
 		const featSp = st.featSpellSources();
 		if (featSp.length) {
-			const secFS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secFS = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secFS)`<h4>Feat Spells</h4>`;
 			featSp.forEach(({feat, choice, info}) => {
 				const chosen = info.knownChoose.flatMap(g => (choice.featSpellChoose?.[g.key] || []).map(n => st._spellByName(n)).filter(Boolean));
@@ -2553,7 +2553,7 @@ export class CharWizardUi {
 		// features (grouped per class)
 		const sections = st.featureSections();
 		if (sections.length) {
-			const secF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secF = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secF)`<h4>Class &amp; Subclass Features</h4>`;
 			sections.forEach(sec => {
 				if (st.isMulticlassed()) ee(secF)`<div class="ve-bold ve-mt-2">${sec.title.qq()}</div>`;
@@ -2566,14 +2566,14 @@ export class CharWizardUi {
 		// background feature(s) — the named "Feature: …" entries
 		const bgFeatures = (bg?.entries || []).filter(e => e && e.name && e.type === "entries");
 		if (bgFeatures.length) {
-			const secBg = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secBg = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secBg)`<h4>${bg.name.qq()} Feature${bgFeatures.length > 1 ? "s" : ""}</h4>`;
 			bgFeatures.forEach(f => ee`<details style="margin:2px 0"><summary><b>${`${f.name}`.replace(/^Feature:\s*/, "").qq()}</b></summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secBg));
 		}
 
 		// race traits
 		if (race?.entries?.length) {
-			const secR = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const secR = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
 			ee(secR)`<h4>${race.name} Traits</h4><div>${renderEntries(race.entries)}</div>`;
 		}
 	}
