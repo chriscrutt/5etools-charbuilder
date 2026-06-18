@@ -569,14 +569,21 @@ export class CharWizardUi {
 		ee(sec)`<h4>Attacks <span class="ve-muted ve-small">(click to roll)</span></h4>`;
 		wielded.forEach(it => {
 			const a = st.weaponAttack(it);
-			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:120px">${refLink(UrlUtil.PG_ITEMS, it, it.name)}</b></div>`;
+			const extra = st.weaponExtraDamage(it);
+			const nameLbl = `${refLink(UrlUtil.PG_ITEMS, it, it.name)}${a.magic ? ` <span class="ve-muted ve-small">(${CW.fmtMod(a.magic)} magic)</span>` : ""}`;
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:120px">${nameLbl}</b></div>`;
 			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll attack (d20 ${CW.fmtMod(a.toHit)})">Attack ${CW.fmtMod(a.toHit)}</button>`.onn("click", () => this._d20Roll(`${it.name} attack`, a.toHit, this._pcRollAd("attack", null, null), st.effectAttackDice()))}`;
 			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll damage">Dmg ${st.fmtWeaponDamage(a.dmg1, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg1, it.name))}`;
 			if (a.dmg2) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll two-handed (versatile) damage">2H ${st.fmtWeaponDamage(a.dmg2, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg2, `${it.name} (2H)`))}`;
+			// conditional/extra damage from the item's description (Flame Tongue, Mace of Disruption, …)
+			extra.forEach(r => ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Extra/conditional damage from this item — applies only in the situations its description names">+${r.dice}${r.type ? ` ${r.type}` : ""}</button>`.onn("click", () => this._roll(`${it.name} extra (${r.type || "damage"})`, r.dice))}`);
 			row.appendTo(sec);
+			// damage breakdown
+			const parts = [`${a.dmg1}${a.dmgType ? ` ${CW.DMG_TYPE[a.dmgType] || a.dmgType}` : ""}`, a.abilMod ? `${CW.fmtMod(a.abilMod)} ${a.ability}` : "", a.magicDmg ? `${CW.fmtMod(a.magicDmg)} magic` : "", a.fsDmg ? `+${a.fsDmg} style` : ""].filter(Boolean);
+			ee(sec)`<div class="ve-muted ve-small ve-pl-3 ve-mb-1">${parts.join(" + ")}${extra.length ? `; <b>+${extra.map(r => `${r.dice}${r.type ? ` ${r.type}` : ""}`).join(", ")}</b> when its condition is met` : ""}</div>`;
 		});
 		if (st.playNumAttacks() > 1) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Extra Attack: ${st.playNumAttacks()} attacks per Attack action.${st.playNumAttacks() > st.numAttacks() ? " (incl. active effects)" : ""}</div>`;
-		const riders = st.playDamageRiders(); if (riders.length) ee(sec)`<div class="ve-muted ve-small ve-mt-1"><b>Bonus damage:</b> ${riders.map(r => `${r}`.qq()).join("; ")}</div>`;
+		const riders = st.playDamageRiders(); if (riders.length) ee(sec)`<div class="ve-muted ve-small ve-mt-1"><b>Active-effect damage:</b> ${riders.map(r => `${r}`.qq()).join("; ")} <span class="ve-muted">(add on a hit when applicable)</span></div>`;
 	}
 
 	_renderPlaySkills (sec) {

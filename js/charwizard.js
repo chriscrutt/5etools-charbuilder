@@ -1341,14 +1341,33 @@ export class CharState {
 		const fsDmg = (!ranged && !props.includes("2H") && this.hasFightingStyle("Dueling")) ? 2 : 0; // Dueling: +2 dmg one-handed melee
 		const toHit = abilMod + (prof ? this.profBonus : 0) + magicAtk + fsAtk;
 		return {
-			name: it.name, source: it.source, ability, prof, toHit,
+			name: it.name, source: it.source, ability, prof, toHit, abilMod,
 			dmg1: it.dmg1, dmg2: (props.includes("V") ? it.dmg2 : null), dmgType: it.dmgType,
-			dmgBonus: abilMod + magicDmg + fsDmg,
+			dmgBonus: abilMod + magicDmg + fsDmg, magicAtk, magicDmg, fsDmg,
 			ranged, range: it.range,
 			magic: magicAtk || magicDmg,
 			critThreshold: (active && it.critThreshold) || null, // crits on N-20
 			properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean),
 		};
+	}
+	// extra/conditional damage carried in a weapon's description text (e.g. Flame Tongue +2d6 fire; Mace of Disruption +2d6 radiant vs undead)
+	// → [{dice, type?}] — these are situational, so the UI shows them as optional rollable riders.
+	_DMG_TYPE_WORDS = /^(acid|cold|fire|force|lightning|necrotic|poison|psychic|radiant|thunder|bludgeoning|piercing|slashing)$/i;
+	weaponExtraDamage (it) {
+		const out = []; const seen = new Set();
+		const walk = (e) => {
+			if (typeof e === "string") {
+				const re = /\{@damage ([^}|]+?)(?:\|[^}]*)?\}\s*(?:\([^)]*\)\s*)?(\w+)?/g; let m;
+				while ((m = re.exec(e))) {
+					const dice = `${m[1]}`.trim(); if (!/\dd\d/.test(dice)) continue;
+					const type = (m[2] && this._DMG_TYPE_WORDS.test(m[2])) ? m[2].toLowerCase() : null;
+					const k = `${dice}|${type}`; if (seen.has(k)) continue; seen.add(k); out.push({dice, type});
+				}
+			} else if (Array.isArray(e)) e.forEach(walk);
+			else if (e && typeof e === "object") { if (e.entries) walk(e.entries); if (e.items) walk(e.items); }
+		};
+		walk(it?.entries);
+		return out;
 	}
 	// formatted damage string, e.g. "1d8 +3 slashing" (versatile shown separately by the UI)
 	fmtWeaponDamage (dice, atk) {
