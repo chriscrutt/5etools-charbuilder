@@ -238,32 +238,25 @@ export class CharWizardUi {
 		});
 	}
 
-	/* ----- play mode: live HP / spell slots / d20 rolls for a built character ----- */
-	_rng (max) { try { return RollerUtil.randomise(max); } catch (e) { return 1 + Math.floor(Math.random() * max); } }
-	// roll a d20 check/save/attack, honouring net advantage/disadvantage; logs the result and re-renders
+	/* ----- play mode rolls: route through the site's dice roller (the dismissable roll box, bottom-right) ----- */
+	// roll a dice expression in the site roll box; returns a Promise<number|null> of the total
+	_roll (label, toRoll) {
+		try { return Renderer.dice.pRollEntry({toRoll}, {name: this._state.name || "Character", label}); }
+		catch (e) { return Promise.resolve(null); }
+	}
+	// d20 check/save/attack, honouring net advantage/disadvantage (2d20kh1 / 2d20kl1)
 	_d20Roll (label, mod, ad) {
 		const adv = ad?.net === "adv"; const dis = ad?.net === "dis";
-		const r1 = this._rng(20); const r2 = (adv || dis) ? this._rng(20) : null;
-		const die = r2 == null ? r1 : (adv ? Math.max(r1, r2) : Math.min(r1, r2));
-		const total = die + (mod || 0);
-		const tag = die === 20 ? " — natural 20!" : die === 1 ? " — natural 1" : "";
-		const rolls = r2 == null ? `${r1}` : `${r1}/${r2}→${die}${adv ? " adv" : " dis"}`;
-		const detail = `d20 (${rolls}) ${CW.fmtMod(mod || 0)}${tag}`;
-		this._state.pushRollLog(label, total, detail);
-		JqueryUtil.doToast({type: die === 20 ? "success" : die === 1 ? "danger" : "info", content: `${label}: ${total} <span class="ve-muted">(${detail.qq()})</span>`});
-		this._save(); this.render();
+		const die = adv ? "2d20kh1" : dis ? "2d20kl1" : "1d20";
+		const m = mod ? `${mod >= 0 ? "+" : ""}${mod}` : "";
+		this._roll(`${label}${adv ? " (advantage)" : dis ? " (disadvantage)" : ""}`, `${die}${m}`);
 	}
-	// roll a weapon's damage (parses NdM dice in the damage string + flat bonus)
+	// weapon damage (dice string + flat bonus)
 	_rollDamage (atk, dice, label) {
 		if (!dice) return;
-		let total = 0; const parts = [];
-		`${dice}`.replace(/(\d+)d(\d+)/g, (m, n, faces) => { let sub = 0; for (let i = 0; i < +n; ++i) { const r = this._rng(+faces); sub += r; parts.push(r); } total += sub; return m; });
-		total += atk.dmgBonus || 0;
+		const b = atk.dmgBonus ? `${atk.dmgBonus >= 0 ? "+" : ""}${atk.dmgBonus}` : "";
 		const typ = atk.dmgType ? ` ${CW.DMG_TYPE[atk.dmgType] || atk.dmgType}` : "";
-		const detail = `${dice} (${parts.join("+")})${atk.dmgBonus ? ` ${CW.fmtMod(atk.dmgBonus)}` : ""}`;
-		this._state.pushRollLog(`${label} damage`, total, `${detail}${typ}`);
-		JqueryUtil.doToast({type: "info", content: `${label} damage: ${Math.max(0, total)}${typ} <span class="ve-muted">(${detail.qq()})</span>`});
-		this._save(); this.render();
+		this._roll(`${label} damage${typ}`, `${dice}${b}`);
 	}
 
 	_renderPlayMode (wrp) {
@@ -297,7 +290,7 @@ export class CharWizardUi {
 		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
-		this._renderPlayLog(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		ee(wrp)`<div class="ve-muted ve-small ve-mt-3 no-print">Rolls open in the dice tray (bottom-right); click the × there to dismiss it.</div>`;
 	}
 
 	_renderPlayHp (sec) {
@@ -341,8 +334,10 @@ export class CharWizardUi {
 		}
 	}
 
-	_rollDeathSave () {
-		const st = this._state; const r = this._rng(20);
+	async _rollDeathSave () {
+		const st = this._state;
+		const r = await this._roll("Death save", "1d20");
+		if (r == null) return;
 		const ds = st.play.deathSaves || (st.play.deathSaves = {success: 0, fail: 0});
 		let msg; let type = "info";
 		if (r === 20) { st.applyHealing(1); st.play.deathSaves = {success: 0, fail: 0}; msg = "natural 20 — regain 1 HP and conscious!"; type = "success"; }
@@ -351,8 +346,7 @@ export class CharWizardUi {
 		else { ds.fail = Math.min(3, ds.fail + 1); msg = "failure"; type = "danger"; }
 		if (st.play.deathSaves.success >= 3) msg += " — stabilized";
 		if (st.play.deathSaves.fail >= 3) { msg += " — the character dies"; type = "danger"; }
-		st.pushRollLog("Death save", r, msg);
-		JqueryUtil.doToast({type, content: `Death save: rolled ${r} — ${msg}.`});
+		JqueryUtil.doToast({type, content: `Death save (rolled ${r}): ${msg}.`});
 		this._save(); this.render();
 	}
 
@@ -372,13 +366,13 @@ export class CharWizardUi {
 		});
 	}
 
-	_spendHitDie (faces) {
+	async _spendHitDie (faces) {
 		const st = this._state; if (st.hitDiceRemaining(faces) <= 0) return;
-		st.spendHitDie(faces);
-		const r = this._rng(faces); const con = st.abilityMod("con"); const heal = Math.max(0, r + con);
-		st.applyHealing(heal);
-		st.pushRollLog(`Hit Die d${faces}`, heal, `d${faces} (${r}) ${CW.fmtMod(con)} healed`);
-		JqueryUtil.doToast({type: "success", content: `Spent a d${faces} Hit Die — healed ${heal} (rolled ${r} ${CW.fmtMod(con)}).`});
+		const con = st.abilityMod("con");
+		const heal = await this._roll(`Hit Die d${faces}`, `1d${faces}${con >= 0 ? "+" : ""}${con}`);
+		if (heal == null) return;
+		st.spendHitDie(faces); st.applyHealing(Math.max(0, heal));
+		JqueryUtil.doToast({type: "success", content: `Spent a d${faces} Hit Die — healed ${Math.max(0, heal)}.`});
 		this._save(); this.render();
 	}
 
@@ -387,8 +381,7 @@ export class CharWizardUi {
 		const used = st.castSpell(sp);
 		if (used == null) { JqueryUtil.doToast({type: "warning", content: `No spell slot available for ${sp.name.qq()}.`}); return; }
 		if (/concentration/i.test(JSON.stringify(sp.duration || ""))) st.play.concentration = sp.name;
-		st.pushRollLog(`Cast ${sp.name}`, "⚡", `level ${used} slot${used > sp.level ? ` (upcast from ${sp.level})` : ""}`);
-		JqueryUtil.doToast({type: "info", content: `Cast ${sp.name.qq()} — expended a level ${used} slot.`});
+		JqueryUtil.doToast({type: "info", content: `Cast ${sp.name} — expended a level ${used} slot${used > sp.level ? ` (upcast from ${sp.level})` : ""}.`});
 		this._save(); this.render();
 	}
 
@@ -455,17 +448,17 @@ export class CharWizardUi {
 
 	_renderPlayAbilities (sec) {
 		const st = this._state;
-		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click to roll)</span></h4>`;
+		ee(sec)`<h4>Ability Checks &amp; Saves <span class="ve-muted ve-small">(click a score to roll a check, or the save line for a save)</span></h4>`;
 		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(sec);
 		CW.ABILITIES.forEach(abv => {
 			const mod = st.abilityMod(abv); const save = st.saveMod(abv); const saveProf = st.saveProfs().has(abv);
-			const card = ee`<div class="cw__abil" style="cursor:pointer" title="Roll a ${CW.ABIL_FULL[abv]} check">
+			const card = ee`<div class="cw__abil" style="padding:4px"></div>`;
+			ee`<div class="cw__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check">
 				<div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.finalAbility(abv)}</div>
 				<div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
-				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, st.abilityCheckAdvDis?.(abv)));
-			const saveBtn = ee`<div class="cw__abil-sub" style="cursor:pointer" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div>`
-				.onn("click", (e) => { e.stopPropagation(); this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, st.saveAdvDis(abv)); });
-			card.appendChild(saveBtn);
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, st.abilityCheckAdvDis?.(abv))).appendTo(card);
+			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(st.saveAdvDis(abv))}</div>`
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, st.saveAdvDis(abv))).appendTo(card);
 			card.appendTo(grid);
 		});
 	}
@@ -493,16 +486,8 @@ export class CharWizardUi {
 		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
 		CW.skills().sort().forEach(sk => {
 			const mod = st.skillMod(sk);
-			ee(grid)`${ee`<div style="break-inside:avoid;cursor:pointer;padding:1px 0" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(st.skillAdvDis(sk))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, st.skillAdvDis(sk)))}`;
+			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(st.skillAdvDis(sk))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, st.skillAdvDis(sk)))}`;
 		});
-	}
-
-	_renderPlayLog (sec) {
-		const st = this._state; const log = st.play.log || [];
-		ee(sec)`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><h4 class="ve-mt-0 ve-mb-0">Roll Log</h4>${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${log.length ? "" : "disabled"}>Clear</button>`.onn("click", () => { st.play.log = []; this._save(); this.render(); })}</div>`;
-		if (!log.length) { ee(sec)`<div class="ve-muted ve-small">Click any ability, save, skill, or attack above to roll. Results appear here.</div>`; return; }
-		const list = ee`<div class="ve-small"></div>`.appendTo(sec);
-		log.forEach(r => ee(list)`<div style="padding:1px 0"><b style="display:inline-block;min-width:36px">${r.total}</b> <span>${`${r.label}`.qq()}</span> <span class="ve-muted">— ${`${r.detail}`.qq()}</span></div>`);
 	}
 
 	/* ====================================================================== */
