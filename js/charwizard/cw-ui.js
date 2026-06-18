@@ -558,7 +558,7 @@ export class CharWizardUi {
 			ee`<div style="border:1px solid ${sel ? "#006bc4" : "rgba(127,127,127,.3)"};border-radius:6px;padding:10px;cursor:pointer;flex:1 1 200px;${sel ? "background:rgba(0,107,196,.10)" : ""}">
 				<b>${renderInline(`{@class ${cls.name}|${cls.source}}`)}</b>
 				<div class="ve-muted ve-small ve-mt-1">${blurb[meta?.label] || ""}</div></div>`
-				.onn("click", () => { sk.classUid = CW.uid(cls); sk.saveProf = null; sk.skillChoices = []; sk.expertiseChoices = []; sk.toolChoices = []; sk.asi = {}; sk.spellAbility = meta?.spellcaster ? "int" : null; sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); }).appendTo(cards);
+				.onn("click", () => { sk.classUid = CW.uid(cls); sk.saveProf = null; sk.skillChoices = []; sk.expertiseChoices = []; sk.toolChoices = []; sk.asi = {}; sk.martialRole = null; sk.sharpMindSave = null; sk.empoweredSchool = null; sk.spellRole = "mage"; sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); }).appendTo(cards);
 		});
 		if (!sk.classUid) return;
 		const meta = st.sidekickMeta();
@@ -606,6 +606,9 @@ export class CharWizardUi {
 		// ASIs (ability scores or — if the DM allows — a feat)
 		const asiLevels = st.sidekickAsiLevels();
 		if (asiLevels.length) { ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Ability Score Improvements <span class="ve-muted ve-small">(+2 total per level, max 20 — or take a feat)</span></h4>`; asiLevels.forEach(lv => this._renderSidekickAsi(wrp, lv)); }
+
+		// non-spell feature choices (Warrior Martial Role, Expert Sharp Mind)
+		this._renderSidekickFeatureChoices(wrp);
 
 		// spellcasting
 		if (meta.spellcaster) this._renderSidekickSpells(wrp);
@@ -660,16 +663,48 @@ export class CharWizardUi {
 
 	_renderSidekickSpells (wrp) {
 		const st = this._state; const sk = st.sidekick; const prog = st.sidekickSpellProgress(); if (!prog) return;
-		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Spellcasting</h4>`;
-		const abilSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
-		[["int", "Wizard"], ["wis", "Cleric"], ["cha", "Bard"]].forEach(([a, list]) => ee`<option value="${a}">${CW.ABIL_FULL[a]} — ${list} list</option>`.appendTo(abilSel));
-		abilSel.val(st.sidekickSpellAbility());
-		abilSel.onn("change", () => { sk.spellAbility = abilSel.val(); sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); });
-		ee(wrp)`<div class="ve-mb-2"><b>Ability:</b> ${abilSel} <span class="ve-muted ve-small">Save DC ${st.sidekickSpellSaveDc()} • attack ${CW.fmtMod(st.sidekickSpellAtk())} • slots ${this._fmtSlots(prog.slots)}</span></div>`;
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Spellcasting <span class="ve-muted ve-small">(choose a role)</span></h4>`;
+		const roleSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+		[["mage", "Mage — Wizard list, Int"], ["healer", "Healer — Cleric &amp; Druid list, Wis"], ["prodigy", "Prodigy — Bard &amp; Warlock list, Cha"]].forEach(([r, lbl]) => ee`<option value="${r}">${lbl}</option>`.appendTo(roleSel));
+		roleSel.val(st.sidekickSpellRole());
+		roleSel.onn("change", () => { sk.spellRole = roleSel.val(); sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); });
+		ee(wrp)`<div class="ve-mb-2"><b>Role:</b> ${roleSel} <span class="ve-muted ve-small">${CW.ABIL_FULL[st.sidekickSpellAbility()]} • Save DC ${st.sidekickSpellSaveDc()} • attack ${CW.fmtMod(st.sidekickSpellAtk())} • slots ${this._fmtSlots(prog.slots)}</span></div>`;
+		// Empowered Spells (L14): choose a school of magic
+		if (st._skHasFeature("Empowered Spells")) {
+			const schoolSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— choose a school —</option></select>`;
+			["Abjuration", "Conjuration", "Divination", "Enchantment", "Evocation", "Illusion", "Necromancy", "Transmutation"].forEach(s => ee`<option value="${s}">${s}</option>`.appendTo(schoolSel));
+			schoolSel.val(sk.empoweredSchool || "");
+			schoolSel.onn("change", () => { sk.empoweredSchool = schoolSel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2"><b>Empowered Spells</b> <span class="ve-muted ve-small">(L14 — add spellcasting mod to damage/healing of this school)</span>: ${schoolSel}</div>`;
+		}
 		if (prog.cantrips) this._renderSpellPicker(wrp, "Cantrips", st.sidekickSpellOptions(0), sk.spellChoices.cantrips, prog.cantrips);
 		const maxLv = st.sidekickMaxSpellLevel(); let leveled = [];
 		for (let l = 1; l <= maxLv; ++l) leveled = leveled.concat(st.sidekickSpellOptions(l));
 		this._renderSpellPicker(wrp, "Spells Known", leveled, sk.spellChoices.leveled, prog.known);
+	}
+
+	// class-feature choices that aren't spells (Warrior Martial Role, Expert Sharp Mind)
+	_renderSidekickFeatureChoices (wrp) {
+		const st = this._state; const sk = st.sidekick;
+		const names = st.sidekickFeatureNames();
+		if (!names.has("Martial Role") && !names.has("Sharp Mind")) return;
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Feature Choices</h4>`;
+		if (names.has("Martial Role")) {
+			ee(wrp)`<div class="ve-mb-1"><b>Martial Role</b> <span class="ve-muted ve-small">(L1 — focus on offense or defense)</span>:</div>`;
+			const grp = ee`<div class="ve-btn-group ve-mb-1"></div>`.appendTo(wrp);
+			[["attacker", "Attacker", "+2 to all attack rolls"], ["defender", "Defender", "reaction to impose disadvantage on an attack vs. a nearby ally"]].forEach(([v, lbl, desc]) => {
+				ee`<button class="ve-btn ve-btn-sm ${sk.martialRole === v ? "ve-btn-primary active" : "ve-btn-default"}" title="${desc}">${lbl}</button>`
+					.onn("click", () => { sk.martialRole = v; this._save(); this.render(); }).appendTo(grp);
+			});
+			ee(wrp)`<div class="ve-muted ve-small ve-mb-2">${sk.martialRole === "attacker" ? "+2 to all attack rolls (applied to the stat-block attacks below)." : sk.martialRole === "defender" ? "Reaction: impose disadvantage on an attack roll against an ally within 5 ft." : "Choose a role."}</div>`;
+		}
+		if (names.has("Sharp Mind")) {
+			ee(wrp)`<div class="ve-mb-1"><b>Sharp Mind</b> <span class="ve-muted ve-small">(L18 — gain a mental save proficiency)</span>:</div>`;
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">— choose —</option></select>`;
+			["int", "wis", "cha"].forEach(a => ee`<option value="${a}">${CW.ABIL_FULL[a]}</option>`.appendTo(sel));
+			sel.val(sk.sharpMindSave || ""); sel.onn("change", () => { sk.sharpMindSave = sel.val() || null; this._save(); this.render(); });
+			ee(wrp)`<div class="ve-mb-2">${sel}</div>`;
+		}
 	}
 
 	_renderSidekickReview (el) {
@@ -688,9 +723,17 @@ export class CharWizardUi {
 		box("Armor Class", st.sidekickAc() ?? "—");
 		box("Hit Points", st.sidekickMaxHp() ?? "—");
 		box("Hit Die", `d${st.sidekickHitDie()}`);
-		box("Initiative", CW.fmtMod(st.sidekickAbilityMod("dex")));
+		box("Initiative", `${CW.fmtMod(st.sidekickAbilityMod("dex"))}${st.sidekickInitiativeAdv() ? ` <span class="cw__advdis cw__advdis--adv" title="Battle Readiness">ADV</span>` : ""}`);
 		box("Passive Perception", 10 + st.sidekickSkillMod("perception"));
 		if (!cls) ee(wrp)`<div class="cw__err no-print ve-mt-2">Pick a sidekick class &amp; level (Class &amp; Level step) to finish the build.</div>`;
+
+		// combat features (Martial Role, Improved Critical, Extra Attack, Battle Readiness)
+		const names = st.sidekickFeatureNames(); const combatParts = [];
+		if (names.has("Martial Role")) { const role = st.sidekickMartialRole(); combatParts.push(role === "attacker" ? "<b>Attacker:</b> +2 to all attack rolls" : role === "defender" ? "<b>Defender:</b> reaction to impose disadvantage on an attack vs. a nearby ally" : `<b style="color:#d9822b">Martial Role: choose Attacker or Defender</b>`); }
+		if (st.sidekickCritRange() < 20) combatParts.push(`<b>Improved Critical:</b> crits on ${st.sidekickCritRange()}–20`);
+		if (st.sidekickExtraAttacks() > 1) combatParts.push(`<b>Extra Attack:</b> ${st.sidekickExtraAttacks()}× (or its Multiattack — not both)`);
+		if (st.sidekickInitiativeAdv()) combatParts.push("<b>Battle Readiness:</b> advantage on initiative");
+		if (combatParts.length) ee(wrp)`<div class="cw__sheet-section"><h4>Combat</h4><div>${combatParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
 
 		// abilities + saves
 		const secA = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
@@ -766,7 +809,11 @@ export class CharWizardUi {
 		monBlock("Reactions", m.reaction);
 		if (cls && (m.trait?.length || m.action?.length)) {
 			const asiTaken = Object.values(st.sidekick.asi || {}).some(a => Object.values(a?.inc || {}).some(v => v > 0));
-			ee(wrp)`<div class="ve-muted ve-small ve-mt-1">${pbDelta ? `Stat-block attack bonuses and save DCs include the sidekick's <b>+${pbDelta}</b> proficiency increase (TCE). ` : ""}${asiTaken ? "Per TCE, also raise any attack/damage that uses an ability score you improved — apply that by hand (the rules let an unclear melee attack use Strength or Dexterity)." : ""}</div>`;
+			const atkBonus = st.sidekickAttackBonus(); const attacker = st.sidekickMartialRole() === "attacker";
+			const notes = [];
+			if (atkBonus) notes.push(`Stat-block <b>attack bonuses include +${atkBonus}</b>${attacker && pbDelta ? ` (proficiency +${pbDelta}, Attacker +2)` : attacker ? " (Attacker)" : " (proficiency increase, TCE)"}${pbDelta ? `; save DCs include +${pbDelta}` : ""}.`);
+			if (asiTaken) notes.push("Per TCE, also raise any attack/damage that uses an ability score you improved — apply that by hand (an unclear melee attack may use Strength or Dexterity).");
+			if (notes.length) ee(wrp)`<div class="ve-muted ve-small ve-mt-1">${notes.join(" ")}</div>`;
 		}
 
 		// class features

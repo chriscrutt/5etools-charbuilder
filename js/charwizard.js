@@ -124,11 +124,20 @@ export class CharState {
 			expertiseChoices: [], // Expert expertise skills
 			toolChoices: [], // Expert tool proficiencies (free text)
 			asi: {}, // classLevel -> {inc:{abv:n}} ability-score improvements
-			spellAbility: null, // Spellcaster: int/wis/cha
+			martialRole: null, // Warrior L1 Martial Role: "attacker" | "defender"
+			spellRole: "mage", // Spellcaster L1 role: "mage" (Wizard/Int) | "healer" (Cleric+Druid/Wis) | "prodigy" (Bard+Warlock/Cha)
+			sharpMindSave: null, // Expert L18 Sharp Mind: chosen int/wis/cha save proficiency
+			empoweredSchool: null, // Spellcaster L14 Empowered Spells: chosen school
 			spellChoices: {cantrips: [], leveled: []}, // Spellcaster chosen spells "name|source"
 			name: "", // optional sidekick name (overrides the creature name)
 		};
 	}
+	// Tasha's Spellcaster sidekick roles -> spell list + ability
+	static _SK_SPELL_ROLES = {
+		mage: {label: "Mage", ability: "int", classes: ["Wizard"]},
+		healer: {label: "Healer", ability: "wis", classes: ["Cleric", "Druid"]},
+		prodigy: {label: "Prodigy", ability: "cha", classes: ["Bard", "Warlock"]},
+	};
 
 	/* ----- play mode: live runtime state, separate from the character build ----- */
 	_defaultPlayState () {
@@ -1713,10 +1722,11 @@ export class CharState {
 	sidekickHitDie () { const m = /\d+\s*d\s*(\d+)/i.exec(`${this.sidekickCreature()?.hp?.formula || ""}`); return m ? +m[1] : (SIDEKICK_SIZE_DIE[this._creatureSize()] || 8); }
 	// every eligible creature is CR ≤ 1/2 → base proficiency +2; sidekick PB rises with class level. TCE adds the difference to the stat block's attacks & DCs.
 	sidekickPbDelta () { return Math.max(0, this.sidekickProfBonus() - 2); }
-	// deep-copy stat-block data with every {@hit}/{@dc} bumped by the proficiency-bonus increase (TCE) — works on traits/actions AND spellcasting headerEntries
+	// deep-copy stat-block data with attacks bumped by (PB increase + Attacker bonus) and DCs by the PB increase (TCE) — works on traits/actions AND spellcasting headerEntries
 	sidekickAdjustEntries (data) {
-		const delta = this.sidekickPbDelta(); if (!delta || data == null) return data;
-		const bump = (s) => `${s}`.replace(/\{@hit (-?\d+)\}/g, (m, n) => `{@hit ${+n + delta}}`).replace(/\{@dc (\d+)([^}]*)\}/g, (m, n, rest) => `{@dc ${+n + delta}${rest}}`);
+		const hitDelta = this.sidekickAttackBonus(); const dcDelta = this.sidekickPbDelta();
+		if ((!hitDelta && !dcDelta) || data == null) return data;
+		const bump = (s) => `${s}`.replace(/\{@hit (-?\d+)\}/g, (m, n) => `{@hit ${+n + hitDelta}}`).replace(/\{@dc (\d+)([^}]*)\}/g, (m, n, rest) => `{@dc ${+n + dcDelta}${rest}}`);
 		const walk = (e) => {
 			if (typeof e === "string") return bump(e);
 			if (Array.isArray(e)) return e.map(walk);
@@ -1725,6 +1735,14 @@ export class CharState {
 		};
 		return walk(data);
 	}
+	/* ----- sidekick class-feature choices & combat effects ----- */
+	sidekickFeatureNames () { return new Set(this.sidekickFeatures().map(f => f.name)); }
+	_skHasFeature (name) { return this.sidekickFeatureNames().has(name); }
+	sidekickMartialRole () { return this.sidekick.martialRole || null; } // Warrior L1: "attacker"|"defender"
+	sidekickInitiativeAdv () { return this._skHasFeature("Battle Readiness"); } // Warrior L7: advantage on initiative
+	sidekickCritRange () { return this._skHasFeature("Improved Critical") ? 19 : 20; } // Warrior L3: crits on 19-20
+	sidekickExtraAttacks () { const n = this.sidekickFeatureNames(); if (n.has("Extra Attack Improvement")) return 3; if (n.has("Extra Attack")) return 2; return 1; } // Warrior L6/L15
+	sidekickAttackBonus () { return this.sidekickPbDelta() + (this.sidekickMartialRole() === "attacker" ? 2 : 0); } // Attacker: +2 to all attack rolls
 
 	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }
 	sidekickAbility (abv) {
@@ -1765,7 +1783,7 @@ export class CharState {
 		return base + Math.max(0, this.sidekickLevel() - 1) * perLevel;
 	}
 
-	sidekickAc () { const ac = this.sidekickCreature()?.ac?.[0]; return typeof ac === "number" ? ac : (ac?.ac ?? null); }
+	sidekickAc () { const ac = this.sidekickCreature()?.ac?.[0]; let v = typeof ac === "number" ? ac : (ac?.ac ?? null); if (v != null && this._skHasFeature("Improved Defense")) v += 1; return v; } // Warrior L10: +1 AC
 	sidekickAcFrom () { const ac = this.sidekickCreature()?.ac?.[0]; return (ac && typeof ac === "object" && ac.from) ? ac.from : null; }
 	sidekickSpeed () {
 		const sp = this.sidekickCreature()?.speed; if (sp == null) return "—";
@@ -1773,7 +1791,7 @@ export class CharState {
 		return Object.entries(sp).map(([k, v]) => { const n = typeof v === "number" ? v : v?.number; return n == null ? null : `${k === "walk" ? "" : `${k} `}${n} ft.`; }).filter(Boolean).join(", ");
 	}
 
-	sidekickSaveProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.save || {})); if (this.sidekick.saveProf) set.add(this.sidekick.saveProf); return set; }
+	sidekickSaveProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.save || {})); if (this.sidekick.saveProf) set.add(this.sidekick.saveProf); if (this.sidekick.sharpMindSave && this._skHasFeature("Sharp Mind")) set.add(this.sidekick.sharpMindSave); return set; } // + Expert L18 Sharp Mind
 	sidekickSaveMod (abv) { return this.sidekickAbilityMod(abv) + (this.sidekickSaveProfs().has(abv) ? this.sidekickProfBonus() : 0); }
 
 	sidekickSkillProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.skill || {}).map(s => s.toLowerCase())); (this.sidekick.skillChoices || []).forEach(s => set.add(s)); return set; }
@@ -1811,7 +1829,9 @@ export class CharState {
 
 	/* Spellcaster sidekick */
 	sidekickIsCaster () { return !!this.sidekickMeta()?.spellcaster; }
-	sidekickSpellAbility () { return this.sidekick.spellAbility || "int"; }
+	sidekickSpellRole () { return CharState._SK_SPELL_ROLES[this.sidekick.spellRole] ? this.sidekick.spellRole : "mage"; }
+	sidekickSpellRoleMeta () { return CharState._SK_SPELL_ROLES[this.sidekickSpellRole()]; }
+	sidekickSpellAbility () { return this.sidekickSpellRoleMeta().ability; }
 	sidekickSpellSaveDc () { return 8 + this.sidekickProfBonus() + this.sidekickAbilityMod(this.sidekickSpellAbility()); }
 	sidekickSpellAtk () { return this.sidekickProfBonus() + this.sidekickAbilityMod(this.sidekickSpellAbility()); }
 	sidekickSpellProgress () {
@@ -1824,11 +1844,11 @@ export class CharState {
 		});
 		return {cantrips, known, slots};
 	}
-	// Spellcaster picks from the wizard list (Int), cleric list (Wis), or bard list (Cha) per the chosen ability
-	sidekickSpellListClass () { return {int: "Wizard", wis: "Cleric", cha: "Bard"}[this.sidekickSpellAbility()] || "Wizard"; }
+	// Spellcaster role determines the spell list: Mage→Wizard, Healer→Cleric+Druid, Prodigy→Bard+Warlock
+	sidekickSpellListClasses () { return this.sidekickSpellRoleMeta().classes; }
 	sidekickSpellOptions (level) {
-		const cn = this.sidekickSpellListClass();
-		return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === level && (sp.classes?.fromClassList || []).some(c => c.name === cn)).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		const classes = this.sidekickSpellListClasses();
+		return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === level && (sp.classes?.fromClassList || []).some(c => classes.includes(c.name))).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 	}
 	sidekickMaxSpellLevel () { const p = this.sidekickSpellProgress(); return p ? Math.max(0, ...Object.keys(p.slots).map(Number)) : 0; }
 
@@ -1942,6 +1962,8 @@ export class CharState {
 		});
 		// migrate v1 boolean shield -> the first shield in inventory
 		if (this.shieldUid == null && j.isShield) { const sh = this.inventory.find(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); this.shieldUid = sh?.uid || null; }
+		// migrate old sidekick spellAbility (int/wis/cha) -> spellRole (mage/healer/prodigy)
+		if (!j.sidekick?.spellRole && j.sidekick?.spellAbility) this.sidekick.spellRole = {int: "mage", wis: "healer", cha: "prodigy"}[j.sidekick.spellAbility] || "mage";
 	}
 }
 
