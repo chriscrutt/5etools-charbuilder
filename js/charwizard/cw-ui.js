@@ -455,6 +455,10 @@ export class CharWizardUi {
 		const wrp = ee`<div></div>`.appendTo(el);
 		const chosen = st.classList();
 
+		// changing an existing class (keeps the level) -> dedicated chooser
+		if (this._changeClassIx != null && st.classes[this._changeClassIx]?.uid) { this._renderChangeClass(wrp, this._changeClassIx); return; }
+		this._changeClassIx = null;
+
 		// no class yet -> full chooser for the first (primary) class
 		if (!chosen.length) {
 			this._renderChooser(wrp, {
@@ -497,10 +501,45 @@ export class CharWizardUi {
 	_removeClass (ix) {
 		const st = this._state;
 		const uid = st.classes[ix]?.uid;
+		const wasPrimary = ix === 0;
 		st.classes.splice(ix, 1);
 		if (!st.classes.length) st.classes = [{uid: null, level: 1, subclassUid: null}];
 		if (uid) { delete st.spellChoices[uid]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${uid}@`)) delete st.asiChoices[k]; }); st.clearProfChoicesForSource(uid); }
+		// the primary class drives saves/skills/expertise (kept under "class") — reset those when it changes
+		if (wasPrimary) { st.classSkillChoices = []; st.expertiseChoices = []; st.clearProfChoicesForSource("class"); }
+		this._changeClassIx = null;
 		this._save(); this.render();
+	}
+
+	// swap class at `ix` to a new class, keeping the level (subclass + that class's choices reset)
+	_changeClass (ix, uid) {
+		const st = this._state;
+		const old = st.classes[ix]?.uid;
+		this._changeClassIx = null;
+		if (!uid || old === uid) return; // unchanged — onAfterSelect re-renders
+		const level = st.classes[ix]?.level || 1;
+		st.classes[ix] = {uid, level, subclassUid: null};
+		if (old) { delete st.spellChoices[old]; Object.keys(st.asiChoices).forEach(k => { if (k.startsWith(`${old}@`)) delete st.asiChoices[k]; }); st.clearProfChoicesForSource(old); }
+		if (ix === 0) { st.classSkillChoices = []; st.expertiseChoices = []; st.clearProfChoicesForSource("class"); }
+		this._save();
+	}
+
+	_renderChangeClass (wrp, ix) {
+		const st = this._state;
+		const row = st.classes[ix]; const curUid = row.uid;
+		const taken = new Set(st.classes.map(c => c.uid).filter(Boolean));
+		let entities = this._state.filterVisible(this._data.classData.classes).filter(cls => CW.uid(cls) === curUid || !taken.has(CW.uid(cls)));
+		if (ix > 0) entities = entities.filter(cls => CW.uid(cls) === curUid || st.canMulticlassInto(cls)); // primary has no MC requirement
+		const cancel = ee`<button class="ve-btn ve-btn-default ve-btn-sm">‹ Cancel</button>`.onn("click", () => { this._changeClassIx = null; this.render(); });
+		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:10px"><h4 class="ve-mt-0 ve-mb-0">Change ${ix === 0 ? "class" : "this class"}</h4>${cancel}</div>`;
+		this._renderChooser(wrp, {
+			subtitle: `Pick a replacement class — your level (${row.level}) is kept; subclass and this class's spell/proficiency choices reset.${ix > 0 ? " Only classes you meet the multiclass ability-score requirements for are shown." : ""}`,
+			entities,
+			getSel: () => curUid,
+			setSel: (uid) => this._changeClass(ix, uid),
+			renderDetail: (col, cls) => this._renderClassDetail(col, cls, {level: row.level, subclassUid: null, mc: ix > 0}),
+			onAfterSelect: () => this.render(),
+		});
 	}
 
 	// one row in the class list: name, level, subclass, remove, collapsible detail
@@ -528,9 +567,10 @@ export class CharWizardUi {
 			ee(head)`<span class="ve-muted ve-small">${cls.subclassTitle || "Subclass"} at level ${gainLv}</span>`;
 		}
 
-		if (st.classes.length > 1) {
-			ee(head)`${ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove this class"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => this._removeClass(ix))}`;
-		}
+		ee(head)`<div class="ve-btn-group" style="margin-left:auto">
+			${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Change this class (keeps the level)"><span class="glyphicon glyphicon-refresh"></span> Change</button>`.onn("click", () => { this._changeClassIx = ix; this.render(); })}
+			${ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="${st.classes.length > 1 ? "Remove this class" : "Remove class — returns to class selection"}"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => this._removeClass(ix))}
+		</div>`;
 
 		// multiclass ability-score requirement (secondary classes only)
 		if (ix > 0) {
