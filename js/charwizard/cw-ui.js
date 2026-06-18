@@ -196,8 +196,9 @@ export class CharWizardUi {
 		"DSotDQ", // Dragonlance
 		"WBtW", // Witchlight (Domains of Delight)
 		"VRGR", "RHW", "CoS", "CRcotn", // Ravenloft / Barovia
-		"PSA", "PSD", "PSI", "PSK", "PSX", "PSZ", "LFL", "MGELF", // Magic: the Gathering planes
-		"HftT", "AitFR", "AitFR-ISF", "AitFR-THP", "AitFR-AVT", "AitFR-DN", "AitFR-FCD", // misc
+		"PSA", "PSD", "PSI", "PSK", "PSX", "PSZ", "LFL", "MGELF", "KKW", // Magic: the Gathering planes
+		"MPP", "OoW", "ToFW", "SatO", // Planescape / Sigil
+		"HftT", "AitFR", "AitFR-ISF", "AitFR-THP", "AitFR-AVT", "AitFR-DN", "AitFR-FCD", "WttHC", "RMBRE", // crossovers / parody / misc
 		"AI", "OGA", "TTP", "LR", "ABH",
 	]);
 

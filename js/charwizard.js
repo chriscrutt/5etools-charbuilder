@@ -252,7 +252,7 @@ export class CharState {
 		const seen = new Map();
 		const scan = (arr) => (arr || []).forEach(e => { if (e?.source && !seen.has(e.source)) seen.set(e.source, {source: e.source, group: (typeof SourceUtil !== "undefined" ? SourceUtil.getFilterGroup(e.source) : 0)}); });
 		const d = this._data;
-		[d.races, d.backgrounds, d.feats, d.classData?.classes, d.classData?.subclasses, d.spells, d.items, d.optionalFeatures].forEach(scan);
+		[d.races, d.backgrounds, d.feats, d.classData?.classes, d.classData?.subclasses, d.spells, d.items, d.optionalFeatures, d.bestiary].forEach(scan);
 		return [...seen.values()].sort((a, b) => (a.group - b.group) || SortUtil.ascSortLower(Parser.sourceJsonToFull(a.source), Parser.sourceJsonToFull(b.source)));
 	}
 
