@@ -35,6 +35,32 @@ export const CW = {
 	},
 };
 
+// Per-class metadata for Tasha's sidekick classes (the only 3, TCE) — drives the proficiency/expertise/spellcasting choices.
+export const SIDEKICK_META = {
+	"Expert Sidekick": {
+		label: "Expert", die: null, saves: ["dex", "int", "cha"],
+		skillCount: 5, skillFrom: null, // any skill
+		expertiseAt: [3, 15], // +2 expertise skills at each
+		toolsIfQualified: 2,
+		armor: ["light"], simpleIfQualified: true, martialIfQualified: false, shieldsIfQualified: false,
+	},
+	"Warrior Sidekick": {
+		label: "Warrior", saves: ["str", "dex", "con"],
+		skillCount: 2, skillFrom: ["acrobatics", "animal handling", "athletics", "intimidation", "nature", "perception", "survival"],
+		expertiseAt: [], toolsIfQualified: 0,
+		armor: ["light", "medium", "heavy"], simpleIfQualified: true, martialIfQualified: true, shieldsIfQualified: true,
+	},
+	"Spellcaster Sidekick": {
+		label: "Spellcaster", saves: ["wis", "int", "cha"],
+		skillCount: 2, skillFrom: ["arcana", "history", "insight", "investigation", "medicine", "performance", "persuasion", "religion"],
+		expertiseAt: [], toolsIfQualified: 0,
+		armor: ["light"], simpleIfQualified: true, martialIfQualified: false, shieldsIfQualified: false,
+		spellcaster: true, spellAbilities: ["int", "wis", "cha"],
+	},
+};
+// HP per level above 1st is rolled from a Hit Die set by the creature's SIZE (Tasha's Sidekick Hit Dice table)
+const SIDEKICK_SIZE_DIE = {T: 4, S: 6, M: 8, L: 10, H: 12, G: 20};
+
 /* -------------------------------------------------------------------------- */
 /* Character state + rules engine                                             */
 /* -------------------------------------------------------------------------- */
@@ -83,6 +109,25 @@ export class CharState {
 		this.attunedUids = []; // items the character is attuned to (max 3)
 		this.inventory = []; // [{uid:string|null, name, qty, equipped}]
 		this.play = this._defaultPlayState(); // runtime "play mode" state (current HP, expended slots, …) — distinct from the build
+		this.mode = "pc"; // "pc" = player character builder; "sidekick" = creature-first sidekick builder
+		this.sidekick = this._defaultSidekick();
+	}
+
+	/* ----- sidekick (creature-first) builder state ----- */
+	_defaultSidekick () {
+		return {
+			creatureUid: null, // bestiary creature "name|source" (CR ≤ 1/2)
+			classUid: null, // sidekick class "Expert Sidekick|TCE" / "Warrior Sidekick|TCE" / "Spellcaster Sidekick|TCE"
+			level: 1,
+			saveProf: null, // chosen save-proficiency ability (from the class's 3 options)
+			skillChoices: [], // class-granted skill proficiencies chosen
+			expertiseChoices: [], // Expert expertise skills
+			toolChoices: [], // Expert tool proficiencies (free text)
+			asi: {}, // classLevel -> {inc:{abv:n}} ability-score improvements
+			spellAbility: null, // Spellcaster: int/wis/cha
+			spellChoices: {cantrips: [], leveled: []}, // Spellcaster chosen spells "name|source"
+			name: "", // optional sidekick name (overrides the creature name)
+		};
 	}
 
 	/* ----- play mode: live runtime state, separate from the character build ----- */
@@ -1608,6 +1653,104 @@ export class CharState {
 	}
 	featSpellSaveDc (ability) { return ability ? 8 + this.profBonus + this.abilityMod(ability) : null; }
 
+	/* ====================================================================== */
+	/* Sidekick (creature-first) derivation                                   */
+	/* ====================================================================== */
+	sidekickCreature () { return this._byUid(this._data.bestiary, this.sidekick.creatureUid); }
+	sidekickClassEnt () { return this._byUid(this._data.sidekickClasses, this.sidekick.classUid); }
+	sidekickMeta () { const c = this.sidekickClassEnt(); return c ? SIDEKICK_META[c.name] : null; }
+	sidekickLevel () { return Math.max(1, Math.min(20, this.sidekick.level || 1)); }
+	sidekickProfBonus () { return CW.profBonus(this.sidekickLevel()); }
+	sidekickName () { return this.sidekick.name || this.sidekickCreature()?.name || "Sidekick"; }
+	sidekickReady () { return !!this.sidekickCreature(); }
+
+	_creatureSize () { const s = this.sidekickCreature()?.size; return (Array.isArray(s) ? s[0] : s) || "M"; }
+	sidekickHitDie () { return SIDEKICK_SIZE_DIE[this._creatureSize()] || 8; }
+
+	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }
+	sidekickAbility (abv) {
+		let v = this.sidekickAbilityBase(abv);
+		Object.values(this.sidekick.asi || {}).forEach(a => { if (a?.inc?.[abv]) v += a.inc[abv]; });
+		return Math.min(20, v);
+	}
+	sidekickAbilityMod (abv) { return CW.mod(this.sidekickAbility(abv)); }
+
+	// HP: creature's base HP + (size hit-die average + Con mod, min 1) per level above 1st (Tasha's)
+	sidekickMaxHp () {
+		const m = this.sidekickCreature(); if (!m) return null;
+		const base = m.hp?.average ?? 0;
+		const avg = this.sidekickHitDie() / 2 + 0.5;
+		const perLevel = Math.max(1, Math.floor(avg + this.sidekickAbilityMod("con")));
+		return base + Math.max(0, this.sidekickLevel() - 1) * perLevel;
+	}
+
+	sidekickAc () { const ac = this.sidekickCreature()?.ac?.[0]; return typeof ac === "number" ? ac : (ac?.ac ?? null); }
+	sidekickAcFrom () { const ac = this.sidekickCreature()?.ac?.[0]; return (ac && typeof ac === "object" && ac.from) ? ac.from : null; }
+	sidekickSpeed () {
+		const sp = this.sidekickCreature()?.speed; if (sp == null) return "—";
+		if (typeof sp === "number") return `${sp} ft.`;
+		return Object.entries(sp).map(([k, v]) => { const n = typeof v === "number" ? v : v?.number; return n == null ? null : `${k === "walk" ? "" : `${k} `}${n} ft.`; }).filter(Boolean).join(", ");
+	}
+
+	sidekickSaveProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.save || {})); if (this.sidekick.saveProf) set.add(this.sidekick.saveProf); return set; }
+	sidekickSaveMod (abv) { return this.sidekickAbilityMod(abv) + (this.sidekickSaveProfs().has(abv) ? this.sidekickProfBonus() : 0); }
+
+	sidekickSkillProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.skill || {}).map(s => s.toLowerCase())); (this.sidekick.skillChoices || []).forEach(s => set.add(s)); return set; }
+	sidekickExpertise () { return new Set(this.sidekick.expertiseChoices || []); }
+	sidekickSkillMod (skill) {
+		const mod = this.sidekickAbilityMod(CW.skillAbil(skill)); const pb = this.sidekickProfBonus();
+		if (this.sidekickExpertise().has(skill)) return mod + pb * 2;
+		if (this.sidekickSkillProfs().has(skill)) return mod + pb;
+		return mod;
+	}
+	sidekickSkillProfType (skill) { return this.sidekickExpertise().has(skill) ? "expertise" : this.sidekickSkillProfs().has(skill) ? "full" : "none"; }
+	sidekickExpertiseSlots () { const meta = this.sidekickMeta(); return meta ? (meta.expertiseAt || []).filter(l => this.sidekickLevel() >= l).length * 2 : 0; }
+
+	// creature is a humanoid OR carries a weapon -> qualifies for the class's weapon/tool proficiencies
+	sidekickQualifiesWeapons () {
+		const m = this.sidekickCreature(); if (!m) return false;
+		const typ = typeof m.type === "object" ? m.type.type : m.type;
+		if (`${typ}`.toLowerCase() === "humanoid") return true;
+		return /\b(weapon|sword|axe|bow|spear|mace|dagger|club|hammer|crossbow|sling|javelin|halberd|glaive|pike|lance|scimitar|rapier|whip|flail|morningstar|trident|dart|longsword|shortsword|greatsword|maul|warhammer|battleaxe|handaxe|greataxe)\b/i.test(JSON.stringify(m.action || []));
+	}
+
+	sidekickAsiLevels () {
+		const cls = this.sidekickClassEnt(); if (!cls) return [];
+		const out = [];
+		(cls.classFeatures || []).forEach((feats, ix) => { const lv = ix + 1; if (lv <= this.sidekickLevel() && (feats || []).some(f => f?.name && /^Ability Score Improvement/i.test(f.name))) out.push(lv); });
+		return out;
+	}
+	sidekickFeatures () {
+		const cls = this.sidekickClassEnt(); if (!cls) return [];
+		const out = [];
+		(cls.classFeatures || []).forEach((feats, ix) => { const lv = ix + 1; if (lv > this.sidekickLevel()) return; (feats || []).forEach(f => { if (f?.name) out.push({level: lv, name: f.name, entries: f.entries}); }); });
+		return out;
+	}
+	sidekickSenses () { const m = this.sidekickCreature(); if (!m) return ""; return [...(m.senses || []), `passive Perception ${10 + this.sidekickSkillMod("perception")}`].join(", "); }
+
+	/* Spellcaster sidekick */
+	sidekickIsCaster () { return !!this.sidekickMeta()?.spellcaster; }
+	sidekickSpellAbility () { return this.sidekick.spellAbility || "int"; }
+	sidekickSpellSaveDc () { return 8 + this.sidekickProfBonus() + this.sidekickAbilityMod(this.sidekickSpellAbility()); }
+	sidekickSpellAtk () { return this.sidekickProfBonus() + this.sidekickAbilityMod(this.sidekickSpellAbility()); }
+	sidekickSpellProgress () {
+		const cls = this.sidekickClassEnt(); if (!cls?.classTableGroups) return null;
+		const lv = this.sidekickLevel(); let cantrips = 0; let known = 0; const slots = {};
+		cls.classTableGroups.forEach(g => {
+			const row = (g.rowsSpellProgression || g.rows || [])[lv - 1]; if (!row) return;
+			if (/spell slots/i.test(`${g.title || ""}`)) { row.forEach((n, ix) => { if (n > 0) slots[ix + 1] = n; }); }
+			else { const lbl = `${(g.colLabels || [])[0] || ""}`; if (/cantrip/i.test(lbl)) cantrips = row[0] || 0; else if (/spell/i.test(lbl)) known = row[0] || 0; }
+		});
+		return {cantrips, known, slots};
+	}
+	// Spellcaster picks from the wizard list (Int), cleric list (Wis), or bard list (Cha) per the chosen ability
+	sidekickSpellListClass () { return {int: "Wizard", wis: "Cleric", cha: "Bard"}[this.sidekickSpellAbility()] || "Wizard"; }
+	sidekickSpellOptions (level) {
+		const cn = this.sidekickSpellListClass();
+		return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === level && (sp.classes?.fromClassList || []).some(c => c.name === cn)).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+	}
+	sidekickMaxSpellLevel () { const p = this.sidekickSpellProgress(); return p ? Math.max(0, ...Object.keys(p.slots).map(Number)) : 0; }
+
 	/* ----- serialization ----- */
 	toJson () {
 		return {
@@ -1648,6 +1791,8 @@ export class CharState {
 			attunedUids: this.attunedUids,
 			inventory: this.inventory,
 			play: this.play,
+			mode: this.mode,
+			sidekick: this.sidekick,
 		};
 	}
 
@@ -1711,6 +1856,8 @@ export class CharState {
 			attunedUids: j.attunedUids ?? [],
 			inventory: j.inventory ?? [],
 			play: {...this._defaultPlayState(), ...(j.play || {})},
+			mode: j.mode === "sidekick" ? "sidekick" : "pc",
+			sidekick: {...this._defaultSidekick(), ...(j.sidekick || {})},
 		});
 		// migrate v1 boolean shield -> the first shield in inventory
 		if (this.shieldUid == null && j.isShield) { const sh = this.inventory.find(r => { const a = this._armorById(r.uid); return a && `${a.type || ""}`.split("|")[0] === "S"; }); this.shieldUid = sh?.uid || null; }
@@ -1730,7 +1877,7 @@ class CharWizardPage {
 
 		const styleHint = VetoolsConfig.get("styleSwitcher", "style");
 
-		const [races, backgrounds, feats, classData, spells, items, optionalFeatures] = await Promise.all([
+		const [races, backgrounds, feats, classData, spells, items, optionalFeatures, bestiary] = await Promise.all([
 			this._pLoadSimple(UrlUtil.PG_RACES, "race"),
 			this._pLoadSimple(UrlUtil.PG_BACKGROUNDS, "background"),
 			this._pLoadSimple(UrlUtil.PG_FEATS, "feat"),
@@ -1738,6 +1885,7 @@ class CharWizardPage {
 			this._pLoadSimple(UrlUtil.PG_SPELLS, "spell"),
 			this._pLoadItems(),
 			this._pLoadOptionalFeatures(),
+			this._pLoadBestiary(),
 		]);
 		const fightingStyles = optionalFeatures.filter(o => (o.featureType || []).some(t => /^FS/.test(t)));
 
@@ -1764,7 +1912,9 @@ class CharWizardPage {
 		const spellIndexByName = new Map();
 		spells.forEach(sp => { const k = `${sp.name}`.toLowerCase(); if (!spellIndexByName.has(k)) spellIndexByName.set(k, sp); });
 
-		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, fightingStyles, optionalFeatures, styleHint};
+		bestiary.sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+
+		const data = {races, backgrounds, feats, classData, spells, items, armors, itemIndex, itemIndexByName, spellIndexByName, fightingStyles, optionalFeatures, styleHint, bestiary, sidekickClasses: classData.sidekickClasses};
 		globalThis.dbg_cw = data;
 
 		const state = new CharState(data);
@@ -1822,12 +1972,31 @@ class CharWizardPage {
 
 	async _pLoadClasses () {
 		const raw = await DataUtil.class.loadJSON();
-		const classes = (raw.class || []).filter(cls => {
-			if (cls.isSidekick) return false; // sidekicks build from a bestiary creature (CR ≤ 1/2) — a separate flow, TODO
+		const all = (raw.class || []).filter(cls => {
 			const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES](cls);
 			return !ExcludeUtil.isExcluded(hash, "class", cls.source);
 		});
-		return {classes, subclasses: raw.subclass || [], classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
+		const classes = all.filter(cls => !cls.isSidekick); // sidekicks build from a bestiary creature (CR ≤ 1/2) — handled in Sidekick mode
+		const sidekickClasses = all.filter(cls => cls.isSidekick);
+		return {classes, sidekickClasses, subclasses: raw.subclass || [], classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
+	}
+
+	// bestiary creatures eligible to become a sidekick (challenge rating 1/2 or lower)
+	async _pLoadBestiary () {
+		try {
+			const all = await DataLoader.pCacheAndGetAllSite(UrlUtil.PG_BESTIARY);
+			const crMap = {"0": 0, "1/8": 0.125, "1/4": 0.25, "1/2": 0.5};
+			const crNum = (cr) => { if (cr == null) return null; const v = typeof cr === "object" ? cr.cr : cr; if (v in crMap) return crMap[v]; const n = Number(v); return Number.isNaN(n) ? null : n; };
+			return MiscUtil.copyFast(all.filter(m => {
+				const n = crNum(m.cr); if (n == null || n > 0.5) return false;
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BESTIARY](m);
+				return !ExcludeUtil.isExcluded(hash, "monster", m.source);
+			}));
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error("charwizard: bestiary load failed", e);
+			return [];
+		}
 	}
 }
 

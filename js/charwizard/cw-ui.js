@@ -1,4 +1,4 @@
-import {CW} from "../charwizard.js";
+import {CW, SIDEKICK_META} from "../charwizard.js";
 
 /* Small render helper: 5etools entries -> HTML string */
 const renderEntries = (entries) => {
@@ -75,17 +75,24 @@ export class CharWizardUi {
 
 		const wrp = ee`<div class="cw__wrp ve-p-2"></div>`.appendTo(this._eleRoot);
 
+		const isSidekick = this._state.mode === "sidekick";
+
 		// Toolbar
-		const inpName = ee`<input class="ve-form-control" style="max-width:280px" placeholder="Character name" value="${(this._state.name || "").qq()}">`
-			.onn("change", () => { this._state.name = inpName.val(); this._save(); });
+		const inpName = ee`<input class="ve-form-control" style="max-width:280px" placeholder="${isSidekick ? "Sidekick name (optional)" : "Character name"}" value="${((isSidekick ? this._state.sidekick.name : this._state.name) || "").qq()}">`
+			.onn("change", () => { if (isSidekick) this._state.sidekick.name = inpName.val(); else this._state.name = inpName.val(); this._save(); });
+		// mode toggle: Character vs Sidekick
+		const mkMode = (m, label, title) => ee`<button class="ve-btn ve-btn-sm ${this._state.mode === m ? "ve-btn-primary active" : "ve-btn-default"}" title="${title}">${label}</button>`
+			.onn("click", () => { if (this._state.mode === m) return; this._state.mode = m; this._showSources = false; this._playMode = false; this.render(); this._save(); });
+		const modeToggle = ee`<div class="ve-btn-group">${mkMode("pc", "Character", "Build a player character")}${mkMode("sidekick", "Sidekick", "Build a sidekick from a CR ½-or-lower creature (Tasha's)")}</div>`;
 		const btnSources = ee`<button class="ve-btn ve-btn-default ve-btn-sm ${this._showSources ? "active" : ""}" title="Choose which books/sources appear in the builder"><span class="glyphicon glyphicon-book"></span> Sources</button>`
 			.onn("click", () => { this._showSources = !this._showSources; this._playMode = false; this.render(); });
 		const btnPlay = ee`<button class="ve-btn ${this._playMode ? "ve-btn-primary active" : "ve-btn-success"} ve-btn-sm" title="Play this character — track HP, spell slots, and roll d20 checks"><span class="glyphicon glyphicon-${this._playMode ? "edit" : "play"}"></span> ${this._playMode ? "Edit Build" : "Play"}</button>`
 			.onn("click", () => { this._playMode = !this._playMode; this._showSources = false; this.render(); });
 		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap">
 			${inpName}
+			${modeToggle}
 			${btnSources}
-			${btnPlay}
+			${isSidekick ? "" : btnPlay}
 			${this._getToolbarButtons()}
 		</div>`;
 
@@ -94,6 +101,9 @@ export class CharWizardUi {
 
 		// Play mode (replaces the stepper/body while active)
 		if (this._playMode) { this._renderPlayMode(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
+
+		// Sidekick builder (creature-first) replaces the PC stepper/body
+		if (isSidekick) { this._renderSidekickBuilder(wrp); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
 		// validation issues (prerequisites no longer met after a change), grouped by step
 		const issues = this._state.validationIssues();
@@ -378,6 +388,217 @@ export class CharWizardUi {
 		if (!log.length) { ee(sec)`<div class="ve-muted ve-small">Click any ability, save, skill, or attack above to roll. Results appear here.</div>`; return; }
 		const list = ee`<div class="ve-small"></div>`.appendTo(sec);
 		log.forEach(r => ee(list)`<div style="padding:1px 0"><b style="display:inline-block;min-width:36px">${r.total}</b> <span>${`${r.label}`.qq()}</span> <span class="ve-muted">— ${`${r.detail}`.qq()}</span></div>`);
+	}
+
+	/* ====================================================================== */
+	/* Sidekick builder (creature-first)                                      */
+	/* ====================================================================== */
+	_sidekickSteps () {
+		const st = this._state;
+		return [
+			{id: "creature", label: "Creature", done: () => !!st.sidekick.creatureUid, render: (el) => this._renderSidekickCreature(el)},
+			{id: "class", label: "Class & Level", done: () => !!st.sidekick.classUid, render: (el) => this._renderSidekickClass(el)},
+			{id: "review", label: "Review", done: () => true, render: (el) => this._renderSidekickReview(el)},
+		];
+	}
+
+	_renderSidekickBuilder (wrp) {
+		const steps = this._sidekickSteps();
+		if (this._skStep == null) this._skStep = 0;
+		if (this._skStep >= steps.length) this._skStep = steps.length - 1;
+
+		ee(wrp)`<p class="ve-muted ve-small ve-mb-2 no-print">A <b>sidekick</b> (Tasha's Cauldron of Everything) starts from a creature of challenge rating ½ or lower, then gains levels in a Warrior, Expert, or Spellcaster class. The creature's stat block supplies its ability scores, AC, hit points, speed, senses, traits, and actions; the class layers on proficiency bonus, saving throws, skills, and features. Hit points per level use a Hit Die set by the creature's size.</p>`;
+
+		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
+		steps.forEach((s, ix) => {
+			const isActive = ix === this._skStep;
+			ee`<div class="cw__step ${isActive ? "cw__step--active" : s.done() && !isActive ? "cw__step--done" : ""}"><span class="cw__step-num">${ix + 1}</span>${s.label}</div>`
+				.onn("click", () => { this._skStep = ix; this.render(); }).appendTo(eleSteps);
+		});
+
+		const eleBody = ee`<div class="cw__step-body"></div>`.appendTo(wrp);
+		steps[this._skStep].render(eleBody);
+
+		const btnBack = ee`<button class="ve-btn ve-btn-default">‹ Back</button>`.onn("click", () => { if (this._skStep > 0) { this._skStep--; this.render(); } });
+		if (this._skStep === 0) btnBack.attr("disabled", "true");
+		const isLast = this._skStep === steps.length - 1;
+		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`.onn("click", () => { if (!isLast) { this._skStep++; this.render(); } });
+		ee(wrp)`<div class="cw__footer no-print">${btnBack}${btnNext}</div>`;
+	}
+
+	_skCrText (m) { const cr = m?.cr; return cr == null ? "?" : (typeof cr === "object" ? cr.cr : cr); }
+
+	_renderSidekickCreature (el) {
+		const st = this._state;
+		const creatures = st.filterVisible(this._data.bestiary);
+		this._renderChooser(el, {
+			subtitle: `Choose a creature (challenge rating ½ or lower) to become your sidekick — ${creatures.length} available. The creature can't normally be a construct or undead (DM's discretion).`,
+			entities: creatures,
+			getSel: () => st.sidekick.creatureUid,
+			setSel: (uid) => { st.sidekick.creatureUid = uid; },
+			renderDetail: (col, m) => {
+				try { ee(col)`<table class="w-100 stats">${Renderer.monster.getCompactRenderedString(m)}</table>`; }
+				catch (e) { ee(col)`<div class="ve-p-2"><b>${m.name.qq()}</b> <span class="ve-muted">(CR ${`${this._skCrText(m)}`.qq()})</span></div>`; }
+			},
+			onAfterSelect: () => this.render(),
+		});
+	}
+
+	_renderSidekickClass (el) {
+		const st = this._state; const sk = st.sidekick;
+		if (!st.sidekickCreature()) { ee(el)`<div class="cw__err">Choose a creature first (Creature step).</div>`; return; }
+		const wrp = ee`<div></div>`.appendTo(el);
+
+		ee(wrp)`<h4 class="ve-mt-0">Sidekick Class</h4>`;
+		const cards = ee`<div class="ve-flex" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
+		const blurb = {Expert: "5 skills + Expertise, Cunning Action, Evasion, Reliable Talent. Needs a language.", Warrior: "All armor &amp; martial weapons, Second Wind, Extra Attack, Improved Critical.", Spellcaster: "Learns spells (artificer progression: Wizard/Cleric/Bard list). Needs a language."};
+		this._data.sidekickClasses.filter(c => st.isVisible(c)).forEach(cls => {
+			const sel = sk.classUid === CW.uid(cls); const meta = SIDEKICK_META[cls.name];
+			ee`<div style="border:1px solid ${sel ? "#006bc4" : "rgba(127,127,127,.3)"};border-radius:6px;padding:10px;cursor:pointer;flex:1 1 200px;${sel ? "background:rgba(0,107,196,.10)" : ""}">
+				<b>${renderInline(`{@class ${cls.name}|${cls.source}}`)}</b>
+				<div class="ve-muted ve-small ve-mt-1">${blurb[meta?.label] || ""}</div></div>`
+				.onn("click", () => { sk.classUid = CW.uid(cls); sk.saveProf = null; sk.skillChoices = []; sk.expertiseChoices = []; sk.toolChoices = []; sk.asi = {}; sk.spellAbility = meta?.spellcaster ? "int" : null; sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); }).appendTo(cards);
+		});
+		if (!sk.classUid) return;
+		const meta = st.sidekickMeta();
+
+		// level
+		const inpLevel = ee`<input type="number" min="1" max="20" class="ve-form-control" style="width:64px" value="${st.sidekickLevel()}">`
+			.onn("change", () => { sk.level = Math.max(1, Math.min(20, parseInt(inpLevel.val(), 10) || 1)); inpLevel.val(sk.level); this._save(); this.render(); });
+		ee(wrp)`<div class="ve-flex-v-center ve-mt-3" style="gap:8px"><b>Level</b> ${inpLevel} <span class="ve-muted ve-small">proficiency +${st.sidekickProfBonus()} • hit die d${st.sidekickHitDie()} (size ${st._creatureSize()}) • HP ${st.sidekickMaxHp()}</span></div>`;
+
+		// save proficiency
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Saving Throw Proficiency <span class="ve-muted ve-small">(choose one)</span></h4>`;
+		const saveSel = ee`<select class="ve-form-control" style="width:auto"><option value="">— choose —</option></select>`;
+		meta.saves.forEach(a => ee`<option value="${a}">${CW.ABIL_FULL[a]}</option>`.appendTo(saveSel));
+		saveSel.val(sk.saveProf || ""); saveSel.onn("change", () => { sk.saveProf = saveSel.val() || null; this._save(); this.render(); });
+		ee(wrp)`<div>${saveSel} <span class="ve-muted ve-small">(keeps any saves already in the stat block)</span></div>`;
+
+		// skills
+		const creatureSkills = new Set(Object.keys(st.sidekickCreature().skill || {}).map(s => s.toLowerCase()));
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Skill Proficiencies <span class="ve-muted ve-small">(choose ${meta.skillCount})</span></h4>`;
+		if (creatureSkills.size) ee(wrp)`<div class="ve-muted ve-small ve-mb-1">Already proficient (from stat block): ${[...creatureSkills].map(s => CW.skillName(s)).join(", ").qq()}</div>`;
+		const skillPool = (meta.skillFrom || CW.skills()).filter(s => !creatureSkills.has(s)).sort();
+		const skCounter = ee`<span class="ve-muted ve-small">${sk.skillChoices.length}/${meta.skillCount}</span>`;
+		ee(wrp)`<div class="ve-mb-1">${skCounter}</div>`;
+		this._renderChipPicker(wrp, {items: skillPool, getValue: s => s, getLabel: s => `${CW.skillName(s)} <span class="ve-muted ve-small">(${CW.skillAbil(s)})</span>`, arr: sk.skillChoices, max: meta.skillCount, counterEle: skCounter});
+
+		// expertise
+		const expSlots = st.sidekickExpertiseSlots();
+		if (expSlots) {
+			ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Expertise <span class="ve-muted ve-small">(choose ${expSlots} — double proficiency)</span></h4>`;
+			const proficient = [...st.sidekickSkillProfs()].sort();
+			const expCounter = ee`<span class="ve-muted ve-small">${sk.expertiseChoices.length}/${expSlots}</span>`;
+			ee(wrp)`<div class="ve-mb-1">${expCounter}</div>`;
+			this._renderChipPicker(wrp, {items: proficient, getValue: s => s, getLabel: s => CW.skillName(s), arr: sk.expertiseChoices, max: expSlots, counterEle: expCounter});
+		}
+
+		// ASIs
+		const asiLevels = st.sidekickAsiLevels();
+		if (asiLevels.length) { ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Ability Score Improvements <span class="ve-muted ve-small">(+2 total per level, max 20)</span></h4>`; asiLevels.forEach(lv => this._renderSidekickAsi(wrp, lv)); }
+
+		// spellcasting
+		if (meta.spellcaster) this._renderSidekickSpells(wrp);
+	}
+
+	_renderSidekickAsi (wrp, lv) {
+		const st = this._state; const sk = st.sidekick;
+		const cur = sk.asi[lv] || (sk.asi[lv] = {inc: {}});
+		const spent = () => CW.ABILITIES.reduce((a, abv) => a + (cur.inc[abv] || 0), 0);
+		const box = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:60px">Level ${lv}</b></div>`.appendTo(wrp);
+		CW.ABILITIES.forEach(abv => {
+			const n = cur.inc[abv] || 0;
+			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${n <= 0 ? "disabled" : ""}>−</button>`.onn("click", () => { cur.inc[abv] = Math.max(0, n - 1); this._save(); this.render(); });
+			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${(spent() >= 2 || n >= 2 || st.sidekickAbility(abv) >= 20) ? "disabled" : ""}>+</button>`.onn("click", () => { cur.inc[abv] = n + 1; this._save(); this.render(); });
+			ee(box)`<span class="ve-flex-v-center" style="gap:2px"><span class="ve-small" style="width:26px">${abv.toUpperCase()}</span>${dec}<span class="ve-small" style="width:20px;text-align:center">+${n}</span>${inc}</span>`;
+		});
+		ee(box)`<span class="ve-muted ve-small">${2 - spent()} left</span>`;
+	}
+
+	_renderSidekickSpells (wrp) {
+		const st = this._state; const sk = st.sidekick; const prog = st.sidekickSpellProgress(); if (!prog) return;
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>Spellcasting</h4>`;
+		const abilSel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"></select>`;
+		[["int", "Wizard"], ["wis", "Cleric"], ["cha", "Bard"]].forEach(([a, list]) => ee`<option value="${a}">${CW.ABIL_FULL[a]} — ${list} list</option>`.appendTo(abilSel));
+		abilSel.val(st.sidekickSpellAbility());
+		abilSel.onn("change", () => { sk.spellAbility = abilSel.val(); sk.spellChoices = {cantrips: [], leveled: []}; this._save(); this.render(); });
+		ee(wrp)`<div class="ve-mb-2"><b>Ability:</b> ${abilSel} <span class="ve-muted ve-small">Save DC ${st.sidekickSpellSaveDc()} • attack ${CW.fmtMod(st.sidekickSpellAtk())} • slots ${this._fmtSlots(prog.slots)}</span></div>`;
+		if (prog.cantrips) this._renderSpellPicker(wrp, "Cantrips", st.sidekickSpellOptions(0), sk.spellChoices.cantrips, prog.cantrips);
+		const maxLv = st.sidekickMaxSpellLevel(); let leveled = [];
+		for (let l = 1; l <= maxLv; ++l) leveled = leveled.concat(st.sidekickSpellOptions(l));
+		this._renderSpellPicker(wrp, "Spells Known", leveled, sk.spellChoices.leveled, prog.known);
+	}
+
+	_renderSidekickReview (el) {
+		const st = this._state; const m = st.sidekickCreature();
+		const wrp = ee`<div class="cw__sheet"></div>`.appendTo(el);
+		if (!m) { ee(wrp)`<div class="cw__err">Choose a creature to begin (Creature step).</div>`; return; }
+		const cls = st.sidekickClassEnt();
+		const sub = [m.name !== st.sidekickName() ? m.name : null, cls ? `${cls.name.replace(/ Sidekick$/, "")} ${st.sidekickLevel()}` : null, `CR ${this._skCrText(m)}`, Parser.sizeAbvToFull(st._creatureSize())].filter(Boolean).join(" • ");
+		ee(wrp)`<div class="cw__sheet-head">
+			<div><div style="font-size:24px;font-weight:bold">${st.sidekickName().qq()}</div><div class="ve-muted">${sub.qq()}</div></div>
+			<div class="ve-text-right"><div><b>Proficiency Bonus</b> +${st.sidekickProfBonus()}</div><div><b>Speed</b> ${st.sidekickSpeed().qq()}</div></div>
+		</div>`;
+
+		const boxes = ee`<div class="cw__sheet-grid"></div>`.appendTo(wrp);
+		const box = (l, v) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+		box("Armor Class", st.sidekickAc() ?? "—");
+		box("Hit Points", st.sidekickMaxHp() ?? "—");
+		box("Hit Die", `d${st.sidekickHitDie()}`);
+		box("Initiative", CW.fmtMod(st.sidekickAbilityMod("dex")));
+		box("Passive Perception", 10 + st.sidekickSkillMod("perception"));
+		if (!cls) ee(wrp)`<div class="cw__err no-print ve-mt-2">Pick a sidekick class &amp; level (Class &amp; Level step) to finish the build.</div>`;
+
+		// abilities + saves
+		const secA = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		ee(secA)`<h4>Ability Scores &amp; Saving Throws</h4>`;
+		const grid = ee`<div class="cw__abil-grid"></div>`.appendTo(secA);
+		CW.ABILITIES.forEach(abv => {
+			ee(grid)`<div class="cw__abil"><div class="cw__abil-name">${abv}</div>
+				<div class="cw__abil-score">${st.sidekickAbility(abv)}</div><div class="cw__abil-mod">${CW.fmtMod(st.sidekickAbilityMod(abv))}</div>
+				<div class="cw__abil-sub">save ${CW.fmtMod(st.sidekickSaveMod(abv))}${st.sidekickSaveProfs().has(abv) ? " ●" : ""}</div></div>`;
+		});
+
+		// skills
+		const secS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+		ee(secS)`<h4>Skills <span class="ve-muted ve-small">(★ expertise, ● proficient)</span></h4>`;
+		const MARK = {expertise: "★", full: "●", none: "○"};
+		const skillWrp = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(secS);
+		CW.skills().sort().forEach(sk => ee(skillWrp)`<div style="break-inside:avoid">${MARK[st.sidekickSkillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(st.sidekickSkillMod(sk))}</b></div>`);
+
+		// senses
+		if (st.sidekickSenses()) ee(wrp)`<div class="cw__sheet-section"><h4>Senses</h4><div>${st.sidekickSenses().qq()}</div></div>`;
+
+		// spellcasting
+		if (st.sidekickIsCaster()) {
+			const prog = st.sidekickSpellProgress();
+			const spans = (arr) => (arr || []).map(u => { const i = `${u}`.lastIndexOf("|"); return i < 0 ? `${u}`.qq() : spellSpan(`${u}`.slice(0, i), `${u}`.slice(i + 1)); }).join(", ");
+			const secSp = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secSp)`<h4>Spellcasting</h4>
+				<div><b>${CW.ABIL_FULL[st.sidekickSpellAbility()]}</b> — Save DC ${st.sidekickSpellSaveDc()}, attack ${CW.fmtMod(st.sidekickSpellAtk())}, slots ${this._fmtSlots(prog?.slots)}</div>
+				<div class="ve-pl-3"><b>Cantrips:</b> ${spans(st.sidekick.spellChoices.cantrips) || "—"}</div>
+				<div class="ve-pl-3"><b>Spells:</b> ${spans(st.sidekick.spellChoices.leveled) || "—"}</div>`;
+		}
+
+		// traits & actions from the stat block
+		const monBlock = (title, arr) => {
+			if (!arr?.length) return;
+			const sec = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(sec)`<h4>${title}</h4>`;
+			arr.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
+		};
+		monBlock("Traits", m.trait);
+		monBlock("Actions", m.action);
+		monBlock("Bonus Actions", m.bonus);
+		monBlock("Reactions", m.reaction);
+
+		// class features
+		const feats = st.sidekickFeatures();
+		if (feats.length) {
+			const secF = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secF)`<h4>${(cls?.name || "Class").qq()} Features</h4>`;
+			feats.forEach(f => ee`<details style="margin:2px 0"><summary><b>L${f.level}:</b> ${f.name.qq()}</summary><div class="ve-pl-3">${renderEntries(f.entries)}</div></details>`.appendTo(secF));
+		}
 	}
 
 	/* ----- generic chooser (list + preview) ----- */
