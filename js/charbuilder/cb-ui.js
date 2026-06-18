@@ -104,7 +104,7 @@ export class CharBuilderUi {
 		// mode toggle: Character vs Sidekick
 		const mkMode = (m, label, title) => ee`<button class="ve-btn ve-btn-sm ${this._state.mode === m ? "ve-btn-primary active" : "ve-btn-default"}" title="${title}">${label}</button>`
 			.onn("click", () => { if (this._state.mode === m) return; this._state.mode = m; this._showSources = false; this._playMode = false; this.render(); this._save(); });
-		const modeToggle = ee`<div class="ve-btn-group">${mkMode("pc", "Character", "Build a player character")}${mkMode("sidekick", "Sidekick", "Build a sidekick from a CR ½-or-lower creature (Tasha's)")}</div>`;
+		const modeToggle = ee`<div class="ve-btn-group">${mkMode("pc", "Character", "Build a player character")}${mkMode("sidekick", "Sidekick", "Build a sidekick from a CR ½-or-lower (or unknown-CR) creature (Tasha's)")}</div>`;
 		const btnSources = ee`<button class="ve-btn ve-btn-default ve-btn-sm ${this._showSources ? "active" : ""}" title="Choose which books/sources appear in the builder"><span class="glyphicon glyphicon-book"></span> Sources</button>`
 			.onn("click", () => { this._showSources = !this._showSources; this._playMode = false; this.render(); });
 		const btnPlay = ee`<button class="ve-btn ${this._playMode ? "ve-btn-primary active" : "ve-btn-success"} ve-btn-sm" title="Play this character — track HP, spell slots, and roll d20 checks"><span class="glyphicon glyphicon-${this._playMode ? "edit" : "play"}"></span> ${this._playMode ? "Edit Build" : "Play"}</button>`

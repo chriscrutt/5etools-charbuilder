@@ -1988,9 +1988,18 @@ export class CharState {
 	sidekickAbilityMod (abv) { return CW.mod(this.sidekickAbility(abv)); }
 
 	// HP: creature's base HP + (size hit-die average + Con mod, min 1) per level above 1st (Tasha's)
+	// average HP from a creature's hp.formula ("2d8 + 2" → 11) — fallback when hp.average is absent (some unknown-CR/summon stat blocks)
+	_avgFromFormula (f) {
+		const m = /(\d+)\s*d\s*(\d+)\s*(?:([+-])\s*(\d+))?/i.exec(`${f || ""}`);
+		if (!m) return null;
+		const mod = m[4] ? (m[3] === "-" ? -1 : 1) * +m[4] : 0;
+		return Math.floor(+m[1] * (+m[2] + 1) / 2 + mod);
+	}
 	sidekickMaxHp () {
 		const m = this.sidekickCreature(); if (!m) return null;
-		const base = m.hp?.average ?? 0;
+		const hp = m.hp || {};
+		const base = hp.average ?? this._avgFromFormula(hp.formula) ?? (parseInt(`${hp.special || ""}`, 10) || 0); // special HP (e.g. summons "40 + …") → leading number
+
 		const avg = this.sidekickHitDie() / 2 + 0.5;
 		const perLevel = Math.max(1, Math.floor(avg + this.sidekickAbilityMod("con")));
 		return base + Math.max(0, this.sidekickLevel() - 1) * perLevel;
@@ -2387,7 +2396,7 @@ class CharBuilderPage {
 			const crMap = {"0": 0, "1/8": 0.125, "1/4": 0.25, "1/2": 0.5};
 			const crNum = (cr) => { if (cr == null) return null; const v = typeof cr === "object" ? cr.cr : cr; if (v in crMap) return crMap[v]; const n = Number(v); return Number.isNaN(n) ? null : n; };
 			return MiscUtil.copyFast(all.filter(m => {
-				const n = crNum(m.cr); if (n == null || n > 0.5) return false;
+				const n = crNum(m.cr); if (n != null && n > 0.5) return false; // keep CR ≤ ½ AND unknown-CR creatures (shown as "CR ?")
 				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BESTIARY](m);
 				return !ExcludeUtil.isExcluded(hash, "monster", m.source);
 			}));
