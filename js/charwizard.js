@@ -150,7 +150,9 @@ export class CharState {
 			arcanumUsed: {}, // mystic arcanum spell level (6-9) -> used this long rest
 			hitDiceUsed: {}, // die faces -> # of Hit Dice spent
 			deathSaves: {success: 0, fail: 0},
+			exhaustion: 0, // 0-6; 1 disadv on checks, 2 speed halved, 3 disadv on attacks/saves, 4 HP max halved, 5 speed 0, 6 death
 			conditions: [], // active condition names
+			effects: [], // free-form buffs/debuffs the character currently has (Bless, Bardic Inspiration, …)
 			concentration: null, // spell name being concentrated on (or null)
 			inspiration: false,
 			log: [], // recent roll results [{label, total, detail, ts}]
@@ -160,7 +162,7 @@ export class CharState {
 	get play () { return this._play || (this._play = this._defaultPlayState()); }
 	set play (v) { this._play = v || this._defaultPlayState(); }
 
-	playMaxHp () { return this.maxHp(); }
+	playMaxHp () { let mx = this.maxHp(); if ((this.play.exhaustion || 0) >= 4) mx = Math.floor(mx / 2); return mx; } // exhaustion 4: HP max halved
 	playCurHp () { const mx = this.playMaxHp(); const c = this.play.curHp; return c == null ? mx : Math.max(0, Math.min(c, mx)); }
 	playTempHp () { return Math.max(0, Math.floor(this.play.tempHp || 0)); }
 	// damage hits temporary HP first, then current HP (floors at 0)
@@ -212,6 +214,7 @@ export class CharState {
 		this.play.arcanumUsed = {};
 		this.play.deathSaves = {success: 0, fail: 0};
 		this.play.concentration = null;
+		this.play.exhaustion = Math.max(0, (this.play.exhaustion || 0) - 1); // a long rest removes 1 level
 		// regain spent Hit Dice up to half the total (min 1), greedily from the largest die
 		let restore = Math.max(1, Math.floor(this.hitDiceTotal() / 2));
 		const used = this.play.hitDiceUsed || {};
@@ -1857,7 +1860,7 @@ export class CharState {
 	/* Sidekick play mode (live HP / rests / resources) — separate runtime    */
 	/* ===================================================================== */
 	skPlay () { const sk = this.sidekick; if (!sk.play) sk.play = {...this._defaultPlayState(), featureUses: {}}; if (!sk.play.featureUses) sk.play.featureUses = {}; return sk.play; }
-	skMaxHp () { return this.sidekickMaxHp() || 0; }
+	skMaxHp () { let mx = this.sidekickMaxHp() || 0; if ((this.skPlay().exhaustion || 0) >= 4) mx = Math.floor(mx / 2); return mx; } // exhaustion 4: HP max halved
 	skCurHp () { const c = this.skPlay().curHp; const mx = this.skMaxHp(); return c == null ? mx : Math.max(0, Math.min(c, mx)); }
 	skTempHp () { return Math.max(0, Math.floor(this.skPlay().tempHp || 0)); }
 	skApplyDamage (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; const p = this.skPlay(); const t = this.skTempHp(); if (t > 0) { const f = Math.min(t, n); p.tempHp = t - f; n -= f; } if (n > 0) p.curHp = Math.max(0, this.skCurHp() - n); }
@@ -1903,6 +1906,7 @@ export class CharState {
 	skLongRest () {
 		const p = this.skPlay();
 		p.curHp = this.skMaxHp(); p.tempHp = 0; p.expended = {}; p.deathSaves = {success: 0, fail: 0}; p.concentration = null; p.featureUses = {};
+		p.exhaustion = Math.max(0, (p.exhaustion || 0) - 1); // a long rest removes 1 level
 		const f = this.sidekickHitDie(); const restore = Math.max(1, Math.floor(this.sidekickLevel() / 2)); const used = p.hitDiceUsed?.[f] || 0;
 		if (p.hitDiceUsed) p.hitDiceUsed[f] = Math.max(0, used - restore);
 	}
