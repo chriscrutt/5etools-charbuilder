@@ -138,7 +138,10 @@ export class CharState {
 			expended: {}, // "spellLevel" -> # of slots expended
 			pactExpended: 0, // warlock pact-magic slots expended (return on a short rest)
 			arcanumUsed: {}, // mystic arcanum spell level (6-9) -> used this long rest
+			hitDiceUsed: {}, // die faces -> # of Hit Dice spent
 			deathSaves: {success: 0, fail: 0},
+			conditions: [], // active condition names
+			concentration: null, // spell name being concentrated on (or null)
 			inspiration: false,
 			log: [], // recent roll results [{label, total, detail, ts}]
 			notes: "",
@@ -157,7 +160,7 @@ export class CharState {
 		if (temp > 0) { const fromTemp = Math.min(temp, n); this.play.tempHp = temp - fromTemp; n -= fromTemp; }
 		if (n > 0) this.play.curHp = Math.max(0, this.playCurHp() - n);
 	}
-	applyHealing (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; this.play.curHp = Math.min(this.playMaxHp(), this.playCurHp() + n); }
+	applyHealing (n) { n = Math.max(0, Math.floor(n || 0)); if (!n) return; const was = this.playCurHp(); this.play.curHp = Math.min(this.playMaxHp(), was + n); if (was === 0 && this.play.curHp > 0) this.play.deathSaves = {success: 0, fail: 0}; } // healing above 0 ends dying
 	// temp HP doesn't stack — keep whichever is higher (RAW)
 	setTempHp (n) { this.play.tempHp = Math.max(this.playTempHp(), Math.max(0, Math.floor(n || 0))); }
 	clearTempHp () { this.play.tempHp = 0; }
@@ -175,10 +178,22 @@ export class CharState {
 	pushRollLog (label, total, detail) {
 		const log = this.play.log || (this.play.log = []);
 		log.unshift({label, total, detail, ts: Date.now()});
-		if (log.length > 12) log.length = 12;
+		if (log.length > 14) log.length = 14;
 	}
 
-	shortRest () { this.play.pactExpended = 0; } // pact slots return on a short rest
+	/* ----- Hit Dice (spent to heal on a short rest) ----- */
+	hitDicePool () { const out = {}; this.classList().forEach(({cls, level}) => { const f = cls?.hd?.faces; if (f) out[f] = (out[f] || 0) + level; }); return out; }
+	hitDiceUsed (faces) { return this.play.hitDiceUsed?.[faces] || 0; }
+	hitDiceRemaining (faces) { return Math.max(0, (this.hitDicePool()[faces] || 0) - this.hitDiceUsed(faces)); }
+	spendHitDie (faces) { if (this.hitDiceRemaining(faces) <= 0) return; (this.play.hitDiceUsed = this.play.hitDiceUsed || {})[faces] = this.hitDiceUsed(faces) + 1; }
+	restoreHitDie (faces) { const u = this.hitDiceUsed(faces); if (u > 0) this.play.hitDiceUsed[faces] = u - 1; }
+	hitDiceTotal () { return Object.values(this.hitDicePool()).reduce((a, b) => a + b, 0); }
+
+	/* ----- conditions ----- */
+	addCondition (c) { const set = this.play.conditions || (this.play.conditions = []); if (c && !set.includes(c)) set.push(c); }
+	removeCondition (c) { this.play.conditions = (this.play.conditions || []).filter(x => x !== c); }
+
+	shortRest () { this.play.pactExpended = 0; } // pact slots return on a short rest (spend Hit Dice manually to heal)
 	longRest () {
 		this.play.curHp = this.playMaxHp();
 		this.play.tempHp = 0;
@@ -186,6 +201,35 @@ export class CharState {
 		this.play.pactExpended = 0;
 		this.play.arcanumUsed = {};
 		this.play.deathSaves = {success: 0, fail: 0};
+		this.play.concentration = null;
+		// regain spent Hit Dice up to half the total (min 1), greedily from the largest die
+		let restore = Math.max(1, Math.floor(this.hitDiceTotal() / 2));
+		const used = this.play.hitDiceUsed || {};
+		Object.keys(used).map(Number).sort((a, b) => b - a).forEach(f => { const take = Math.min(used[f] || 0, restore); used[f] = (used[f] || 0) - take; restore -= take; });
+		this.play.hitDiceUsed = used;
+	}
+
+	/* ----- play spellbook: the spells chosen on the build, for casting in play mode ----- */
+	playSpellbook () {
+		return this.spellSources().map(src => {
+			const bucket = this.spellChoices[src.uid] || {cantrips: [], leveled: []};
+			const cantrips = (bucket.cantrips || []).map(u => this._byUid(this._data.spells, u)).filter(Boolean);
+			const lvlMap = new Map();
+			(bucket.leveled || []).map(u => this._byUid(this._data.spells, u)).filter(Boolean).forEach(sp => lvlMap.set(`${sp.name}|${sp.source}`, sp));
+			this.subclassPreparedSpells(src).forEach(p => { if (p.sp.level > 0) lvlMap.set(`${p.sp.name}|${p.sp.source}`, p.sp); });
+			return {
+				src,
+				cantrips: cantrips.sort((a, b) => SortUtil.ascSortLower(a.name, b.name)),
+				leveled: [...lvlMap.values()].sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name)),
+			};
+		}).filter(s => s.cantrips.length || s.leveled.length);
+	}
+	// cast a leveled spell: expend the lowest available slot at or above its level. Returns the slot level used, or null.
+	castSpell (sp) {
+		for (let L = sp.level; L <= 9; ++L) { if (this.playSlotsRemaining(L) > 0) { this.expendSlot(L); return L; } }
+		// fall back to a pact slot if it's high enough
+		if (this.playPactRemaining() > 0 && this.playPactLevel() >= sp.level) { this.expendPact(); return this.playPactLevel(); }
+		return null;
 	}
 
 	/* ----- content source filter ----- */

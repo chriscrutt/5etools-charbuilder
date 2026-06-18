@@ -37,6 +37,9 @@ const SIDEKICK_TOOL_OPTIONS = [
 	"Land Vehicles", "Water Vehicles",
 ];
 
+// standard conditions for the play-mode condition tracker
+const CONDITIONS = ["Blinded", "Charmed", "Deafened", "Exhaustion", "Frightened", "Grappled", "Incapacitated", "Invisible", "Paralyzed", "Petrified", "Poisoned", "Prone", "Restrained", "Stunned", "Unconscious"];
+
 export class CharWizardUi {
 	constructor ({data, state, eleRoot, fnSave}) {
 		this._data = data;
@@ -268,23 +271,29 @@ export class CharWizardUi {
 		if (!st.classUid) { ee(wrp)`<div class="cw__err">Build your character first (choose at least a class), then switch to Play mode to track HP, spell slots, and roll checks.</div>`; return; }
 
 		const classLine = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
-		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:10px;flex-wrap:wrap">
-			<div><div style="font-size:22px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
-			<div class="ve-muted ve-small">${classLine.qq()}</div></div></div>`;
+		const star = ee`<button class="ve-btn ve-btn-sm ${st.play.inspiration ? "ve-btn-primary" : "ve-btn-default"}" title="Toggle Inspiration">${st.play.inspiration ? "★" : "☆"} Inspiration</button>`
+			.onn("click", () => { st.play.inspiration = !st.play.inspiration; this._save(); this.render(); });
+		ee(wrp)`<div class="ve-flex-v-center ve-mb-2" style="gap:12px;flex-wrap:wrap">
+			<div style="flex:1 1 auto"><div style="font-size:22px;font-weight:bold">${(st.name || "Unnamed Character").qq()}</div>
+			<div class="ve-muted ve-small">${classLine.qq()} • Lv ${st.totalLevel}</div></div>
+			${star}</div>`;
 
 		// top stat row
 		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
-		const box = (lbl, val) => ee(boxes)`<div class="cw__stat-box"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
+		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cw__stat-box ${onClick ? "cw__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
 		box("Armor Class", st.ac());
-		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}`);
-		ee(boxes)`<div class="cw__stat-box" style="cursor:pointer" title="Roll initiative">${ee`<div class="lbl">Roll Init</div><div class="val">🎲</div>`}</div>`.onn("click", () => this._d20Roll("Initiative", st.initiative(), st.initiativeAdvDis()));
+		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(st.initiativeAdvDis())}`, () => this._d20Roll("Initiative", st.initiative(), st.initiativeAdvDis()), "Click to roll initiative");
 		box("Prof. Bonus", CW.fmtMod(st.profBonus));
 		box("Passive Perc.", st.passiveScore("perception"));
-		box("Walk Speed", st.speedString());
+		box("Speed", st.speedString());
+		const srcs = st.spellSources();
+		if (srcs.length) { const s0 = srcs[0]; const atk = st.spellAtkBonusFor(s0); box("Spell DC", st.spellSaveDcFor(s0) ?? "—"); box("Spell Atk", atk == null ? "—" : CW.fmtMod(atk)); }
 
 		this._renderPlayHp(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayRests(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlaySlots(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlaySpellbook(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
@@ -297,27 +306,124 @@ export class CharWizardUi {
 		const pct = max ? Math.round((cur / max) * 100) : 0;
 		const colour = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
 		ee(sec)`<h4>Hit Points</h4>`;
-		const bar = ee`<div style="position:relative;height:26px;border:1px solid rgba(127,127,127,.4);border-radius:4px;overflow:hidden;background:rgba(127,127,127,.12)">
+		ee(sec)`<div class="ve-mb-2"><div style="position:relative;height:26px;border:1px solid rgba(127,127,127,.4);border-radius:4px;overflow:hidden;background:rgba(127,127,127,.12)">
 			<div style="position:absolute;inset:0 ${100 - pct}% 0 0;background:${colour};opacity:.55"></div>
 			<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:bold">${cur} / ${max}${temp ? ` (+${temp} temp)` : ""}</div>
-		</div>`;
-		ee(sec)`<div class="ve-mb-2">${bar}</div>`;
+		</div></div>`;
 
 		const inpAmt = ee`<input class="ve-form-control" type="number" min="0" style="width:80px" placeholder="0">`;
 		const amt = () => Math.max(0, parseInt(inpAmt.val(), 10) || 0);
-		const btnDmg = ee`<button class="ve-btn ve-btn-danger ve-btn-sm" title="Subtract from HP (temp HP first)">− Damage</button>`.onn("click", () => { st.applyDamage(amt()); inpAmt.val(""); this._save(); this.render(); });
+		const btnDmg = ee`<button class="ve-btn ve-btn-danger ve-btn-sm" title="Subtract from HP (temp HP first)">− Damage</button>`.onn("click", () => { const d = amt(); st.applyDamage(d); if (d && st.play.concentration) JqueryUtil.doToast({type: "warning", content: `Concentration: make a DC ${Math.max(10, Math.floor(d / 2))} Constitution save.`}); inpAmt.val(""); this._save(); this.render(); });
 		const btnHeal = ee`<button class="ve-btn ve-btn-success ve-btn-sm" title="Restore HP (up to max)">+ Heal</button>`.onn("click", () => { st.applyHealing(amt()); inpAmt.val(""); this._save(); this.render(); });
 		const btnTemp = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Set temporary HP (doesn't stack — keeps the higher)">Temp HP</button>`.onn("click", () => { st.setTempHp(amt()); inpAmt.val(""); this._save(); this.render(); });
 		const btnFull = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Reset to maximum HP">Full</button>`.onn("click", () => { st.applyHealing(st.playMaxHp()); st.clearTempHp(); this._save(); this.render(); });
 		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap">${inpAmt}${btnDmg}${btnHeal}${btnTemp}${btnFull}</div>`;
-		if (cur === 0) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">Unconscious — at 0 HP. Make death saving throws.</div>`;
+
+		// concentration
+		if (st.play.concentration) {
+			const row = ee`<div class="ve-flex-v-center ve-mt-2" style="gap:6px;flex-wrap:wrap"><b>Concentrating:</b> ${renderInline(`{@spell ${st.play.concentration}}`)}</div>`.appendTo(sec);
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll a Constitution save to maintain concentration">Con save ${CW.fmtMod(st.saveMod("con"))}</button>`.onn("click", () => this._d20Roll("Concentration (Con)", st.saveMod("con"), st.saveAdvDis("con")))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Drop concentration">Drop</button>`.onn("click", () => { st.play.concentration = null; this._save(); this.render(); })}`;
+		}
+
+		// death saves — shown when at 0 HP or any are marked
+		const ds = st.play.deathSaves || (st.play.deathSaves = {success: 0, fail: 0});
+		if (cur === 0 || ds.success || ds.fail) {
+			ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-2" style="display:inline-block">${cur === 0 ? "Unconscious at 0 HP — make death saving throws." : "Dying — death saves in progress."}</div>`;
+			const pip = (type, n, colour, i) => ee`<span class="cw__ds-pip" style="border:2px solid ${colour};background:${n >= i ? colour : "transparent"}" title="${type} ${i}"></span>`
+				.onn("click", () => { ds[type === "Success" ? "success" : "fail"] = (n === i ? i - 1 : i); this._save(); this.render(); });
+			const dsRow = ee`<div class="ve-flex-v-center ve-mt-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
+			ee(dsRow)`<span class="ve-small">Successes</span>${[1, 2, 3].map(i => pip("Success", ds.success, "#4caf50", i))}`;
+			ee(dsRow)`<span class="ve-small ve-ml-2">Failures</span>${[1, 2, 3].map(i => pip("Fail", ds.fail, "#f44336", i))}`;
+			ee(dsRow)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs ve-ml-2">🎲 Death Save</button>`.onn("click", () => this._rollDeathSave())}`;
+			if (ds.success >= 3) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Stable — unconscious but no longer making death saves.</div>`;
+			if (ds.fail >= 3) ee(sec)`<div class="cw__advdis cw__advdis--dis ve-mt-1" style="display:inline-block">The character has died.</div>`;
+		}
+	}
+
+	_rollDeathSave () {
+		const st = this._state; const r = this._rng(20);
+		const ds = st.play.deathSaves || (st.play.deathSaves = {success: 0, fail: 0});
+		let msg; let type = "info";
+		if (r === 20) { st.applyHealing(1); st.play.deathSaves = {success: 0, fail: 0}; msg = "natural 20 — regain 1 HP and conscious!"; type = "success"; }
+		else if (r === 1) { ds.fail = Math.min(3, ds.fail + 2); msg = "natural 1 — two failures"; type = "danger"; }
+		else if (r >= 10) { ds.success = Math.min(3, ds.success + 1); msg = "success"; type = "success"; }
+		else { ds.fail = Math.min(3, ds.fail + 1); msg = "failure"; type = "danger"; }
+		if (st.play.deathSaves.success >= 3) msg += " — stabilized";
+		if (st.play.deathSaves.fail >= 3) { msg += " — the character dies"; type = "danger"; }
+		st.pushRollLog("Death save", r, msg);
+		JqueryUtil.doToast({type, content: `Death save: rolled ${r} — ${msg}.`});
+		this._save(); this.render();
 	}
 
 	_renderPlayRests (sec) {
 		const st = this._state;
-		const btnShort = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Pact slots return">Short Rest</button>`.onn("click", () => { st.shortRest(); JqueryUtil.doToast({type: "success", content: "Short rest — pact magic slots restored."}); this._save(); this.render(); });
-		const btnLong = ee`<button class="ve-btn ve-btn-primary ve-btn-sm" title="Restore HP and all spell slots">Long Rest</button>`.onn("click", () => { st.longRest(); JqueryUtil.doToast({type: "success", content: "Long rest — HP and spell slots restored."}); this._save(); this.render(); });
-		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap"><b class="ve-mr-1">Rest:</b>${btnShort}${btnLong}</div>`;
+		ee(sec)`<h4>Rest &amp; Hit Dice</h4>`;
+		const btnShort = ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Spend Hit Dice below to heal; pact slots return">Short Rest</button>`.onn("click", () => { st.shortRest(); JqueryUtil.doToast({type: "success", content: "Short rest — spend Hit Dice to heal; pact slots restored."}); this._save(); this.render(); });
+		const btnLong = ee`<button class="ve-btn ve-btn-primary ve-btn-sm" title="Full HP, all spell slots, half your Hit Dice">Long Rest</button>`.onn("click", () => { st.longRest(); JqueryUtil.doToast({type: "success", content: "Long rest — HP, spell slots, and half your Hit Dice restored."}); this._save(); this.render(); });
+		ee(sec)`<div class="ve-flex-v-center ve-mb-2" style="gap:6px;flex-wrap:wrap">${btnShort}${btnLong}</div>`;
+		const pool = st.hitDicePool();
+		Object.keys(pool).map(Number).sort((a, b) => a - b).forEach(faces => {
+			const rem = st.hitDiceRemaining(faces); const total = pool[faces];
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px"><b style="width:42px">d${faces}</b><span class="ve-muted ve-small" style="width:42px">${rem}/${total}</span></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem ? "" : "disabled"} title="Spend a d${faces} Hit Die: roll + Con mod to heal">Spend</button>`.onn("click", () => this._spendHitDie(faces))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" ${rem < total ? "" : "disabled"} title="Restore a spent Hit Die">↺</button>`.onn("click", () => { st.restoreHitDie(faces); this._save(); this.render(); })}`;
+			row.appendTo(sec);
+		});
+	}
+
+	_spendHitDie (faces) {
+		const st = this._state; if (st.hitDiceRemaining(faces) <= 0) return;
+		st.spendHitDie(faces);
+		const r = this._rng(faces); const con = st.abilityMod("con"); const heal = Math.max(0, r + con);
+		st.applyHealing(heal);
+		st.pushRollLog(`Hit Die d${faces}`, heal, `d${faces} (${r}) ${CW.fmtMod(con)} healed`);
+		JqueryUtil.doToast({type: "success", content: `Spent a d${faces} Hit Die — healed ${heal} (rolled ${r} ${CW.fmtMod(con)}).`});
+		this._save(); this.render();
+	}
+
+	_castSpell (sp) {
+		const st = this._state;
+		const used = st.castSpell(sp);
+		if (used == null) { JqueryUtil.doToast({type: "warning", content: `No spell slot available for ${sp.name.qq()}.`}); return; }
+		if (/concentration/i.test(JSON.stringify(sp.duration || ""))) st.play.concentration = sp.name;
+		st.pushRollLog(`Cast ${sp.name}`, "⚡", `level ${used} slot${used > sp.level ? ` (upcast from ${sp.level})` : ""}`);
+		JqueryUtil.doToast({type: "info", content: `Cast ${sp.name.qq()} — expended a level ${used} slot.`});
+		this._save(); this.render();
+	}
+
+	_renderPlaySpellbook (sec) {
+		const st = this._state; const books = st.playSpellbook(); if (!books.length) return;
+		const multi = st.spellSources().length > 1;
+		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(click a leveled spell to cast)</span></h4>`;
+		books.forEach(({src, cantrips, leveled}) => {
+			if (multi) ee(sec)`<div class="ve-bold ve-small ve-mt-1">${src.name.qq()}</div>`;
+			if (cantrips.length) ee(sec)`<div class="ve-mb-1"><b class="ve-small">Cantrips:</b> ${cantrips.map(sp => refLink(UrlUtil.PG_SPELLS, sp)).join(", ")}</div>`;
+			const byLvl = {}; leveled.forEach(sp => (byLvl[sp.level] = byLvl[sp.level] || []).push(sp));
+			Object.keys(byLvl).map(Number).sort((a, b) => a - b).forEach(lvl => {
+				const wrap = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"><b class="ve-small" style="width:42px">Lv ${lvl}</b></div>`;
+				byLvl[lvl].forEach(sp => {
+					let can = false; for (let L = lvl; L <= 9; ++L) if (st.playSlotsRemaining(L) > 0) { can = true; break; }
+					if (!can && st.playPactRemaining() > 0 && st.playPactLevel() >= lvl) can = true;
+					const chip = ee`<span class="cw__spell-chip ${can ? "" : "cw__spell-chip--off"}" title="${can ? "Click to cast (expends a slot)" : "No slot available"}"><span ${hoverAttrs(UrlUtil.PG_SPELLS, sp)}>${sp.name.qq()}</span>${can ? ` <span class="ve-muted">⚡</span>` : ""}</span>`;
+					if (can) chip.onn("click", (e) => { if (e.target.closest("a")) return; this._castSpell(sp); });
+					ee(wrap)`${chip}`;
+				});
+				wrap.appendTo(sec);
+			});
+		});
+	}
+
+	_renderPlayConditions (sec) {
+		const st = this._state; const active = st.play.conditions || [];
+		ee(sec)`<h4>Conditions</h4>`;
+		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
+		if (active.length) active.forEach(c => ee(row)`<span class="cw__cond-chip">${renderInline(`{@condition ${c}}`)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { st.removeCondition(c); this._save(); this.render(); })}</span>`);
+		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add condition…</option></select>`;
+		CONDITIONS.filter(c => !active.includes(c)).forEach(c => ee`<option value="${c}">${c}</option>`.appendTo(sel));
+		sel.onn("change", () => { if (sel.val()) { st.addCondition(sel.val()); this._save(); this.render(); } });
+		ee(sec)`${sel}`;
 	}
 
 	_renderPlaySlots (sec) {

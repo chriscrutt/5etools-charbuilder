@@ -59,6 +59,18 @@
 .cw__sheet-section h4 { border-bottom: 1px solid rgba(127,127,127,.3); padding-bottom: 2px; margin-bottom: 6px; }
 .cw__chip { display: inline-block; padding: 1px 7px; margin: 2px; border-radius: 10px; background: rgba(0,107,196,.12); font-size: 12px; }
 
+/* Play mode */
+.cw__stat-box--click { cursor: pointer; }
+.cw__stat-box--click:hover { border-color: #006bc4; background: rgba(0,107,196,.08); }
+.cw__spell-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(127,127,127,.35); border-radius: 4px; padding: 1px 7px; cursor: pointer; font-size: 12px; }
+.cw__spell-chip:hover { border-color: #006bc4; background: rgba(0,107,196,.10); }
+.cw__spell-chip--off { opacity: .45; cursor: default; }
+.cw__spell-chip--off:hover { border-color: rgba(127,127,127,.35); background: transparent; }
+.cw__cond-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(217,130,43,.55); background: rgba(217,130,43,.10); border-radius: 4px; padding: 1px 7px; font-size: 12px; }
+.cw__cond-chip .cw__cond-x { cursor: pointer; opacity: .7; }
+.cw__cond-chip .cw__cond-x:hover { opacity: 1; color: #c0392b; }
+.cw__ds-pip { display: inline-block; width: 15px; height: 15px; border-radius: 50%; margin: 0 2px; cursor: pointer; vertical-align: middle; }
+
 /* Make <details> obviously expandable: rotating arrow + hover cue */
 #charwizard-main details > summary {
 	cursor: pointer; list-style: none; user-select: none;
