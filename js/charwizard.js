@@ -258,10 +258,10 @@ export class CharState {
 	turnOptions () {
 		const out = {action: [], bonus: [], reaction: []};
 		const n = this.numAttacks();
-		out.action.push({name: `Attack${n > 1 ? ` — ${n} attacks` : ""}`});
-		if (this.isCaster() || this.hasRacialSpells()) out.action.push({name: "Cast a Spell"});
+		out.action.push({action: "Attack", suffix: n > 1 ? ` (${n} attacks)` : ""});
+		if (this.isCaster() || this.hasRacialSpells()) out.action.push({action: "Cast a Spell"});
 		if (this.featuresHaveName(/^Action Surge$/)) out.action.push({name: "Action Surge — one extra action (short rest)", emph: true});
-		out.reaction.push({name: "Opportunity Attack"});
+		out.reaction.push({action: "Opportunity Attack"});
 		// spells by casting time
 		const seenSp = new Set();
 		(this.playSpellbook() || []).forEach(({cantrips, leveled}) => [...cantrips, ...leveled].forEach(sp => {
@@ -1951,9 +1951,9 @@ export class CharState {
 	sidekickTurnOptions () {
 		const out = {action: [], bonus: [], reaction: []}; const m = this.sidekickCreature();
 		const n = this.sidekickExtraAttacks();
-		out.action.push({name: `Attack${n > 1 ? ` — ${n} attacks` : ""}`});
-		if (this.sidekickIsCaster()) out.action.push({name: "Cast a Spell"});
-		out.reaction.push({name: "Opportunity Attack"});
+		out.action.push({action: "Attack", suffix: n > 1 ? ` (${n} attacks)` : ""});
+		if (this.sidekickIsCaster()) out.action.push({action: "Cast a Spell"});
+		out.reaction.push({action: "Opportunity Attack"});
 		const book = this.skSpellbook(); const seenSp = new Set();
 		if (book) [...book.cantrips, ...book.leveled].forEach(sp => { const c = this._spellCastCategory(sp); if (c !== "bonus" && c !== "reaction") return; const k = `${c}|${sp.name}`; if (seenSp.has(k)) return; seenSp.add(k); out[c].push({spell: sp}); });
 		const seenF = {bonus: new Set(), reaction: new Set()};

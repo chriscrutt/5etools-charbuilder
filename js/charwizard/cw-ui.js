@@ -299,18 +299,27 @@ export class CharWizardUi {
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
 		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip">${`${eff}`.qq()} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
-		const dl = ee`<datalist id="cw-effects-list">${PLAY_EFFECTS.map(e => `<option value="${e.qq()}"></option>`).join("")}</datalist>`;
-		const inp = ee`<input class="ve-form-control ve-input-xs" list="cw-effects-list" style="width:auto;min-width:200px" placeholder="Add a buff/effect (type or pick)…">`;
-		const add = () => { const v = `${inp.val()}`.trim(); if (v) { effects.push(v); inp.val(""); this._save(); this.render(); } };
-		inp.onn("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap">${dl}${inp}${ee`<button class="ve-btn ve-btn-default ve-btn-xs">Add</button>`.onn("click", add)}</div>`;
+		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add buff/effect…</option></select>`;
+		PLAY_EFFECTS.filter(e => !effects.includes(e)).forEach(e => ee`<option value="${e.qq()}">${e.qq()}</option>`.appendTo(sel));
+		ee`<option value="__custom__">Other (type your own)…</option>`.appendTo(sel);
+		sel.onn("change", async () => {
+			const v = sel.val(); if (!v) return;
+			if (v === "__custom__") { const c = await InputUiUtil.pGetUserString({title: "Add a buff or effect"}); if (c && `${c}`.trim()) effects.push(`${c}`.trim()); }
+			else effects.push(v);
+			this._save(); this.render();
+		});
+		ee(sec)`${sel}`;
 	}
 
 	// action-economy overview: Action / Bonus Action / Reaction (from attacks, spell casting times, and a feature scan)
 	_renderTurnOptions (sec, opts) {
 		ee(sec)`<h4>On Your Turn <span class="ve-muted ve-small">(one action + one bonus action + one reaction + movement)</span></h4>`;
 		const grid = ee`<div style="display:flex;gap:16px;flex-wrap:wrap"></div>`.appendTo(sec);
-		const label = (it) => it.spell ? refLink(UrlUtil.PG_SPELLS, it.spell) : it.feature ? (it.feature.feat ? refLink(UrlUtil.PG_FEATS, it.feature.feat) : `${it.feature.name}`.qq()) : `${it.emph ? `<b>${`${it.name}`.qq()}</b>` : `${it.name}`.qq()}`;
+		const action = (name) => renderInline(`{@action ${name}}`);
+		const label = (it) => it.action ? `${action(it.action)}${it.suffix ? ` <span class="ve-muted ve-small">${it.suffix.qq()}</span>` : ""}`
+			: it.spell ? refLink(UrlUtil.PG_SPELLS, it.spell)
+			: it.feature ? (it.feature.feat ? refLink(UrlUtil.PG_FEATS, it.feature.feat) : `${it.feature.name}`.qq())
+			: it.emph ? `<b>${`${it.name}`.qq()}</b>` : `${it.name}`.qq();
 		const col = (title, items, empty) => {
 			const c = ee`<div style="flex:1 1 180px;min-width:160px"><div class="ve-bold ve-mb-1">${title}</div></div>`.appendTo(grid);
 			if (!items.length) ee(c)`<div class="ve-muted ve-small">${empty}</div>`;
@@ -319,7 +328,8 @@ export class CharWizardUi {
 		col("Action", opts.action, "—");
 		col("Bonus Action", opts.bonus, "none detected");
 		col("Reaction", opts.reaction, "—");
-		ee(sec)`<details class="ve-small ve-mt-2"><summary class="ve-muted">Standard actions anyone can take</summary><div class="ve-pl-3">Dash, Disengage, Dodge, Help, Hide, Ready, Search, Use an Object — plus one free object interaction. Grapple and Shove are special melee attacks.</div></details>`;
+		const std = ["Dash", "Disengage", "Dodge", "Help", "Hide", "Ready", "Search", "Use an Object"].map(action).join(", ");
+		ee(sec)`<details class="ve-small ve-mt-2"><summary class="ve-muted">Standard actions anyone can take</summary><div class="ve-pl-3">${std} — plus one free object interaction. ${action("Grapple")} and ${action("Shove")} are special melee attacks.</div></details>`;
 		ee(sec)`<div class="ve-muted ve-small ve-mt-1">Bonus actions &amp; reactions come from your spells (by casting time) and a scan of your feature text — double-check the exact wording.</div>`;
 	}
 
