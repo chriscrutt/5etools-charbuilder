@@ -71,6 +71,8 @@ export class CharState {
 		this.spellChoices = {}; // classUid -> {cantrips:[], leveled:[]} (arrays of "name|source")
 		this.mysticArcanum = {}; // spellLevel(6-9) -> "name|source" (Warlock Mystic Arcanum)
 		this.raceSpellChoices = {}; // racial spell choice-group key -> [spell names]
+		this.subclassSpellChoices = {}; // subclass bonus-spell choice-group key -> [spell names] (e.g. Lore Bard Additional Magical Secrets)
+		this.bgSpellChoices = {}; // background spell choice-group key -> [spell names]
 		this.raceSpellAbility = null; // chosen ability for racial spells (when the race offers a choice)
 		this.raceSpellGroup = 0; // chosen additionalSpells variant index (when the race offers alternatives)
 		this.asiChoices = {}; // slotKey "classUid@classLevel" -> {type:"asi", plan, inc:{abv:n}} | {type:"feat", featUid, featAbilChoose:[abv]}
@@ -1311,25 +1313,44 @@ export class CharState {
 	}
 	_subclassSpellListClass (cls, sc) { return /eldritch knight|arcane trickster/i.test(sc.name) ? "Wizard" : cls.name; }
 
-	/* ----- subclass spells: always-prepared (domain/oath/circle) + expanded (warlock/sorcerer/EK) ----- */
-	// always-prepared spells from a source's subclass (keyed by class level): [{sp, level}]
-	subclassPreparedSpells (src) {
-		const out = []; const sc = src?.subclassEnt; if (!sc?.additionalSpells) return out;
-		sc.additionalSpells.forEach(as => Object.entries(as.prepared || {}).forEach(([lvl, arr]) => {
-			if (+lvl > src.level) return;
-			(Array.isArray(arr) ? arr : (arr?._ || [])).forEach(name => { if (typeof name === "string") { const sp = this._spellByName(name); if (sp) out.push({sp, level: +lvl}); } });
-		}));
-		return out;
+	/* ----- subclass spells: prepared (domain/oath/circle) + expanded (warlock/EK) + bonus known (domain cantrips) + innate (totem rituals) ----- */
+	// full parse of a source's subclass additionalSpells (gated by the class level), combining all groups
+	subclassSpellInfo (src) {
+		const sc = src?.subclassEnt; const groups = sc?.additionalSpells; if (!groups?.length) return null;
+		const acc = {knownFixed: [], knownChoose: [], innate: [], prepared: [], expanded: []};
+		groups.forEach((as, gi) => { const p = this._parseAdditionalSpellGroup(as, src.level, `sc${gi}:`); Object.keys(acc).forEach(k => acc[k].push(...p[k])); });
+		return acc;
 	}
-	// spell names added to the pickable list (keyed by spell level "sN"), e.g. Warlock patron / EK
-	subclassExpandedSpells (src) {
-		const out = []; const sc = src?.subclassEnt; if (!sc?.additionalSpells) return out;
-		const maxLvl = this.maxSpellLevelForSource(src);
-		sc.additionalSpells.forEach(as => Object.entries(as.expanded || {}).forEach(([key, arr]) => {
-			const spLvl = parseInt(`${key}`.replace(/[^0-9]/g, ""), 10) || 0;
-			if (spLvl > maxLvl) return;
-			(arr || []).forEach(name => { if (typeof name === "string") { const sp = this._spellByName(name); if (sp) out.push(sp); } });
-		}));
+	// subclass spell info for every class (incl. non-casters like Totem Barbarian) — for the review sheet
+	classSubclassSpellInfos () {
+		return this.classList().map(c => {
+			if (!c.subclassEnt?.additionalSpells?.length) return null;
+			const pseudo = {subclassEnt: c.subclassEnt, level: c.level};
+			const info = this.subclassSpellInfo(pseudo);
+			const has = info && (info.knownFixed.length || info.knownChoose.length || info.innate.length || info.prepared.length || info.expanded.length);
+			return has ? {cls: c.cls, subclass: c.subclassEnt, level: c.level, ability: c.cls.spellcastingAbility || null, info} : null;
+		}).filter(Boolean);
+	}
+	// always-prepared spells from a source's subclass (keyed by class level): [{sp, level}]
+	subclassPreparedSpells (src) { return this.subclassSpellInfo(src)?.prepared || []; }
+	// spell objects added to the pickable list (gated by castable spell level), e.g. Warlock patron / EK
+	subclassExpandedSpells (src) { const i = this.subclassSpellInfo(src); if (!i) return []; const maxLvl = this.maxSpellLevelForSource(src); return i.expanded.filter(e => e.spellLevel <= maxLvl).map(e => e.sp); }
+
+	/* ----- background-granted spells (Ravnica guilds, Strixhaven) — mostly "expanded" added to your spell list ----- */
+	backgroundSpellsInfo () {
+		const groups = this.backgroundEnt?.additionalSpells; if (!groups?.length) return null;
+		const acc = {knownFixed: [], knownChoose: [], innate: [], prepared: [], expanded: []};
+		groups.forEach((as, gi) => { const p = this._parseAdditionalSpellGroup(as, this.level, `bg${gi}:`); Object.keys(acc).forEach(k => acc[k].push(...p[k])); });
+		acc.ability = groups.find(g => typeof g.ability === "string")?.ability || null;
+		return acc;
+	}
+
+	// expanded spells granted to the whole character (not subclass-specific): background guilds + racial dragonmarks + feats
+	_nonSubclassExpandedSpells () {
+		const out = [];
+		const bg = this.backgroundSpellsInfo(); if (bg) out.push(...bg.expanded);
+		const rs = this.racialSpellsInfo(); if (rs) out.push(...rs.expanded);
+		this.featSpellSources().forEach(({info}) => { if (info) out.push(...info.expanded); });
 		return out;
 	}
 	isCaster () { return this.spellSources().length > 0; }
@@ -1418,10 +1439,14 @@ export class CharState {
 	}
 	spellListForSource (src) {
 		const base = this._data.spells.filter(sp => this.isVisible(sp) && (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName));
-		const expanded = this.subclassExpandedSpells(src);
+		const maxLvl = this.maxSpellLevelForSource(src);
+		const expanded = [
+			...this.subclassExpandedSpells(src),
+			...this._nonSubclassExpandedSpells().filter(e => e.spellLevel <= maxLvl).map(e => e.sp),
+		];
 		if (!expanded.length) return base;
 		const seen = new Set(base.map(s => `${s.name}|${s.source}`));
-		return [...base, ...expanded.filter(s => { const k = `${s.name}|${s.source}`; if (seen.has(k)) return false; seen.add(k); return true; })];
+		return [...base, ...expanded.filter(s => { if (!this.isVisible(s)) return false; const k = `${s.name}|${s.source}`; if (seen.has(k)) return false; seen.add(k); return true; })];
 	}
 
 	// per-source spell choices bucket {cantrips:[], leveled:[]}
@@ -1433,7 +1458,7 @@ export class CharState {
 	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === spLvl && (sp.classes?.fromClassList || []).some(c => c.name === "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
 
 	/* ----- racial spellcasting (additionalSpells) ----- */
-	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].trim().toLowerCase()) || null; }
+	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].split("|")[0].trim().toLowerCase()) || null; }
 
 	hasRacialSpells () { return !!this.raceEnt?.additionalSpells?.length; }
 
@@ -1450,10 +1475,10 @@ export class CharState {
 	// parse a 5etools spell-choose filter like "level=0|class=Wizard" or "level=1|school=E;D"
 	racialSpellOptions (filter) {
 		const params = {}; `${filter}`.split("|").forEach(p => { const [k, v] = p.split("="); if (k) params[k.trim()] = (v || "").trim(); });
-		const lvl = params.level != null && params.level !== "" ? +params.level : null;
+		const levels = params.level != null && params.level !== "" ? `${params.level}`.split(";").map(s => +s.trim()).filter(s => !Number.isNaN(s)) : null; // "level=0;1;2;3" (Lore Bard secrets)
 		const cls = params.class ? params.class.toLowerCase() : null;
 		const schools = params.school ? params.school.toLowerCase().split(";").map(s => s.trim()).filter(Boolean) : null;
-		return this._data.spells.filter(sp => this.isVisible(sp) && (lvl == null || sp.level === lvl) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!schools || schools.includes(`${sp.school}`.toLowerCase())));
+		return this._data.spells.filter(sp => this.isVisible(sp) && (!levels || levels.includes(sp.level)) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!schools || schools.includes(`${sp.school}`.toLowerCase())));
 	}
 
 	// multiple additionalSpells groups are alternatives the character picks ONE of (e.g. Astral Elf cantrip, Tiefling legacy)
@@ -1470,33 +1495,53 @@ export class CharState {
 		return [...new Set(names)].slice(0, 3).map(n => n.toTitleCase()).join(", ") || "Option";
 	}
 
-	// shared parser for one additionalSpells variant group -> {knownFixed:[sp], knownChoose:[{key,filter,count,freq?}], innate:[{sp,freq,level}]}
-	// "known" spells gated by a frequency (rest/daily/will) are treated as innate; {choose} entries (in known OR innate) become knownChoose picks.
+	// shared parser for one additionalSpells variant group ->
+	//   {knownFixed:[sp], knownChoose:[{key,filter,count,freq?,prepared?}], innate:[{sp,freq,level}], prepared:[{sp,level}], expanded:[{sp,spellLevel}]}
+	// "known"/"prepared" spells gated by a frequency (rest/daily/will/ritual) are treated as innate; {choose} entries become knownChoose picks.
+	// "prepared" = always-prepared (free, cast with your slots, gated by level); "expanded" = added to your spell list (keyed by spell level "sN").
 	_parseAdditionalSpellGroup (as, charLevel, keyPrefix) {
-		const knownFixed = []; const knownChoose = []; const innate = [];
+		const knownFixed = []; const knownChoose = []; const innate = []; const prepared = []; const expanded = [];
 		const lvlOk = (l) => l === "_" || +l <= charLevel; // "_" = always (no level gate); numeric = gained at that character level
 		const lvlNum = (l) => (l === "_" ? 0 : +l) || 0;
-		const cleanPer = (per) => `${per}`.replace(/e$/, "");
-		Object.entries(as.known || {}).forEach(([charLvl, val]) => {
-			if (!lvlOk(charLvl)) return;
-			const entry = (it, ix, freq) => {
-				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: lvlNum(charLvl)}); else knownFixed.push(sp); } else if (it.choose) knownChoose.push({key: `${keyPrefix}${charLvl}:${ix}`, filter: it.choose, count: it.count || 1, freq});
-			};
-			if (Array.isArray(val)) val.forEach((it, ix) => entry(it, ix));
-			else {
-				(val._ || []).forEach((it, ix) => entry(it, ix));
-				(val.will || []).forEach((s, ix) => entry(s, `w${ix}`, "at will"));
-				Object.entries(val.rest || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, `r${per}.${ix}`, `${cleanPer(per)}/rest`)));
-				Object.entries(val.daily || {}).forEach(([per, arr]) => (arr || []).forEach((s, ix) => entry(s, `d${per}.${ix}`, `${cleanPer(per)}/day`)));
-			}
+		const per = (p) => `${p}`.replace(/e$/, "");
+		// walk a value that is either a plain array, or a frequency-shaped object {_, will, ritual, rest:{}, daily:{}}.
+		// onItem(it, freq|null, subKey) — freq null means "no frequency" (free/always).
+		const walk = (val, onItem) => {
+			if (Array.isArray(val)) { val.forEach((it, ix) => onItem(it, null, `${ix}`)); return; }
+			(val._ || []).forEach((it, ix) => onItem(it, null, `${ix}`));
+			(val.will || []).forEach((it, ix) => onItem(it, "at will", `w${ix}`));
+			(val.ritual || []).forEach((it, ix) => onItem(it, "ritual", `rit${ix}`));
+			Object.entries(val.rest || {}).forEach(([p, a]) => (a || []).forEach((it, ix) => onItem(it, `${per(p)}/rest`, `r${p}.${ix}`)));
+			Object.entries(val.daily || {}).forEach(([p, a]) => (a || []).forEach((it, ix) => onItem(it, `${per(p)}/day`, `d${p}.${ix}`)));
+		};
+		Object.entries(as.known || {}).forEach(([lvlKey, val]) => {
+			if (!lvlOk(lvlKey)) return;
+			walk(val, (it, freq, subKey) => {
+				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: lvlNum(lvlKey)}); else knownFixed.push(sp); }
+				else if (it?.choose) knownChoose.push({key: `${keyPrefix}${lvlKey}:${subKey}`, filter: it.choose, count: it.count || 1, freq});
+			});
 		});
-		Object.entries(as.innate || {}).forEach(([charLvl, val]) => {
-			if (!lvlOk(charLvl)) return;
-			const handle = (it, freq, ix) => { if (typeof it === "string") { const sp = this._spellByName(it); if (sp) innate.push({sp, freq, level: lvlNum(charLvl)}); } else if (it?.choose) knownChoose.push({key: `${keyPrefix}i${charLvl}:${ix}`, filter: it.choose, count: it.count || 1, freq}); };
-			if (Array.isArray(val)) val.forEach((s, ix) => handle(s, "at will", ix));
-			else { Object.entries(val.daily || {}).forEach(([per, a]) => a.forEach((s, ix) => handle(s, `${cleanPer(per)}/day`, `d${per}.${ix}`))); Object.entries(val.rest || {}).forEach(([per, a]) => a.forEach((s, ix) => handle(s, `${cleanPer(per)}/rest`, `r${per}.${ix}`))); (val.will || []).forEach((s, ix) => handle(s, "at will", `w${ix}`)); }
+		Object.entries(as.innate || {}).forEach(([lvlKey, val]) => {
+			if (!lvlOk(lvlKey)) return;
+			walk(val, (it, freq, subKey) => {
+				const f = freq || "at will";
+				if (typeof it === "string") { const sp = this._spellByName(it); if (sp) innate.push({sp, freq: f, level: lvlNum(lvlKey)}); }
+				else if (it?.choose) knownChoose.push({key: `${keyPrefix}i${lvlKey}:${subKey}`, filter: it.choose, count: it.count || 1, freq: f});
+			});
 		});
-		return {knownFixed, knownChoose, innate};
+		Object.entries(as.prepared || {}).forEach(([lvlKey, val]) => {
+			if (!lvlOk(lvlKey)) return;
+			walk(val, (it, freq, subKey) => {
+				if (typeof it === "string") { const sp = this._spellByName(it); if (!sp) return; if (freq) innate.push({sp, freq, level: lvlNum(lvlKey)}); else prepared.push({sp, level: lvlNum(lvlKey)}); }
+				else if (it?.choose) knownChoose.push({key: `${keyPrefix}p${lvlKey}:${subKey}`, filter: it.choose, count: it.count || 1, freq, prepared: !freq});
+			});
+		});
+		// expanded: spells added to your pickable list, keyed by spell level "sN"
+		Object.entries(as.expanded || {}).forEach(([key, arr]) => {
+			const spellLevel = parseInt(`${key}`.replace(/[^0-9]/g, ""), 10) || 0;
+			(arr || []).forEach(it => { if (typeof it === "string") { const sp = this._spellByName(it); if (sp) expanded.push({sp, spellLevel}); } });
+		});
+		return {knownFixed, knownChoose, innate, prepared, expanded};
 	}
 
 	// { ability, abilityChoices, knownFixed, knownChoose, innate, groupCount } from the race's selected variant.
@@ -1553,6 +1598,8 @@ export class CharState {
 			equipmentChoices: this.equipmentChoices,
 			spellChoices: this.spellChoices,
 			raceSpellChoices: this.raceSpellChoices,
+			subclassSpellChoices: this.subclassSpellChoices,
+			bgSpellChoices: this.bgSpellChoices,
 			raceSpellAbility: this.raceSpellAbility,
 			raceSpellGroup: this.raceSpellGroup,
 			mysticArcanum: this.mysticArcanum,
@@ -1614,6 +1661,8 @@ export class CharState {
 			equipmentChoices: j.equipmentChoices ?? {},
 			spellChoices,
 			raceSpellChoices: j.raceSpellChoices ?? {},
+			subclassSpellChoices: j.subclassSpellChoices ?? {},
+			bgSpellChoices: j.bgSpellChoices ?? {},
 			raceSpellAbility: j.raceSpellAbility ?? null,
 			raceSpellGroup: j.raceSpellGroup ?? 0,
 			mysticArcanum: j.mysticArcanum ?? {},

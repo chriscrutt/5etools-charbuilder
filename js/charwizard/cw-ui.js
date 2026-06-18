@@ -1379,6 +1379,8 @@ export class CharWizardUi {
 			// always-prepared subclass spells (domain/oath/circle) — free, don't count against the limit
 			const prepared = st.subclassPreparedSpells(src);
 			if (prepared.length) ee(wrp)`<div class="ve-mb-2"><b>Always prepared <span class="ve-muted ve-small">(${(src.subclassEnt?.name || "subclass").qq()})</span>:</b> ${prepared.map(p => refLink(UrlUtil.PG_SPELLS, p.sp)).join(", ")}</div>`;
+			// subclass bonus known cantrips/spells + innate + free choices (Light domain cantrip, Lore Bard secrets)
+			this._renderSubclassBonusSpells(wrp, src);
 			const bucket = st.spellChoicesFor(src.uid);
 			const all = st.spellListForSource(src);
 			const cantrips = dedupe(all.filter(s => s.level === 0).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)));
@@ -1403,7 +1405,41 @@ export class CharWizardUi {
 		}
 
 		if (st.hasRacialSpells()) this._renderRacialSpells(wrp);
+		this._renderBackgroundSpells(wrp);
 		if (!sources.length && !st.hasRacialSpells()) ee(wrp)`<p class="ve-muted">No spellcasting.</p>`;
+	}
+
+	// shared chip picker for a parsed {choose} spell group, storing picks in `store[g.key]`
+	_renderSpellChooseGroup (wrp, g, store, labelSuffix) {
+		const st = this._state;
+		if (!store[g.key]) store[g.key] = [];
+		const arr = store[g.key];
+		const seen = new Set();
+		const opts = st.racialSpellOptions(g.filter).filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }).sort((a, b) => (a.level - b.level) || SortUtil.ascSortLower(a.name, b.name));
+		const counter = ee`<span class="ve-muted ve-small">${arr.length}/${g.count}</span>`;
+		ee(wrp)`<div class="ve-mt-1"><b>Choose ${g.count} spell${g.count > 1 ? "s" : ""}</b>${labelSuffix ? ` <span class="ve-muted ve-small">${labelSuffix.qq()}</span>` : ""} (${counter}):</div>`;
+		this._renderChipPicker(wrp, {items: opts, getValue: sp => sp.name, getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${refLink(UrlUtil.PG_SPELLS, sp)}`, arr, max: g.count, counterEle: counter, gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:200px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px"});
+	}
+
+	_renderSubclassBonusSpells (wrp, src) {
+		const st = this._state; const info = st.subclassSpellInfo(src); if (!info) return;
+		const scName = src.subclassEnt?.name || "subclass";
+		const sl = (sp) => refLink(UrlUtil.PG_SPELLS, sp);
+		if (info.knownFixed.length) ee(wrp)`<div class="ve-mb-1"><b>Bonus spells <span class="ve-muted ve-small">(${scName.qq()})</span>:</b> ${info.knownFixed.map(sl).join(", ")}</div>`;
+		if (info.innate.length) ee(wrp)`<div class="ve-mb-1"><b>Innate <span class="ve-muted ve-small">(${scName.qq()})</span>:</b> ${info.innate.map(i => `${sl(i.sp)} <span class="ve-muted ve-small">(${i.freq})</span>`).join(", ")}</div>`;
+		info.knownChoose.forEach(g => this._renderSpellChooseGroup(wrp, g, st.subclassSpellChoices, `(${scName})`));
+	}
+
+	_renderBackgroundSpells (wrp) {
+		const st = this._state; const info = st.backgroundSpellsInfo(); if (!info) return;
+		if (!(info.knownFixed.length || info.innate.length || info.knownChoose.length || info.expanded.length)) return;
+		const sl = (sp) => refLink(UrlUtil.PG_SPELLS, sp);
+		ee(wrp)`<hr class="hr-2 ve-mt-3"><h4>${st.backgroundEnt.name.qq()} — Background Spells</h4>`;
+		if (info.ability) ee(wrp)`<div class="ve-mb-1"><b>Spellcasting ability:</b> ${CW.ABIL_FULL[info.ability] || info.ability}</div>`;
+		if (info.knownFixed.length) ee(wrp)`<div class="ve-mb-1"><b>Known:</b> ${info.knownFixed.map(sl).join(", ")}</div>`;
+		if (info.innate.length) ee(wrp)`<div class="ve-mb-1"><b>Innate:</b> ${info.innate.map(i => `${sl(i.sp)} <span class="ve-muted ve-small">(${i.freq})</span>`).join(", ")}</div>`;
+		if (info.expanded.length) ee(wrp)`<div class="ve-mb-1"><b>Added to your spell list:</b> ${info.expanded.map(e => sl(e.sp)).join(", ")} <span class="ve-muted ve-small">(those you can cast appear in the pickers above)</span></div>`;
+		info.knownChoose.forEach(g => this._renderSpellChooseGroup(wrp, g, st.bgSpellChoices, `(${st.backgroundEnt.name})`));
 	}
 
 	_renderRacialSpells (wrp) {
@@ -1639,9 +1675,38 @@ export class CharWizardUi {
 			if (arcanum.length) ee(secSp)`<div class="ve-mt-1"><b>Mystic Arcanum:</b> ${spellSpans(arcanum)}</div>`;
 		}
 
+		// subclass-granted bonus spells (domain cantrips, Lore secrets, Totem rituals) — covers non-caster subclasses too
+		const scSpellInfos = st.classSubclassSpellInfos().map(o => {
+			const chosen = o.info.knownChoose.flatMap(g => (st.subclassSpellChoices[g.key] || []).map(n => st._spellByName(n)).filter(Boolean));
+			return {...o, chosen, show: o.info.knownFixed.length || o.info.innate.length || chosen.length};
+		}).filter(o => o.show);
+		if (scSpellInfos.length) {
+			const secScS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			ee(secScS)`<h4>Subclass Spells</h4>`;
+			scSpellInfos.forEach(o => {
+				const known = [...o.info.knownFixed, ...o.chosen].map(sp => spellSpan(sp.name, sp.source));
+				ee(secScS)`<div class="ve-mt-1"><b>${o.subclass.name.qq()}</b> <span class="ve-muted ve-small">(${o.cls.name.qq()})</span></div>
+					${known.length ? `<div class="ve-pl-3"><b>Bonus spells:</b> ${known.join(", ")}</div>` : ""}
+					${o.info.innate.length ? `<div class="ve-pl-3"><b>Innate:</b> ${o.info.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} <span class="ve-muted ve-small">(${i.freq.qq()})</span>`).join(", ")}</div>` : ""}`;
+			});
+		}
+
+		// background-granted spells (Ravnica guilds, Strixhaven)
+		const bgsi = st.backgroundSpellsInfo();
+		if (bgsi && (bgsi.knownFixed.length || bgsi.innate.length || bgsi.expanded.length || bgsi.knownChoose.length)) {
+			const secBgS = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
+			const chosen = bgsi.knownChoose.flatMap(g => (st.bgSpellChoices[g.key] || []).map(n => st._spellByName(n)).filter(Boolean));
+			const known = [...bgsi.knownFixed, ...chosen].map(sp => spellSpan(sp.name, sp.source));
+			ee(secBgS)`<h4>${st.backgroundEnt.name.qq()} Background Spells</h4>
+				${bgsi.ability ? `<div><b>Ability:</b> ${CW.ABIL_FULL[bgsi.ability] || bgsi.ability}</div>` : ""}
+				${known.length ? `<div><b>Known:</b> ${known.join(", ")}</div>` : ""}
+				${bgsi.innate.length ? `<div><b>Innate:</b> ${bgsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq.qq()})`).join(", ")}</div>` : ""}
+				${bgsi.expanded.length ? `<div><b>Added to your spell list:</b> ${bgsi.expanded.map(e => spellSpan(e.sp.name, e.sp.source)).join(", ")}</div>` : ""}`;
+		}
+
 		// racial (innate) spellcasting
 		const rsi = st.hasRacialSpells() ? st.racialSpellsInfo() : null;
-		if (rsi && (rsi.knownFixed.length || rsi.innate.length || rsi.knownChoose.length)) {
+		if (rsi && (rsi.knownFixed.length || rsi.innate.length || rsi.knownChoose.length || rsi.prepared.length || rsi.expanded.length)) {
 			const secR = ee`<div class="cw__sheet-section"></div>`.appendTo(wrp);
 			const chosenRacial = rsi.knownChoose.flatMap(g => st.raceSpellChoices[g.key] || []);
 			const knownSpans = [
@@ -1651,7 +1716,9 @@ export class CharWizardUi {
 			ee(secR)`<h4>${st.raceEnt.name.qq()} Innate Spellcasting</h4>
 				${rsi.ability ? `<div><b>Ability:</b> ${CW.ABIL_FULL[rsi.ability]} &nbsp; <b>Save DC:</b> ${st.racialSpellSaveDc() ?? "—"}</div>` : ""}
 				${knownSpans.length ? `<div><b>Known:</b> ${knownSpans.join(", ")}</div>` : ""}
-				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq})`).join(", ")}</div>` : ""}`;
+				${rsi.innate.length ? `<div><b>Innate:</b> ${rsi.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} (${i.freq})`).join(", ")}</div>` : ""}
+				${rsi.prepared.length ? `<div><b>Always prepared:</b> ${rsi.prepared.map(p => spellSpan(p.sp.name, p.sp.source)).join(", ")}</div>` : ""}
+				${rsi.expanded.length ? `<div><b>Added to your spell list:</b> ${rsi.expanded.map(e => spellSpan(e.sp.name, e.sp.source)).join(", ")}</div>` : ""}`;
 		}
 
 		// feat-granted spells (Magic Initiate, Fey Touched, …)
@@ -1665,7 +1732,9 @@ export class CharWizardUi {
 				const dc = st.featSpellSaveDc(info.ability);
 				ee(secFS)`<div class="ve-mt-1"><b>${feat.name.qq()}</b>${info.ability ? ` <span class="ve-muted ve-small">— ${CW.ABIL_FULL[info.ability] || info.ability}${dc != null ? `, DC ${dc}` : ""}</span>` : ""}</div>
 					${known.length ? `<div class="ve-pl-3"><b>Spells:</b> ${known.join(", ")}</div>` : ""}
-					${info.innate.length ? `<div class="ve-pl-3"><b>Innate:</b> ${info.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} <span class="ve-muted ve-small">(${i.freq.qq()})</span>`).join(", ")}</div>` : ""}`;
+					${info.prepared.length ? `<div class="ve-pl-3"><b>Always prepared:</b> ${info.prepared.map(p => spellSpan(p.sp.name, p.sp.source)).join(", ")}</div>` : ""}
+					${info.innate.length ? `<div class="ve-pl-3"><b>Innate:</b> ${info.innate.map(i => `${spellSpan(i.sp.name, i.sp.source)} <span class="ve-muted ve-small">(${i.freq.qq()})</span>`).join(", ")}</div>` : ""}
+					${info.expanded.length ? `<div class="ve-pl-3"><b>Added to your spell list:</b> ${info.expanded.map(e => spellSpan(e.sp.name, e.sp.source)).join(", ")}</div>` : ""}`;
 			});
 		}
 
