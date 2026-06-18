@@ -1634,6 +1634,8 @@ export class CharState {
 
 	/* ----- racial spellcasting (additionalSpells) ----- */
 	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].split("|")[0].trim().toLowerCase()) || null; }
+	// exact spell lookup for a buff/effect label (no #/| stripping, so only true spell names resolve)
+	effectSpell (name) { return this._data.spellIndexByName?.get(`${name}`.trim().toLowerCase()) || null; }
 
 	hasRacialSpells () { return !!this.raceEnt?.additionalSpells?.length; }
 

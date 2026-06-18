@@ -45,7 +45,7 @@ const EXHAUSTION_EFFECTS = ["", "Disadvantage on ability checks", "Speed halved"
 const PLAY_EFFECTS = [
 	"Bardic Inspiration", "Bless", "Bane", "Guidance", "Resistance", "Aid", "Heroism", "Enhance Ability",
 	"Haste", "Slow", "Hex", "Hunter's Mark", "Hexblade's Curse", "Faerie Fire", "Divine Favor", "Hold Person",
-	"Shield of Faith", "Mage Armor", "Mirror Image", "Blur", "Enlarge", "Reduce", "Sanctuary", "Spirit Guardians",
+	"Shield of Faith", "Mage Armor", "Mirror Image", "Blur", "Enlarge/Reduce", "Sanctuary", "Spirit Guardians",
 	"Protection from Evil and Good", "Death Ward", "Freedom of Movement", "Stoneskin", "Foresight",
 ];
 
@@ -297,7 +297,8 @@ export class CharWizardUi {
 		const effects = play.effects || (play.effects = []);
 		ee(sec)`<h4>Buffs &amp; Effects <span class="ve-muted ve-small">(Bless, Bardic Inspiration, Hex…)</span></h4>`;
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
-		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip">${`${eff}`.qq()} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
+		const effLabel = (eff) => { const sp = this._state.effectSpell(eff); return sp ? refLink(UrlUtil.PG_SPELLS, sp) : `${eff}`.qq(); };
+		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip">${effLabel(eff)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add buff/effect…</option></select>`;
 		PLAY_EFFECTS.filter(e => !effects.includes(e)).forEach(e => ee`<option value="${e.qq()}">${e.qq()}</option>`.appendTo(sel));
