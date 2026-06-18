@@ -245,6 +245,42 @@ export class CharState {
 		return null;
 	}
 
+	/* ----- action economy: what you can do on your turn ----- */
+	_spellCastCategory (sp) { const u = sp?.time?.[0]?.unit; return u === "action" ? "action" : u === "bonus" ? "bonus" : u === "reaction" ? "reaction" : "other"; }
+	// features that grant a bonus action / reaction (heuristic scan; "action" is omitted as Attack/Cast-a-Spell already cover it)
+	_featureActionKinds (entries) {
+		const t = JSON.stringify(entries || "").toLowerCase(); const out = [];
+		if (/\bbonus action\b/.test(t)) out.push("bonus");
+		if (/\breaction\b/.test(t)) out.push("reaction");
+		return out;
+	}
+	// {action, bonus, reaction} lists of {name?|spell?|feature?} for the PC's turn
+	turnOptions () {
+		const out = {action: [], bonus: [], reaction: []};
+		const n = this.numAttacks();
+		out.action.push({name: `Attack${n > 1 ? ` — ${n} attacks` : ""}`});
+		if (this.isCaster() || this.hasRacialSpells()) out.action.push({name: "Cast a Spell"});
+		if (this.featuresHaveName(/^Action Surge$/)) out.action.push({name: "Action Surge — one extra action (short rest)", emph: true});
+		out.reaction.push({name: "Opportunity Attack"});
+		// spells by casting time
+		const seenSp = new Set();
+		(this.playSpellbook() || []).forEach(({cantrips, leveled}) => [...cantrips, ...leveled].forEach(sp => {
+			const cat = this._spellCastCategory(sp); if (cat !== "bonus" && cat !== "reaction") return;
+			const k = `${cat}|${sp.name}`; if (seenSp.has(k)) return; seenSp.add(k); out[cat].push({spell: sp});
+		}));
+		// features
+		const seenF = {bonus: new Set(), reaction: new Set()};
+		this._turnFeatures().forEach(f => this._featureActionKinds(f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
+		return out;
+	}
+	featuresHaveName (re) { return this.featureSections().some(s => s.items.some(f => re.test(f.name))); }
+	_turnFeatures () {
+		const out = [];
+		this.featureSections().forEach(sec => sec.items.forEach(f => out.push({name: f.name, entries: f.entries})));
+		this.featsTaken().forEach(ft => { const f = this._data.feats.find(x => CW.uid(x) === ft.featUid); if (f) out.push({name: f.name, entries: f.entries, feat: f}); });
+		return out;
+	}
+
 	/* ----- content source filter ----- */
 	// books wholly superseded by a newer 2014-rules book (Volo's + Mordenkainen's -> Monsters of the Multiverse; Elemental Evil -> MPMM/XGE)
 	static _LEGACY_CLASSIC_SOURCES = new Set(["VGM", "MTF", "EEPC"]);
@@ -1909,6 +1945,22 @@ export class CharState {
 		p.exhaustion = Math.max(0, (p.exhaustion || 0) - 1); // a long rest removes 1 level
 		const f = this.sidekickHitDie(); const restore = Math.max(1, Math.floor(this.sidekickLevel() / 2)); const used = p.hitDiceUsed?.[f] || 0;
 		if (p.hitDiceUsed) p.hitDiceUsed[f] = Math.max(0, used - restore);
+	}
+
+	// {action, bonus, reaction} for the sidekick's turn
+	sidekickTurnOptions () {
+		const out = {action: [], bonus: [], reaction: []}; const m = this.sidekickCreature();
+		const n = this.sidekickExtraAttacks();
+		out.action.push({name: `Attack${n > 1 ? ` — ${n} attacks` : ""}`});
+		if (this.sidekickIsCaster()) out.action.push({name: "Cast a Spell"});
+		out.reaction.push({name: "Opportunity Attack"});
+		const book = this.skSpellbook(); const seenSp = new Set();
+		if (book) [...book.cantrips, ...book.leveled].forEach(sp => { const c = this._spellCastCategory(sp); if (c !== "bonus" && c !== "reaction") return; const k = `${c}|${sp.name}`; if (seenSp.has(k)) return; seenSp.add(k); out[c].push({spell: sp}); });
+		const seenF = {bonus: new Set(), reaction: new Set()};
+		this.sidekickFeatures().forEach(f => this._featureActionKinds(f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
+		(m?.bonus || []).forEach(a => out.bonus.push({name: a.name}));
+		(m?.reaction || []).forEach(a => out.reaction.push({name: a.name}));
+		return out;
 	}
 
 	/* ----- serialization ----- */

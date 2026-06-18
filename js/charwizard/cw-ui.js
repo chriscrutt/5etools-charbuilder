@@ -306,6 +306,23 @@ export class CharWizardUi {
 		ee(sec)`<div class="ve-flex-v-center" style="gap:6px;flex-wrap:wrap">${dl}${inp}${ee`<button class="ve-btn ve-btn-default ve-btn-xs">Add</button>`.onn("click", add)}</div>`;
 	}
 
+	// action-economy overview: Action / Bonus Action / Reaction (from attacks, spell casting times, and a feature scan)
+	_renderTurnOptions (sec, opts) {
+		ee(sec)`<h4>On Your Turn <span class="ve-muted ve-small">(one action + one bonus action + one reaction + movement)</span></h4>`;
+		const grid = ee`<div style="display:flex;gap:16px;flex-wrap:wrap"></div>`.appendTo(sec);
+		const label = (it) => it.spell ? refLink(UrlUtil.PG_SPELLS, it.spell) : it.feature ? (it.feature.feat ? refLink(UrlUtil.PG_FEATS, it.feature.feat) : `${it.feature.name}`.qq()) : `${it.emph ? `<b>${`${it.name}`.qq()}</b>` : `${it.name}`.qq()}`;
+		const col = (title, items, empty) => {
+			const c = ee`<div style="flex:1 1 180px;min-width:160px"><div class="ve-bold ve-mb-1">${title}</div></div>`.appendTo(grid);
+			if (!items.length) ee(c)`<div class="ve-muted ve-small">${empty}</div>`;
+			else items.forEach(it => ee(c)`<div class="ve-small" style="padding:1px 0">• ${label(it)}</div>`);
+		};
+		col("Action", opts.action, "—");
+		col("Bonus Action", opts.bonus, "none detected");
+		col("Reaction", opts.reaction, "—");
+		ee(sec)`<details class="ve-small ve-mt-2"><summary class="ve-muted">Standard actions anyone can take</summary><div class="ve-pl-3">Dash, Disengage, Dodge, Help, Hide, Ready, Search, Use an Object — plus one free object interaction. Grapple and Shove are special melee attacks.</div></details>`;
+		ee(sec)`<div class="ve-muted ve-small ve-mt-1">Bonus actions &amp; reactions come from your spells (by casting time) and a scan of your feature text — double-check the exact wording.</div>`;
+	}
+
 	_renderPlayMode (wrp) {
 		const st = this._state;
 		if (!st.classUid) { ee(wrp)`<div class="cw__err">Build your character first (choose at least a class), then switch to Play mode to track HP, spell slots, and roll checks.</div>`; return; }
@@ -336,6 +353,7 @@ export class CharWizardUi {
 		this._renderPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderEffects(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.play);
 		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderTurnOptions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.turnOptions());
 		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		ee(wrp)`<div class="ve-muted ve-small ve-mt-3 no-print">Rolls open in the dice tray (bottom-right); click the × there to dismiss it.</div>`;
@@ -904,6 +922,7 @@ export class CharWizardUi {
 		this._renderSkPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderEffects(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.skPlay());
 		this._renderSkPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
+		this._renderTurnOptions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.sidekickTurnOptions());
 		this._renderSkPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderSkPlaySkills(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderSkPlayFeatures(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
