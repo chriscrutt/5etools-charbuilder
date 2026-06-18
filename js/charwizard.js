@@ -1717,7 +1717,7 @@ export class CharState {
 		return Math.max(1, Math.floor(total));
 	}
 	spellListForSource (src) {
-		const base = this._data.spells.filter(sp => this.isVisible(sp) && (sp.classes?.fromClassList || []).some(c => c.name === src.listClassName));
+		const base = this._data.spells.filter(sp => this.isVisible(sp) && this._spellInClass(sp, src.listClassName));
 		const maxLvl = this.maxSpellLevelForSource(src);
 		const expanded = [
 			...this.subclassExpandedSpells(src),
@@ -1734,10 +1734,13 @@ export class CharState {
 	/* ----- Warlock Mystic Arcanum (6th-9th level spells, one each at L11/13/15/17) ----- */
 	_warlockLevel () { const w = this.classList().find(c => c.cls.name === "Warlock"); return w ? w.level : 0; }
 	mysticArcanumLevels () { const wl = this._warlockLevel(); return [[11, 6], [13, 7], [15, 8], [17, 9]].filter(([req]) => wl >= req).map(([, sl]) => sl); }
-	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === spLvl && (sp.classes?.fromClassList || []).some(c => c.name === "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
+	mysticArcanumOptions (spLvl) { return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === spLvl && this._spellInClass(sp, "Warlock")).sort((a, b) => SortUtil.ascSortLower(a.name, b.name)); }
 
 	/* ----- racial spellcasting (additionalSpells) ----- */
 	_spellByName (name) { return this._data.spellIndexByName?.get(`${name}`.split("#")[0].split("|")[0].trim().toLowerCase()) || null; }
+	// class names a spell belongs to — BOTH the core list and the "variant/optional" list (supplement spells like XGE Chaos Bolt are variant)
+	_spellClassNames (sp) { const out = new Set(); [...(sp?.classes?.fromClassList || []), ...(sp?.classes?.fromClassListVariant || [])].forEach(c => out.add(c.name)); return out; }
+	_spellInClass (sp, className) { return this._spellClassNames(sp).has(className); }
 	// exact spell lookup for a buff/effect label (no #/| stripping, so only true spell names resolve)
 	effectSpell (name) { return this._data.spellIndexByName?.get(`${name}`.trim().toLowerCase()) || null; }
 
@@ -1759,7 +1762,7 @@ export class CharState {
 		const levels = params.level != null && params.level !== "" ? `${params.level}`.split(";").map(s => +s.trim()).filter(s => !Number.isNaN(s)) : null; // "level=0;1;2;3" (Lore Bard secrets)
 		const cls = params.class ? params.class.toLowerCase() : null;
 		const schools = params.school ? params.school.toLowerCase().split(";").map(s => s.trim()).filter(Boolean) : null;
-		return this._data.spells.filter(sp => this.isVisible(sp) && (!levels || levels.includes(sp.level)) && (!cls || (sp.classes?.fromClassList || []).some(c => `${c.name}`.toLowerCase() === cls)) && (!schools || schools.includes(`${sp.school}`.toLowerCase())));
+		return this._data.spells.filter(sp => this.isVisible(sp) && (!levels || levels.includes(sp.level)) && (!cls || [...this._spellClassNames(sp)].some(n => `${n}`.toLowerCase() === cls)) && (!schools || schools.includes(`${sp.school}`.toLowerCase())));
 	}
 
 	// multiple additionalSpells groups are alternatives the character picks ONE of (e.g. Astral Elf cantrip, Tiefling legacy)
@@ -1994,7 +1997,7 @@ export class CharState {
 	sidekickSpellListClasses () { return this.sidekickSpellRoleMeta().classes; }
 	sidekickSpellOptions (level) {
 		const classes = this.sidekickSpellListClasses();
-		return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === level && (sp.classes?.fromClassList || []).some(c => classes.includes(c.name))).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		return this._data.spells.filter(sp => this.isVisible(sp) && sp.level === level && [...this._spellClassNames(sp)].some(n => classes.includes(n))).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 	}
 	sidekickMaxSpellLevel () { const p = this.sidekickSpellProgress(); return p ? Math.max(0, ...Object.keys(p.slots).map(Number)) : 0; }
 
@@ -2204,7 +2207,7 @@ class CharWizardPage {
 			this._pLoadSimple(UrlUtil.PG_BACKGROUNDS, "background"),
 			this._pLoadSimple(UrlUtil.PG_FEATS, "feat"),
 			this._pLoadClasses(),
-			this._pLoadSimple(UrlUtil.PG_SPELLS, "spell"),
+			this._pLoadSpells(),
 			this._pLoadItems(),
 			this._pLoadOptionalFeatures(),
 			this._pLoadBestiary(),
@@ -2290,6 +2293,14 @@ class CharWizardPage {
 			console.error("charwizard: optional feature load failed", e);
 			return [];
 		}
+	}
+
+	// spells must load via DataUtil.spell (not the generic DataLoader) so the class associations from
+	// gendata-spell-source-lookup.json are merged — incl. supplement spells (e.g. XGE Chaos Bolt → Sorcerer, as a "variant" class entry)
+	async _pLoadSpells () {
+		const raw = await DataUtil.spell.loadJSON(); // site spells with class associations merged
+		const extra = [...(await DataLoader.pCacheAndGetAllPrerelease(UrlUtil.PG_SPELLS)), ...(await DataLoader.pCacheAndGetAllBrew(UrlUtil.PG_SPELLS))];
+		return [...(raw.spell || []), ...extra].filter(sp => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_SPELLS](sp), "spell", sp.source));
 	}
 
 	async _pLoadClasses () {
