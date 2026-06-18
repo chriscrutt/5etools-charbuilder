@@ -61,6 +61,42 @@ export const SIDEKICK_META = {
 // HP per level above 1st is rolled from a Hit Die set by the creature's SIZE (Tasha's Sidekick Hit Dice table)
 const SIDEKICK_SIZE_DIE = {T: 4, S: 6, M: 8, L: 10, H: 12, G: 20};
 
+// Active-effect mechanical definitions (applied live in play mode). Effects not listed are tracked by name only.
+// Fields: acBonus, acMin, acUnarmoredSet (Mage Armor), speedMul, speedBonus, maxHpBonus, extraAttacks,
+//   resist:[], attackDice/saveDice ("+1d4"/"-1d4"), advAttack, advCheck:[abv], advSave:[abv], disSave:[abv],
+//   dmgRider:{dice,type?,note?}, rageDamage (Barbarian, scales), reqClass, note.
+export const EFFECT_DEFS = {
+	"Rage": {reqClass: "Barbarian", resist: ["bludgeoning", "piercing", "slashing"], advCheck: ["str"], advSave: ["str"], rageDamage: true, note: "Resist bludgeoning/piercing/slashing; advantage on Strength checks & saves; +rage damage on Strength melee attacks; can't cast or concentrate."},
+	"Reckless Attack": {reqClass: "Barbarian", advAttack: true, note: "Advantage on Strength-based melee attack rolls this turn (attacks against you also have advantage)."},
+	"Mage Armor": {acUnarmoredSet: 13, note: "AC becomes 13 + Dex while you wear no armor."},
+	"Shield of Faith": {acBonus: 2, note: "+2 AC (concentration)."},
+	"Shield": {acBonus: 5, note: "+5 AC until the start of your next turn (reaction)."},
+	"Barkskin": {acMin: 16, note: "Your AC can't be below 16 (concentration)."},
+	"Haste": {acBonus: 2, speedMul: 2, extraAttacks: 1, advSave: ["dex"], note: "+2 AC, double speed, one extra action (one weapon attack), advantage on Dex saves (concentration)."},
+	"Slow": {acBonus: -2, speedMul: 0.5, disSave: ["dex"], note: "-2 AC, half speed, -2 to Dex saves, one action OR bonus action per turn."},
+	"Bless": {attackDice: "+1d4", saveDice: "+1d4", note: "+1d4 to attack rolls and saving throws (concentration)."},
+	"Bane": {attackDice: "-1d4", saveDice: "-1d4", note: "-1d4 to attack rolls and saving throws (concentration)."},
+	"Hunter's Mark": {dmgRider: {dice: "1d6", note: "vs marked target"}, note: "+1d6 damage to weapon attacks against the marked target (concentration)."},
+	"Hex": {dmgRider: {dice: "1d6", type: "necrotic", note: "vs hexed target"}, disCheck: ["__hexAbility"], note: "+1d6 necrotic vs the hexed target; it has disadvantage on the chosen ability's checks (concentration)."},
+	"Divine Favor": {dmgRider: {dice: "1d4", type: "radiant"}, note: "+1d4 radiant to weapon attacks (concentration)."},
+	"Aid": {maxHpBonus: 5, note: "+5 hit point maximum (and current HP)."},
+	"Longstrider": {speedBonus: 10, note: "+10 ft. speed (concentration)."},
+	"Stoneskin": {resist: ["bludgeoning", "piercing", "slashing"], note: "Resistance to nonmagical bludgeoning, piercing & slashing (concentration)."},
+	"Foresight": {advAttack: true, advCheck: ["str", "dex", "con", "int", "wis", "cha"], advSave: ["str", "dex", "con", "int", "wis", "cha"], note: "Advantage on all attacks, checks & saves; attacks against you have disadvantage (8 hours)."},
+	"Enhance Ability": {note: "Advantage on ability checks with the chosen ability (concentration)."},
+	"Heroism": {note: "Immune to frightened; temp HP equal to the caster's mod each turn (concentration)."},
+	"Guidance": {note: "+1d4 to one ability check of your choice (concentration)."},
+	"Resistance": {note: "+1d4 to one saving throw of your choice (concentration)."},
+	"Faerie Fire": {note: "Attack rolls against affected creatures have advantage; they can't benefit from invisibility (concentration)."},
+	"Enlarge/Reduce": {note: "Enlarged: advantage on Str checks/saves, +1d4 weapon damage. Reduced: the opposite."},
+	"Spirit Guardians": {note: "Hostile creatures in the aura have halved speed and take radiant/necrotic on entering (concentration)."},
+	"Sanctuary": {note: "Attackers must pass a Wis save or pick a new target (ends if you attack or cast offensively)."},
+	"Death Ward": {note: "The first time you'd drop to 0 HP this casting, you drop to 1 instead."},
+	"Freedom of Movement": {note: "Ignore difficult terrain; immune to magical grapple/restrain/paralyze of movement; escape nonmagical restraints for 5 ft."},
+	"Mirror Image": {note: "Three duplicates may be hit instead of you (AC 10 + your Dex to 'hit' a duplicate)."},
+	"Blur": {note: "Attack rolls against you have disadvantage unless the attacker ignores sight (concentration)."},
+};
+
 /* -------------------------------------------------------------------------- */
 /* Character state + rules engine                                             */
 /* -------------------------------------------------------------------------- */
@@ -162,7 +198,7 @@ export class CharState {
 	get play () { return this._play || (this._play = this._defaultPlayState()); }
 	set play (v) { this._play = v || this._defaultPlayState(); }
 
-	playMaxHp () { let mx = this.maxHp(); if ((this.play.exhaustion || 0) >= 4) mx = Math.floor(mx / 2); return mx; } // exhaustion 4: HP max halved
+	playMaxHp () { let mx = this.maxHp(); this.activeEffects().forEach(({def}) => { if (def.maxHpBonus) mx += def.maxHpBonus; }); if ((this.play.exhaustion || 0) >= 4) mx = Math.floor(mx / 2); return mx; } // + Aid etc., then exhaustion 4 halves
 	playCurHp () { const mx = this.playMaxHp(); const c = this.play.curHp; return c == null ? mx : Math.max(0, Math.min(c, mx)); }
 	playTempHp () { return Math.max(0, Math.floor(this.play.tempHp || 0)); }
 	// damage hits temporary HP first, then current HP (floors at 0)
@@ -257,7 +293,7 @@ export class CharState {
 	// {action, bonus, reaction} lists of {name?|spell?|feature?} for the PC's turn
 	turnOptions () {
 		const out = {action: [], bonus: [], reaction: []};
-		const n = this.numAttacks();
+		const n = this.playNumAttacks();
 		out.action.push({action: "Attack", suffix: n > 1 ? ` (${n} attacks)` : ""});
 		if (this.isCaster() || this.hasRacialSpells()) out.action.push({action: "Cast a Spell"});
 		if (this.featuresHaveName(/^Action Surge$/)) out.action.push({name: "Action Surge — one extra action (short rest)", emph: true});
@@ -285,6 +321,49 @@ export class CharState {
 		});
 		this.featsTaken().forEach(ft => { const f = this._data.feats.find(x => CW.uid(x) === ft.featUid); if (f) out.push({name: f.name, entries: f.entries, feat: f}); });
 		return out;
+	}
+
+	/* ----- active effects (Rage, Mage Armor, Bless, Haste, …) applied live in PC play mode ----- */
+	effectDef (name) { return EFFECT_DEFS[name] || null; }
+	activeEffects () { return (this.play.effects || []).map(name => { const def = EFFECT_DEFS[name]; return def && (!def.reqClass || this.hasClass(def.reqClass)) ? {name, def} : null; }).filter(Boolean); }
+	_rageDamage () { const lv = this.classList().find(c => c.cls.name === "Barbarian")?.level || 0; return lv >= 16 ? 4 : lv >= 9 ? 3 : 2; }
+	_walkSpeed () { const sp = this.raceEnt?.speed; const base = sp == null ? 30 : (typeof sp === "number" ? sp : (sp.walk ?? 30)); return Math.max(0, base + this.speedBonusFromFeatures() - (this.armorEffects().strReqUnmet ? 10 : 0)); }
+	playWalkSpeed () {
+		let s = this._walkSpeed();
+		this.activeEffects().forEach(({def}) => { if (def.speedMul) s = Math.floor(s * def.speedMul); if (def.speedBonus) s += def.speedBonus; });
+		const ex = this.play.exhaustion || 0; if (ex >= 5) return 0; if (ex >= 2) s = Math.floor(s / 2);
+		return s;
+	}
+	playAc () {
+		let ac = this.ac(); const eff = this.activeEffects();
+		if (!this.armorEnt()) eff.forEach(({def}) => { if (def.acUnarmoredSet && !this.hasClass("Barbarian") && !this.hasClass("Monk")) ac += (def.acUnarmoredSet - 10); });
+		eff.forEach(({def}) => { if (def.acMin && ac < def.acMin) ac = def.acMin; });
+		eff.forEach(({def}) => { if (def.acBonus) ac += def.acBonus; });
+		return ac;
+	}
+	playNumAttacks () { let n = this.numAttacks(); this.activeEffects().forEach(({def}) => { if (def.extraAttacks) n += def.extraAttacks; }); return n; }
+	playResistances () { const set = new Set(this.defenses().resist); this.activeEffects().forEach(({def}) => (def.resist || []).forEach(r => set.add(r))); return [...set]; }
+	playDamageRiders () {
+		const out = [];
+		this.activeEffects().forEach(({name, def}) => {
+			if (def.rageDamage) out.push(`+${this._rageDamage()} (Rage, Str melee)`);
+			if (def.dmgRider) out.push(`+${def.dmgRider.dice}${def.dmgRider.type ? ` ${def.dmgRider.type}` : ""} (${name}${def.dmgRider.note ? `, ${def.dmgRider.note}` : ""})`);
+		});
+		return out;
+	}
+	effectAttackDice () { return this.activeEffects().map(({def}) => def.attackDice).filter(Boolean).join(""); }
+	effectSaveDice () { return this.activeEffects().map(({def}) => def.saveDice).filter(Boolean).join(""); }
+	// merge active-effect advantage/disadvantage into a base {adv,dis,net} for a roll (category: attack | check | save; abv = ability)
+	effectAdv (baseAd, category, abv) {
+		const adv = [...(baseAd?.adv || [])]; const dis = [...(baseAd?.dis || [])];
+		this.activeEffects().forEach(({name, def}) => {
+			if (category === "attack" && def.advAttack) adv.push(name);
+			if (category === "check" && def.advCheck?.includes(abv)) adv.push(name);
+			if (category === "save" && def.advSave?.includes(abv)) adv.push(name);
+			if (category === "save" && def.disSave?.includes(abv)) dis.push(name);
+		});
+		if (!adv.length && !dis.length) return baseAd || null;
+		return {adv, dis, net: adv.length && dis.length ? "both" : adv.length ? "adv" : "dis"};
 	}
 
 	/* ----- content source filter ----- */

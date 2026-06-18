@@ -1,4 +1,4 @@
-import {CW, SIDEKICK_META} from "../charwizard.js";
+import {CW, SIDEKICK_META, EFFECT_DEFS} from "../charwizard.js";
 
 /* Small render helper: 5etools entries -> HTML string */
 const renderEntries = (entries) => {
@@ -43,8 +43,8 @@ const CONDITIONS = ["Blinded", "Charmed", "Deafened", "Frightened", "Grappled", 
 const EXHAUSTION_EFFECTS = ["", "Disadvantage on ability checks", "Speed halved", "Disadvantage on attack rolls and saving throws", "Hit point maximum halved", "Speed reduced to 0", "Death"];
 // common buffs/debuffs offered as quick-add suggestions for the effects tracker (free text is also allowed)
 const PLAY_EFFECTS = [
-	"Bardic Inspiration", "Bless", "Bane", "Guidance", "Resistance", "Aid", "Heroism", "Enhance Ability",
-	"Haste", "Slow", "Hex", "Hunter's Mark", "Hexblade's Curse", "Faerie Fire", "Divine Favor", "Hold Person",
+	"Rage", "Reckless Attack", "Bardic Inspiration", "Bless", "Bane", "Guidance", "Resistance", "Aid", "Heroism", "Enhance Ability",
+	"Haste", "Slow", "Hex", "Hunter's Mark", "Hexblade's Curse", "Faerie Fire", "Divine Favor", "Hold Person", "Shield", "Barkskin", "Longstrider",
 	"Shield of Faith", "Mage Armor", "Mirror Image", "Blur", "Enlarge/Reduce", "Sanctuary", "Spirit Guardians",
 	"Protection from Evil and Good", "Death Ward", "Freedom of Movement", "Stoneskin", "Foresight",
 ];
@@ -265,13 +265,16 @@ export class CharWizardUi {
 		const dis = [...(baseAd?.dis || []), `Exhaustion (${ex})`];
 		return {adv, dis, net: adv.length && dis.length ? "both" : adv.length ? "adv" : "dis"};
 	}
-	// d20 check/save/attack, honouring net advantage/disadvantage (2d20kh1 / 2d20kl1)
-	_d20Roll (label, mod, ad) {
+	// d20 check/save/attack, honouring net advantage/disadvantage (2d20kh1 / 2d20kl1) + optional extra dice (Bless +1d4 etc.)
+	_d20Roll (label, mod, ad, extraDice) {
 		const adv = ad?.net === "adv"; const dis = ad?.net === "dis";
 		const die = adv ? "2d20kh1" : dis ? "2d20kl1" : "1d20";
 		const m = mod ? `${mod >= 0 ? "+" : ""}${mod}` : "";
-		this._roll(`${label}${adv ? " (advantage)" : dis ? " (disadvantage)" : ""}`, `${die}${m}`);
+		this._roll(`${label}${adv ? " (advantage)" : dis ? " (disadvantage)" : ""}`, `${die}${m}${extraDice || ""}`);
 	}
+	// merge exhaustion + active-effect advantage for a PC play roll (category: check | save | attack; abv = ability)
+	_pcRollAd (category, abv, base) { const st = this._state; return st.effectAdv(this._mergeExhaustion(base, category), category, abv); }
+	_pcRollDice (category) { const st = this._state; return category === "attack" ? st.effectAttackDice() : category === "save" ? st.effectSaveDice() : ""; }
 	// weapon damage (dice string + flat bonus)
 	_rollDamage (atk, dice, label) {
 		if (!dice) return;
@@ -298,7 +301,7 @@ export class CharWizardUi {
 		ee(sec)`<h4>Buffs &amp; Effects <span class="ve-muted ve-small">(Bless, Bardic Inspiration, Hex…)</span></h4>`;
 		const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:6px;flex-wrap:wrap"></div>`.appendTo(sec);
 		const effLabel = (eff) => { const sp = this._state.effectSpell(eff); return sp ? refLink(UrlUtil.PG_SPELLS, sp) : `${eff}`.qq(); };
-		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip">${effLabel(eff)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
+		if (effects.length) effects.forEach((eff, ix) => ee(row)`<span class="cw__buff-chip" title="${(EFFECT_DEFS[eff]?.note || "").qq()}">${effLabel(eff)} ${ee`<span class="cw__cond-x" title="Remove">✕</span>`.onn("click", () => { effects.splice(ix, 1); this._save(); this.render(); })}</span>`);
 		else ee(row)`<span class="ve-muted ve-small">None.</span>`;
 		const sel = ee`<select class="ve-form-control ve-input-xs" style="width:auto"><option value="">+ add buff/effect…</option></select>`;
 		PLAY_EFFECTS.filter(e => !effects.includes(e)).forEach(e => ee`<option value="${e.qq()}">${e.qq()}</option>`.appendTo(sel));
@@ -310,6 +313,20 @@ export class CharWizardUi {
 			this._save(); this.render();
 		});
 		ee(sec)`${sel}`;
+	}
+
+	// mechanical summary of the PC's active effects (what they're doing to stats & rolls right now)
+	_renderActiveEffectMods (sec) {
+		const st = this._state; const eff = st.activeEffects(); if (!eff.length) return;
+		ee(sec)`<h4>Active Effect Details <span class="ve-muted ve-small">(applied to your stats &amp; rolls)</span></h4>`;
+		eff.forEach(({name, def}) => ee(sec)`<div class="ve-small ve-mb-1"><b>${`${name}`.qq()}:</b> ${def.note ? `${def.note}`.qq() : "tracked"}</div>`);
+		const lines = [];
+		const res = st.playResistances(); if (res.length) lines.push(`<b>Resistances:</b> ${res.join(", ").qq()}`);
+		const riders = st.playDamageRiders(); if (riders.length) lines.push(`<b>Bonus damage:</b> ${riders.map(r => `${r}`.qq()).join("; ")}`);
+		const atk = st.effectAttackDice(); if (atk) lines.push(`<b>Attack rolls:</b> ${atk.qq()}`);
+		const sv = st.effectSaveDice(); if (sv) lines.push(`<b>Saving throws:</b> ${sv.qq()}`);
+		if (st.playNumAttacks() > st.numAttacks()) lines.push(`<b>Attacks:</b> now ${st.playNumAttacks()} per Attack action`);
+		if (lines.length) ee(sec)`<div class="ve-small ve-mt-1" style="border-top:1px solid rgba(127,127,127,.2);padding-top:4px">${lines.join(" &nbsp;•&nbsp; ")}</div>`;
 	}
 
 	// action-economy overview: Action / Bonus Action / Reaction (from attacks, spell casting times, and a feature scan)
@@ -349,11 +366,13 @@ export class CharWizardUi {
 		// top stat row
 		const boxes = ee`<div class="cw__sheet-grid ve-mb-3"></div>`.appendTo(wrp);
 		const box = (lbl, val, onClick, title) => { const el = ee`<div class="cw__stat-box ${onClick ? "cw__stat-box--click" : ""}" ${title ? `title="${title.qq()}"` : ""}><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`; if (onClick) el.onn("click", onClick); el.appendTo(boxes); };
-		box("Armor Class", st.ac());
-		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(this._mergeExhaustion(st.initiativeAdvDis(), "check"))}`, () => this._d20Roll("Initiative", st.initiative(), this._mergeExhaustion(st.initiativeAdvDis(), "check")), "Click to roll initiative");
+		const acD = st.playAc() - st.ac();
+		box("Armor Class", `${st.playAc()}${acD ? ` <span class="ve-muted ve-small">(${CW.fmtMod(acD)})</span>` : ""}`);
+		box("Initiative", `${CW.fmtMod(st.initiative())} ${advDisBadge(this._pcRollAd("check", "dex", st.initiativeAdvDis()))}`, () => this._d20Roll("Initiative", st.initiative(), this._pcRollAd("check", "dex", st.initiativeAdvDis())), "Click to roll initiative");
 		box("Prof. Bonus", CW.fmtMod(st.profBonus));
 		box("Passive Perc.", st.passiveScore("perception"));
-		box("Speed", `${st.speedString()}${(st.play.exhaustion || 0) >= 5 ? ` <span class="cw__advdis cw__advdis--dis">→ 0</span>` : (st.play.exhaustion || 0) >= 2 ? ` <span class="ve-muted ve-small">(½)</span>` : ""}`);
+		const ps = st.playWalkSpeed(); const baseSp = st._walkSpeed();
+		box("Speed", `${ps} ft.${ps !== baseSp ? ` <span class="ve-muted ve-small">(was ${baseSp})</span>` : ""}`);
 		const srcs = st.spellSources();
 		if (srcs.length) { const s0 = srcs[0]; const atk = st.spellAtkBonusFor(s0); box("Spell DC", st.spellSaveDcFor(s0) ?? "—"); box("Spell Atk", atk == null ? "—" : CW.fmtMod(atk)); }
 
@@ -363,6 +382,7 @@ export class CharWizardUi {
 		this._renderPlaySpellbook(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayConditions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderEffects(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.play);
+		this._renderActiveEffectMods(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderPlayAbilities(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
 		this._renderTurnOptions(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp), st.turnOptions());
 		this._renderPlayAttacks(ee`<div class="cw__sheet-section"></div>`.appendTo(wrp));
@@ -392,7 +412,7 @@ export class CharWizardUi {
 		// concentration
 		if (st.play.concentration) {
 			const row = ee`<div class="ve-flex-v-center ve-mt-2" style="gap:6px;flex-wrap:wrap"><b>Concentrating:</b> ${renderInline(`{@spell ${st.play.concentration}}`)}</div>`.appendTo(sec);
-			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll a Constitution save to maintain concentration">Con save ${CW.fmtMod(st.saveMod("con"))}</button>`.onn("click", () => this._d20Roll("Concentration (Con)", st.saveMod("con"), this._mergeExhaustion(st.saveAdvDis("con"), "save")))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll a Constitution save to maintain concentration">Con save ${CW.fmtMod(st.saveMod("con"))}</button>`.onn("click", () => this._d20Roll("Concentration (Con)", st.saveMod("con"), this._pcRollAd("save", "con", st.saveAdvDis("con")), st.effectSaveDice()))}`;
 			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Drop concentration">Drop</button>`.onn("click", () => { st.play.concentration = null; this._save(); this.render(); })}`;
 		}
 
@@ -535,9 +555,9 @@ export class CharWizardUi {
 			ee`<div class="cw__roll" style="padding:4px 2px" title="Roll a ${CW.ABIL_FULL[abv]} check">
 				<div class="cw__abil-name">${abv}</div><div class="cw__abil-score">${st.finalAbility(abv)}</div>
 				<div class="cw__abil-mod">${CW.fmtMod(mod)}</div></div>`
-				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, this._mergeExhaustion(st.abilityCheckAdvDis?.(abv), "check"))).appendTo(card);
-			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._mergeExhaustion(st.saveAdvDis(abv), "save"))}</div>`
-				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, this._mergeExhaustion(st.saveAdvDis(abv), "save"))).appendTo(card);
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} check`, mod, this._pcRollAd("check", abv, st.abilityCheckAdvDis?.(abv)))).appendTo(card);
+			ee`<div class="cw__roll cw__abil-sub" style="padding:2px" title="Roll a ${CW.ABIL_FULL[abv]} save">save ${CW.fmtMod(save)}${saveProf ? " ●" : ""} ${advDisBadge(this._pcRollAd("save", abv, st.saveAdvDis(abv)))}</div>`
+				.onn("click", () => this._d20Roll(`${CW.ABIL_FULL[abv]} save`, save, this._pcRollAd("save", abv, st.saveAdvDis(abv)), st.effectSaveDice())).appendTo(card);
 			card.appendTo(grid);
 		});
 	}
@@ -550,12 +570,13 @@ export class CharWizardUi {
 		wielded.forEach(it => {
 			const a = st.weaponAttack(it);
 			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:120px">${refLink(UrlUtil.PG_ITEMS, it, it.name)}</b></div>`;
-			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll attack (d20 ${CW.fmtMod(a.toHit)})">Attack ${CW.fmtMod(a.toHit)}</button>`.onn("click", () => this._d20Roll(`${it.name} attack`, a.toHit, this._mergeExhaustion(null, "attack")))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll attack (d20 ${CW.fmtMod(a.toHit)})">Attack ${CW.fmtMod(a.toHit)}</button>`.onn("click", () => this._d20Roll(`${it.name} attack`, a.toHit, this._pcRollAd("attack", null, null), st.effectAttackDice()))}`;
 			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll damage">Dmg ${st.fmtWeaponDamage(a.dmg1, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg1, it.name))}`;
 			if (a.dmg2) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll two-handed (versatile) damage">2H ${st.fmtWeaponDamage(a.dmg2, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg2, `${it.name} (2H)`))}`;
 			row.appendTo(sec);
 		});
-		if (st.numAttacks() > 1) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Extra Attack: ${st.numAttacks()} attacks per Attack action.</div>`;
+		if (st.playNumAttacks() > 1) ee(sec)`<div class="ve-muted ve-small ve-mt-1">Extra Attack: ${st.playNumAttacks()} attacks per Attack action.${st.playNumAttacks() > st.numAttacks() ? " (incl. active effects)" : ""}</div>`;
+		const riders = st.playDamageRiders(); if (riders.length) ee(sec)`<div class="ve-muted ve-small ve-mt-1"><b>Bonus damage:</b> ${riders.map(r => `${r}`.qq()).join("; ")}</div>`;
 	}
 
 	_renderPlaySkills (sec) {
@@ -565,7 +586,7 @@ export class CharWizardUi {
 		const grid = ee`<div style="columns:2;column-gap:24px"></div>`.appendTo(sec);
 		CW.skills().sort().forEach(sk => {
 			const mod = st.skillMod(sk);
-			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._mergeExhaustion(st.skillAdvDis(sk), "check"))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._mergeExhaustion(st.skillAdvDis(sk), "check")))}`;
+			ee(grid)`${ee`<div class="cw__roll" style="break-inside:avoid;padding:2px 4px" title="Roll ${CW.skillName(sk)}">${MARK[st.skillProfType(sk)]} ${CW.skillName(sk)} <span class="ve-muted ve-small">(${CW.skillAbil(sk)})</span> <b>${CW.fmtMod(mod)}</b> ${advDisBadge(this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk)))}</div>`.onn("click", () => this._d20Roll(CW.skillName(sk), mod, this._pcRollAd("check", CW.skillAbil(sk), st.skillAdvDis(sk))))}`;
 		});
 	}
 
