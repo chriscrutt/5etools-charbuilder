@@ -541,7 +541,7 @@ export class CharWizardUi {
 				try { ee(col)`<table class="w-100 stats">${Renderer.monster.getCompactRenderedString(m)}</table>`; }
 				catch (e) { ee(col)`<div class="ve-p-2"><b>${m.name.qq()}</b> <span class="ve-muted">(CR ${`${this._skCrText(m)}`.qq()})</span></div>`; }
 			},
-			onAfterSelect: () => this.render(),
+			// no onAfterSelect → _renderChooser updates the selection + detail in place (keeps the list's scroll position, like the race picker)
 		});
 	}
 
