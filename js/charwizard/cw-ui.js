@@ -319,7 +319,7 @@ export class CharWizardUi {
 		const action = (name) => renderInline(`{@action ${name}}`);
 		const label = (it) => it.action ? `${action(it.action)}${it.suffix ? ` <span class="ve-muted ve-small">${it.suffix.qq()}</span>` : ""}`
 			: it.spell ? refLink(UrlUtil.PG_SPELLS, it.spell)
-			: it.feature ? (it.feature.feat ? refLink(UrlUtil.PG_FEATS, it.feature.feat) : `${it.feature.name}`.qq())
+			: it.feature ? (it.feature.feat ? refLink(UrlUtil.PG_FEATS, it.feature.feat) : it.feature.ref ? renderInline(it.feature.ref) : `${it.feature.name}`.qq())
 			: it.emph ? `<b>${`${it.name}`.qq()}</b>` : `${it.name}`.qq();
 		const col = (title, items, empty) => {
 			const c = ee`<div style="flex:1 1 180px;min-width:160px"><div class="ve-bold ve-mb-1">${title}</div></div>`.appendTo(grid);

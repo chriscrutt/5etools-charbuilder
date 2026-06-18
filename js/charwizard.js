@@ -274,9 +274,15 @@ export class CharState {
 		return out;
 	}
 	featuresHaveName (re) { return this.featureSections().some(s => s.items.some(f => re.test(f.name))); }
+	// {@classFeature}/{@subclassFeature} hover-link tags for a feature, or null if it can't be built
+	_classFeatureTag (f, lvl) { if (!f?.className || !f.classSource) return null; const src = (f.source && f.source !== f.classSource) ? `|${f.source}` : ""; return `{@classFeature ${f.name}|${f.className}|${f.classSource}|${lvl}${src}}`; }
+	_subclassFeatureTag (f, sc, lvl) { const sn = f.subclassShortName || sc?.shortName; const ss = f.subclassSource || sc?.source; if (!f?.className || !f.classSource || !sn || !ss) return null; return `{@subclassFeature ${f.name}|${f.className}|${f.classSource}|${sn}|${ss}|${lvl}}`; }
 	_turnFeatures () {
 		const out = [];
-		this.featureSections().forEach(sec => sec.items.forEach(f => out.push({name: f.name, entries: f.entries})));
+		this.classList().forEach(({cls, level, subclassEnt: sc}) => {
+			(cls.classFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant && (f.level || (ix + 1)) <= level) out.push({name: f.name, entries: f.entries, ref: this._classFeatureTag(f, f.level || (ix + 1))}); }));
+			(sc?.subclassFeatures || []).forEach((lvArr, ix) => (lvArr || []).forEach(f => { if (f?.name && (f.level || (ix + 1)) <= level) out.push({name: f.name, entries: f.entries, ref: this._subclassFeatureTag(f, sc, f.level || (ix + 1))}); }));
+		});
 		this.featsTaken().forEach(ft => { const f = this._data.feats.find(x => CW.uid(x) === ft.featUid); if (f) out.push({name: f.name, entries: f.entries, feat: f}); });
 		return out;
 	}
@@ -1864,7 +1870,7 @@ export class CharState {
 	sidekickFeatures () {
 		const cls = this.sidekickClassEnt(); if (!cls) return [];
 		const out = [];
-		(cls.classFeatures || []).forEach((feats, ix) => { const lv = ix + 1; if (lv > this.sidekickLevel()) return; (feats || []).forEach(f => { if (f?.name) out.push({level: lv, name: f.name, entries: f.entries}); }); });
+		(cls.classFeatures || []).forEach((feats, ix) => { const lv = ix + 1; if (lv > this.sidekickLevel()) return; (feats || []).forEach(f => { if (f?.name) out.push({level: lv, name: f.name, entries: f.entries, ref: this._classFeatureTag(f, f.level || lv)}); }); });
 		return out;
 	}
 	sidekickSenses () { const m = this.sidekickCreature(); if (!m) return ""; return [...(m.senses || []), `passive Perception ${10 + this.sidekickSkillMod("perception")}`].join(", "); }
