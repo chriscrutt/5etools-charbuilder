@@ -95,17 +95,29 @@ export class CharWizardUi {
 		// Play mode (replaces the stepper/body while active)
 		if (this._playMode) { this._renderPlayMode(ee`<div class="cw__step-body"></div>`.appendTo(wrp)); if (scrollTop) this._eleRoot.scrollTop = scrollTop; return; }
 
+		// validation issues (prerequisites no longer met after a change), grouped by step
+		const issues = this._state.validationIssues();
+		const issuesByStep = {};
+		issues.forEach(i => (issuesByStep[i.step] = issuesByStep[i.step] || []).push(i));
+
 		// Stepper
 		const eleSteps = ee`<div class="cw__steps no-print"></div>`.appendTo(wrp);
 		steps.forEach((st, ix) => {
 			const isActive = ix === this._ixStep;
-			const btn = ee`<div class="cw__step ${isActive ? "cw__step--active" : ""} ${st.done() && !isActive ? "cw__step--done" : ""}"><span class="cw__step-num">${ix + 1}</span>${st.label}</div>`
+			const stepIssues = issuesByStep[st.id] || [];
+			const warn = stepIssues.length && !isActive;
+			const title = stepIssues.length ? stepIssues.map(i => i.message).join("\n") : "";
+			const btn = ee`<div class="cw__step ${isActive ? "cw__step--active" : ""} ${warn ? "cw__step--warn" : st.done() && !isActive ? "cw__step--done" : ""}" title="${`${title}`.qq()}"><span class="cw__step-num">${ix + 1}</span>${st.label}</div>`
 				.onn("click", () => { this._ixStep = ix; this.render(); });
 			btn.appendTo(eleSteps);
 		});
 
 		// Body
 		const eleBody = ee`<div class="cw__step-body"></div>`.appendTo(wrp);
+		const curStepId = steps[this._ixStep].id;
+		// show this step's issues (and, on Review, every issue) as a banner above the body
+		const bannerIssues = curStepId === "review" ? issues : (issuesByStep[curStepId] || []);
+		if (bannerIssues.length) this._renderIssuesBanner(eleBody, bannerIssues, curStepId === "review");
 		steps[this._ixStep].render(eleBody);
 
 		// Footer nav
@@ -118,6 +130,15 @@ export class CharWizardUi {
 		ee(wrp)`<div class="cw__footer no-print">${btnBack}${btnNext}</div>`;
 
 		if (scrollTop) this._eleRoot.scrollTop = scrollTop;
+	}
+
+	// banner listing prerequisite/compatibility problems for the current step (or all, on Review)
+	_renderIssuesBanner (wrp, issues, showStep) {
+		const hasErr = issues.some(i => i.severity === "error");
+		const box = ee`<div class="ve-mb-3" style="border:1px solid ${hasErr ? "#c0392b" : "#d9822b"};background:${hasErr ? "rgba(192,57,43,.10)" : "rgba(217,130,43,.10)"};border-radius:6px;padding:8px 10px"></div>`.appendTo(wrp);
+		ee(box)`<div class="ve-bold ve-mb-1"><span class="glyphicon glyphicon-warning-sign" style="color:${hasErr ? "#c0392b" : "#d9822b"}"></span> ${issues.length} compatibility issue${issues.length > 1 ? "s" : ""} — a change left ${issues.length > 1 ? "some choices" : "a choice"} invalid:</div>`;
+		const list = ee`<ul style="margin:0 0 0 18px;padding:0"></ul>`.appendTo(box);
+		issues.forEach(i => ee(list)`<li class="ve-small" style="margin:1px 0">${i.message.qq()}${showStep ? ` <span class="ve-muted">[${`${i.step}`.qq()}]</span>` : ""}</li>`);
 	}
 
 	_getToolbarButtons () {

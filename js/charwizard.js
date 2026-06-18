@@ -338,6 +338,43 @@ export class CharState {
 		return out;
 	}
 
+	// short human-readable summary of a feat's prerequisite (alternatives joined by "OR")
+	_featPrereqText (feat) {
+		const pres = feat?.prerequisite; if (!pres?.length) return "";
+		return pres.map(pre => Object.entries(pre).map(([k, v]) => {
+			if (k === "ability") return v.map(req => Object.entries(req).map(([a, sc]) => `${a.toUpperCase()} ${sc}`).join(", ")).join(" or ");
+			if (k === "level") return `level ${typeof v === "number" ? v : (v.level || v)}`;
+			if (/^spellcasting/i.test(k)) return "a spellcasting feature";
+			if (k === "race") return v.map(r => `${r.name}${r.subrace ? ` (${r.subrace})` : ""}`).join(" or ");
+			if (k === "proficiency") return v.map(req => Object.entries(req).map(([t, val]) => `${val} ${t}`).join(", ")).join(" or ");
+			if (k === "other") return `${v}`;
+			if (k === "otherSummary") return `${v.entrySummary || v}`;
+			return `${k}`;
+		}).join(", ")).join(" OR ");
+	}
+
+	// Consistency check: choices whose prerequisites are no longer satisfied (e.g. after changing class/race/abilities).
+	// Returns [{step, severity:"warning"|"error", title, message}]; the UI flags the relevant step + lists them.
+	validationIssues () {
+		const out = [];
+		const cl = this.classList();
+		// multiclass ability-score requirements (RAW: every class in a multiclass must meet its minimum)
+		if (cl.length > 1) {
+			cl.forEach(c => { const req = this.multiclassRequirement(c.cls); if (!req.ok) out.push({step: "class", severity: "warning", title: `${c.cls.name}`, message: `Multiclassing requires ${req.reqText} — not met (need ${req.missing.join("; ")}).`}); });
+		}
+		if (this.totalLevel > 20) out.push({step: "class", severity: "error", title: "Level cap", message: `Total level ${this.totalLevel} exceeds the maximum of 20.`});
+		// feat prerequisites (ASI feats + racial feat + background feat — all chosen on the Abilities step)
+		this.featsTaken().forEach(ft => {
+			const feat = this._data.feats.find(f => CW.uid(f) === ft.featUid); if (!feat) return;
+			if (this.meetsFeatPrereq(feat)) return;
+			const src = ft.className === "Race" ? this._raceWord() : ft.className === "Background" ? "Background" : `${ft.className} ${ft.level}`;
+			const pr = this._featPrereqText(feat);
+			out.push({step: "abilities", severity: "warning", title: feat.name, message: `${feat.name} (${src} feat) no longer meets its prerequisite${pr ? `: ${pr}` : ""}.`});
+		});
+		return out;
+	}
+	_raceWord () { return this._data.styleHint === "one" ? "Species" : "Race"; }
+
 	// Does the character satisfy a feat's prerequisites? (checks ability/level/spellcasting/proficiency/race; unknown types pass)
 	meetsFeatPrereq (feat) {
 		const pres = feat?.prerequisite;

@@ -14,6 +14,8 @@
 .cw__step:hover { border-color: rgba(0,107,196,.6); }
 .cw__step--active { background: rgba(0,107,196,.18); border-color: #006bc4; font-weight: bold; }
 .cw__step--done::after { content: "\2713"; color: #2e8b57; margin-left: 4px; font-weight: bold; }
+.cw__step--warn::after { content: "\26A0"; color: #d9822b; margin-left: 4px; font-weight: bold; }
+.cw__step--warn { border-color: rgba(217,130,43,.65); background: rgba(217,130,43,.10); }
 .cw__step-num { display: inline-block; width: 18px; height: 18px; line-height: 18px; border-radius: 50%;
 	background: rgba(127,127,127,.25); margin-right: 4px; font-size: 11px; }
 .cw__step--active .cw__step-num { background: #006bc4; color: #fff; }
