@@ -636,6 +636,7 @@ export class CharBuilderUi {
 		return [
 			{id: "creature", label: "Creature", done: () => !!st.sidekick.creatureUid, render: (el) => this._renderSidekickCreature(el)},
 			{id: "class", label: "Class & Level", done: () => !!st.sidekick.classUid, render: (el) => this._renderSidekickClass(el)},
+			{id: "equipment", label: "Equipment", done: () => true, render: (el) => this._renderSidekickEquipment(el)},
 			{id: "review", label: "Review", done: () => true, render: (el) => this._renderSidekickReview(el)},
 		];
 	}
@@ -896,6 +897,29 @@ export class CharBuilderUi {
 		if (st.sidekickToolProfs().length) profParts.push(`<b>Tools:</b> ${st.sidekickToolProfs().join(", ").qq()}`);
 		if (profParts.length) ee(wrp)`<div class="cb__sheet-section"><h4>Proficiencies</h4><div>${profParts.join(" &nbsp;•&nbsp; ")}</div></div>`;
 
+		// equipped gear: wielded weapons (as attacks), worn armor/shield/items, item effects
+		const skWielded = st.sidekickWieldedWeapons(); const skWorn = st.sidekickWornItems();
+		const skArmorE = st.sidekickArmorEnt(); const skShieldE = st.sidekickShieldEnt();
+		if (skWielded.length || skWorn.length || skArmorE || skShieldE) {
+			const secE = ee`<div class="cb__sheet-section"></div>`.appendTo(wrp);
+			ee(secE)`<h4>Equipment</h4>`;
+			const eqLines = [];
+			if (skArmorE) eqLines.push(`<b>Armor:</b> ${refLink(UrlUtil.PG_ITEMS, skArmorE, skArmorE.name)}`);
+			if (skShieldE) eqLines.push(`<b>Shield:</b> ${refLink(UrlUtil.PG_ITEMS, skShieldE, skShieldE.name)}`);
+			if (skWorn.length) eqLines.push(`<b>Worn/held:</b> ${skWorn.map(it => refLink(UrlUtil.PG_ITEMS, it, it.name)).join(", ")}`);
+			if (eqLines.length) ee(secE)`<div class="ve-mb-1">${eqLines.join(" &nbsp;•&nbsp; ")}</div>`;
+			if (skWielded.length) {
+				ee(secE)`<div class="ve-bold ve-small ve-mt-1">Weapon Attacks <span class="ve-muted ve-small">(its ability mods + proficiency)</span></div>`;
+				skWielded.forEach(it => {
+					const a = st.sidekickWeaponAttack(it);
+					ee(secE)`<div class="ve-mb-1">${refLink(UrlUtil.PG_ITEMS, it, it.name)} <span class="ve-muted">—</span> ${CW.fmtMod(a.toHit)} to hit, ${st.fmtWeaponDamage(a.dmg1, a).qq()}${a.dmg2 ? ` <span class="ve-muted">(${st.fmtWeaponDamage(a.dmg2, a).qq()} 2H)</span>` : ""}${a.prof ? "" : ` <span class="ve-muted ve-small">(not proficient — no PB)</span>`}</div>`;
+				});
+			}
+			const sb = st.sidekickItemSaveBonus(); const res = st.sidekickItemResist(); const fx = [];
+			if (sb) fx.push(`${CW.fmtMod(sb)} to all saves`); if (res.length) fx.push(`resist ${res.join(", ")}`);
+			if (fx.length) ee(secE)`<div class="ve-muted ve-small">Item effects: ${fx.join("; ").qq()}</div>`;
+		}
+
 		// senses
 		if (st.sidekickSenses()) ee(wrp)`<div class="cb__sheet-section"><h4>Senses</h4><div>${st.sidekickSenses().qq()}</div></div>`;
 
@@ -1133,9 +1157,22 @@ export class CharBuilderUi {
 
 	_renderSkPlayAttacks (sec) {
 		const st = this._state; const m = st.sidekickCreature();
+		const wielded = st.sidekickWieldedWeapons();
 		const actions = st.sidekickAdjustEntries(m.action);
-		if (!actions?.length) return;
+		if (!wielded.length && !actions?.length) return;
 		ee(sec)`<h4>Attacks &amp; Actions <span class="ve-muted ve-small">(click a to-hit or damage to roll)</span></h4>`;
+		// equipped weapons (carried gear) — rolled with the sidekick's ability mods + proficiency
+		wielded.forEach(it => {
+			const a = st.sidekickWeaponAttack(it); const extra = st.weaponExtraDamage(it);
+			const row = ee`<div class="ve-flex-v-center ve-mb-1" style="gap:8px;flex-wrap:wrap"><b style="min-width:120px">${refLink(UrlUtil.PG_ITEMS, it, it.name)}${a.magic ? ` <span class="ve-muted ve-small">(${CW.fmtMod(a.magic)} magic)</span>` : ""}</b></div>`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll attack (d20 ${CW.fmtMod(a.toHit)})">Attack ${CW.fmtMod(a.toHit)}</button>`.onn("click", () => this._d20Roll(`${it.name} attack`, a.toHit, this._mergeExhaustion(null, "attack")))}`;
+			ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll damage">Dmg ${st.fmtWeaponDamage(a.dmg1, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg1, it.name))}`;
+			if (a.dmg2) ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Roll versatile (two-handed) damage">2H ${st.fmtWeaponDamage(a.dmg2, a).qq()}</button>`.onn("click", () => this._rollDamage(a, a.dmg2, `${it.name} (2H)`))}`;
+			extra.forEach(r => ee(row)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Extra/conditional damage from this item">+${r.dice}${r.type ? ` ${r.type}` : ""}</button>`.onn("click", () => this._roll(`${it.name} extra (${r.type || "damage"})`, r.dice))}`);
+			if (!a.prof) ee(row)`<span class="ve-muted ve-small">not proficient (no PB)</span>`;
+			row.appendTo(sec);
+		});
+		if (wielded.length && actions?.length) ee(sec)`<div class="ve-muted ve-small ve-mt-1 ve-mb-1">Or its natural attacks:</div>`;
 		actions.forEach(t => ee(sec)`<div class="ve-mb-1">${renderEntries([{type: "entries", name: t.name, entries: t.entries}])}</div>`);
 		const combat = [];
 		if (st.sidekickExtraAttacks() > 1) combat.push(`Extra Attack: ${st.sidekickExtraAttacks()}× (or its Multiattack)`);
@@ -2006,24 +2043,34 @@ export class CharBuilderUi {
 	}
 
 	/* ----- Inventory ----- */
+	// PC inventory — builds the holder config and defers to the shared renderer
 	_renderInventory (wrp) {
 		const st = this._state;
-		const attuneMax = st.attuneMax();
-		const atCap = st.attunedCount() >= attuneMax;
-		ee(wrp)`<h4 class="ve-mt-3">Inventory <span class="ve-muted ve-small">— Attunement ${st.attunedCount()}/${attuneMax}${atCap ? " (full)" : ""}</span></h4>`;
+		this._renderInventoryShared(wrp, {
+			title: "Inventory",
+			attuneMax: () => st.attuneMax(), attunedCount: () => st.attunedCount(), isAttuned: (u) => st.isAttuned(u), setAttuned: (u, o) => st.setAttuned(u, o), canAttuneMore: () => st.canAttuneMore(),
+			inv: () => st.inventory, add: (o) => st.addToInventory(o), remove: (ix) => st.removeFromInventory(ix),
+			getArmorUid: () => st.armorUid, setArmorUid: (v) => { st.armorUid = v; },
+			getShieldUid: () => st.shieldUid, setShieldUid: (v) => { st.shieldUid = v; },
+			clear: () => { st.inventory = []; }, startingEquip: () => st.addStartingEquipmentToInventory(),
+		});
+	}
+
+	// shared inventory section (PC + sidekick) — H is a holder config abstracting the storage & attunement
+	_renderInventoryShared (wrp, H) {
+		const st = this._state;
+		const attuneMax = H.attuneMax(); const atCap = H.attunedCount() >= attuneMax;
+		ee(wrp)`<h4 class="ve-mt-3">${(H.title || "Inventory").qq()} <span class="ve-muted ve-small">— Attunement ${H.attunedCount()}/${attuneMax}${atCap ? " (full)" : ""}</span></h4>`;
 		const ctrl = ee`<div class="ve-flex-v-center ve-mb-2" style="gap:8px;flex-wrap:wrap"></div>`.appendTo(wrp);
-		const btnAdd = ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Resolve your chosen class + background starting gear into items">＋ Add starting equipment</button>`
-			.onn("click", () => { st.addStartingEquipmentToInventory(); this._save(); this.render(); });
-		const btnClear = ee`<button class="ve-btn ve-btn-danger ve-btn-xs">Clear</button>`
-			.onn("click", () => { st.inventory = []; this._save(); this.render(); });
-		ee(ctrl)`${btnAdd}${btnClear}`;
+		if (H.startingEquip) ee(ctrl)`${ee`<button class="ve-btn ve-btn-default ve-btn-xs" title="Resolve your chosen class + background starting gear into items">＋ Add starting equipment</button>`.onn("click", () => { H.startingEquip(); this._save(); this.render(); })}`;
+		ee(ctrl)`${ee`<button class="ve-btn ve-btn-danger ve-btn-xs">Clear</button>`.onn("click", () => { H.clear(); this._save(); this.render(); })}`;
 
 		// search-add (results flow inline below the input)
 		const searchWrp = ee`<div style="max-width:320px"></div>`.appendTo(wrp);
 		const search = ee`<input class="ve-form-control ve-input-xs" placeholder="Search items to add…">`.appendTo(searchWrp);
 		const results = ee`<div class="cb__pick-list" style="max-height:200px;display:none"></div>`.appendTo(searchWrp);
 		const listWrp = ee`<div class="ve-mt-2"></div>`.appendTo(wrp);
-		const renderList = () => this._renderInventoryList(listWrp);
+		const renderList = () => this._renderInvList(listWrp, H);
 		search.onn("input", () => {
 			const t = search.val().toLowerCase().trim();
 			results.empty();
@@ -2036,7 +2083,7 @@ export class CharBuilderUi {
 			results.style.display = matches.length ? "block" : "none";
 			matches.forEach(it => {
 				ee`<div class="cb__pick"><span>${it.name}</span><span class="cb__pick-src">${it.source}</span></div>`
-					.onn("click", () => { st.addToInventory({uid: CW.uid(it), name: it.name, qty: 1}); this._save(); search.val(""); results.empty(); results.style.display = "none"; renderList(); })
+					.onn("click", () => { H.add({uid: CW.uid(it), name: it.name, qty: 1}); this._save(); search.val(""); results.empty(); results.style.display = "none"; renderList(); })
 					.appendTo(results);
 			});
 		});
@@ -2044,24 +2091,25 @@ export class CharBuilderUi {
 		renderList();
 	}
 
-	_renderInventoryList (listWrp) {
+	_renderInvList (listWrp, H) {
 		const st = this._state;
 		listWrp.empty();
-		if (!st.inventory.length) { ee(listWrp)`<p class="ve-muted ve-small">No items yet — add your starting equipment or search above.</p>`; return; }
+		const inv = H.inv();
+		if (!inv.length) { ee(listWrp)`<p class="ve-muted ve-small">No items yet — ${H.startingEquip ? "add your starting equipment or " : ""}search above.</p>`; return; }
 		const tbl = ee`<table class="w-100"><tbody></tbody></table>`.appendTo(listWrp);
 		const tb = tbl.querySelector("tbody");
-		st.inventory.forEach((row, ix) => {
+		inv.forEach((row, ix) => {
 			const tr = ee`<tr style="border-bottom:1px solid rgba(127,127,127,.15)"></tr>`.appendTo(tb);
 			const nameCell = ee`<td class="ve-py-1"></td>`.appendTo(tr);
 			if (row.choiceCategory && !row.uid) {
-				// unresolved "choose a weapon" slot -> dropdown of matching weapons
+				// unresolved "choose a weapon" slot -> dropdown of matching weapons (PC starting equipment)
 				const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:220px"><option value="">— choose ${`a ${row.name}`.replace(" (choose)", "").qq()} —</option></select>`;
 				st.weaponOptions(row.choiceCategory).forEach(n => ee`<option>${n.qq()}</option>`.appendTo(sel));
 				sel.onn("change", () => {
 					const name = sel.val(); if (!name) return;
 					const it = st._resolveItem(name, "");
 					row.uid = it ? CW.uid(it) : null; row.name = it ? it.name : name; delete row.choiceCategory;
-					this._save(); this._renderInventoryList(listWrp);
+					this._save(); this._renderInvList(listWrp, H);
 				});
 				nameCell.appendChild(sel);
 			} else {
@@ -2073,11 +2121,11 @@ export class CharBuilderUi {
 			const wearCell = ee`<td class="ve-py-1 ve-text-center"></td>`.appendTo(tr);
 			if (armorEnt) {
 				const isShieldItem = `${armorEnt.type || ""}`.split("|")[0] === "S";
-				const worn = isShieldItem ? st.shieldUid === row.uid : st.armorUid === row.uid;
+				const worn = isShieldItem ? H.getShieldUid() === row.uid : H.getArmorUid() === row.uid;
 				ee`<button class="ve-btn ve-btn-xs ${worn ? "ve-btn-success" : "ve-btn-default"}">${worn ? "Worn ✓" : (isShieldItem ? "Equip" : "Wear")}</button>`
 					.onn("click", () => {
-						if (isShieldItem) st.shieldUid = worn ? null : row.uid;
-						else st.armorUid = worn ? null : row.uid;
+						if (isShieldItem) H.setShieldUid(worn ? null : row.uid);
+						else H.setArmorUid(worn ? null : row.uid);
 						this._save(); this.render();
 					})
 					.appendTo(wearCell);
@@ -2095,18 +2143,45 @@ export class CharBuilderUi {
 			}
 			// attune control for items that require attunement (max 3)
 			if (itemEnt && st.requiresAttunement(itemEnt) && row.uid) {
-				const attuned = st.isAttuned(row.uid);
-				const blocked = !attuned && !st.canAttuneMore();
+				const attuned = H.isAttuned(row.uid);
+				const blocked = !attuned && !H.canAttuneMore();
 				const cond = st.attuneCondition(itemEnt);
-				const title = attuned ? "Click to break attunement" : blocked ? `Attunement slots full (max ${st.attuneMax()})` : `Attune to this item${cond ? ` (requires attunement ${cond})` : ""}`;
+				const title = attuned ? "Click to break attunement" : blocked ? `Attunement slots full (max ${H.attuneMax()})` : `Attune to this item${cond ? ` (requires attunement ${cond})` : ""}`;
 				ee(wearCell)`${ee`<button class="ve-btn ve-btn-xs ve-ml-1 ${attuned ? "ve-btn-info" : "ve-btn-default"}" ${blocked ? "disabled" : ""} title="${title.qq()}"><span class="glyphicon glyphicon-flash"></span> ${attuned ? "Attuned ✓" : "Attune"}</button>`
-					.onn("click", () => { if (blocked) return; st.setAttuned(row.uid, !attuned); this._save(); this.render(); })}`;
+					.onn("click", () => { if (blocked) return; H.setAttuned(row.uid, !attuned); this._save(); this.render(); })}`;
 			}
-			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { st.removeFromInventory(ix); } this._save(); this._renderInventoryList(listWrp); });
-			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => { row.qty++; this._save(); this._renderInventoryList(listWrp); });
+			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { H.remove(ix); } this._save(); this._renderInvList(listWrp, H); });
+			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => { row.qty++; this._save(); this._renderInvList(listWrp, H); });
 			ee(tr)`<td class="ve-py-1 ve-text-center" style="white-space:nowrap">${dec} <b>${row.qty}</b> ${inc}</td>`;
-			const rm = ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => { st.removeFromInventory(ix); this._save(); this._renderInventoryList(listWrp); });
+			const rm = ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => { H.remove(ix); this._save(); this._renderInvList(listWrp, H); });
 			ee(tr)`<td class="ve-py-1 ve-text-right">${rm}</td>`;
+		});
+	}
+
+	// Sidekick step: Equipment
+	_renderSidekickEquipment (el) {
+		const st = this._state;
+		if (!st.sidekick.creatureUid) { ee(el)`<p class="ve-muted">Pick a creature first.</p>`; return; }
+		const wrp = ee`<div class="cb__sheet"></div>`.appendTo(el);
+		ee(wrp)`<p class="ve-muted ve-small">Give your sidekick weapons, armor, shields, and magic items. Wielded weapons appear as attacks; worn armor &amp; a shield set the AC (replacing the stat block's); worn/attuned rings &amp; wondrous items apply their bonuses.</p>`;
+		// proficiency reminder
+		const profs = [...st.sidekickArmorProfs(), ...st.sidekickWeaponProfs()];
+		ee(wrp)`<p class="ve-small"><b>Proficient with:</b> ${(profs.length ? profs.join(", ") : "none from its class — it can still use gear, but non-proficient attacks don't add its proficiency bonus").qq()}</p>`;
+		// current AC summary
+		ee(wrp)`<p class="ve-small ve-muted">Current AC: <b>${st.sidekickAc()}</b> <span class="ve-muted">(${st.sidekickAcFromText().qq()})</span></p>`;
+		this._renderSidekickInventory(wrp);
+	}
+
+	// sidekick equipment — same UI, sidekick storage
+	_renderSidekickInventory (wrp) {
+		const st = this._state;
+		this._renderInventoryShared(wrp, {
+			title: "Equipment",
+			attuneMax: () => st.sidekickAttuneMax(), attunedCount: () => st.sidekickAttunedCount(), isAttuned: (u) => st.sidekickIsAttuned(u), setAttuned: (u, o) => st.sidekickSetAttuned(u, o), canAttuneMore: () => st.sidekickCanAttuneMore(),
+			inv: () => st._skInv(), add: (o) => st.skAddToInventory(o), remove: (ix) => st.skRemoveFromInventory(ix),
+			getArmorUid: () => st.sidekick.armorUid, setArmorUid: (v) => { st.sidekick.armorUid = v; },
+			getShieldUid: () => st.sidekick.shieldUid, setShieldUid: (v) => { st.sidekick.shieldUid = v; },
+			clear: () => { st.sidekick.inventory = []; st.sidekick.armorUid = null; st.sidekick.shieldUid = null; st.sidekick.attunedUids = []; }, startingEquip: null,
 		});
 	}
 

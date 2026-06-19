@@ -165,6 +165,10 @@ export class CharState {
 			sharpMindSave: null, // Expert L18 Sharp Mind: chosen int/wis/cha save proficiency
 			empoweredSchool: null, // Spellcaster L14 Empowered Spells: chosen school
 			spellChoices: {cantrips: [], leveled: []}, // Spellcaster chosen spells "name|source"
+			inventory: [], // [{uid, name, qty, equipped}] — sidekicks can carry/equip gear too (Tasha's)
+			armorUid: null, // worn body armor "name|source" (overrides the stat-block AC)
+			shieldUid: null, // equipped shield "name|source"
+			attunedUids: [], // attuned magic items (max 3)
 			name: "", // optional sidekick name (overrides the creature name)
 			play: {...this._defaultPlayState(), featureUses: {}}, // runtime play-mode state for the sidekick (separate from the PC's this.play)
 		};
@@ -2007,7 +2011,80 @@ export class CharState {
 		return base + Math.max(0, this.sidekickLevel() - 1) * perLevel;
 	}
 
-	sidekickAc () { const ac = this.sidekickCreature()?.ac?.[0]; let v = typeof ac === "number" ? ac : (ac?.ac ?? null); if (v != null && this._skHasFeature("Improved Defense")) v += 1; return v; } // Warrior L10: +1 AC
+	sidekickAc () { return this.sidekickAcBreakdown().ac; }
+	sidekickAcFromText () { return this.sidekickAcBreakdown().how; }
+
+	/* ----- sidekick equipment (Tasha's: sidekicks can carry & equip gear) ----- */
+	_skInv () { return this.sidekick.inventory || (this.sidekick.inventory = []); }
+	_skHasInInv (uid) { return this._skInv().some(r => r.uid === uid); }
+	skAddToInventory ({uid, name, qty = 1}) {
+		if (uid) { const ex = this._skInv().find(r => r.uid === uid); if (ex) { ex.qty += qty; return; } }
+		this._skInv().push({uid: uid || null, name, qty, equipped: false});
+	}
+	skRemoveFromInventory (ix) {
+		const [row] = this._skInv().splice(ix, 1); if (!row) return;
+		if (row.uid && row.uid === this.sidekick.armorUid) this.sidekick.armorUid = null;
+		if (row.uid && row.uid === this.sidekick.shieldUid) this.sidekick.shieldUid = null;
+		if (row.uid) this.sidekick.attunedUids = (this.sidekick.attunedUids || []).filter(u => u !== row.uid);
+	}
+	// attunement — sidekicks use the base cap of 3 (no artificer features)
+	sidekickAttuneMax () { return CharState.ATTUNE_MAX; }
+	sidekickAttunedCount () { return (this.sidekick.attunedUids || []).length; }
+	sidekickIsAttuned (uid) { return (this.sidekick.attunedUids || []).includes(uid); }
+	sidekickCanAttuneMore () { return this.sidekickAttunedCount() < this.sidekickAttuneMax(); }
+	sidekickSetAttuned (uid, on) {
+		if (!uid) return;
+		if (on) { if (!this.sidekickIsAttuned(uid) && this.sidekickCanAttuneMore()) (this.sidekick.attunedUids = this.sidekick.attunedUids || []).push(uid); }
+		else this.sidekick.attunedUids = (this.sidekick.attunedUids || []).filter(u => u !== uid);
+	}
+	_skMagicActive (it) { return it && (!it.reqAttune || this.sidekickIsAttuned(CW.uid(it))); } // magic effects gated by attunement
+	sidekickArmorEnt () { return this.sidekick.armorUid && this._skHasInInv(this.sidekick.armorUid) ? this._armorById(this.sidekick.armorUid) : null; }
+	sidekickShieldEnt () { if (!this.sidekick.shieldUid || !this._skHasInInv(this.sidekick.shieldUid)) return null; const it = this._armorById(this.sidekick.shieldUid); return it && `${it.type || ""}`.split("|")[0] === "S" ? it : null; }
+	sidekickWieldedWeapons () { return this._skInv().filter(r => r.equipped && this.isWeapon(this._itemByUid(r.uid))).map(r => this._itemByUid(r.uid)).filter(Boolean); }
+	sidekickWornItems () { return this._skInv().filter(r => r.equipped).map(r => this._itemByUid(r.uid)).filter(it => it && (this.isWearable(it) || this.isHoldable(it))); }
+
+	_sidekickWeaponProfSet () { const meta = this.sidekickMeta(); const cats = new Set(); const names = new Set(); if (meta && this.sidekickQualifiesWeapons()) { if (meta.simpleIfQualified) cats.add("simple"); if (meta.martialIfQualified) cats.add("martial"); } return {cats, names}; }
+	_skProficientWithWeapon (it) { const {cats, names} = this._sidekickWeaponProfSet(); if (it.weaponCategory && cats.has(it.weaponCategory)) return true; const bn = (it.baseItem ? `${it.baseItem}`.split("|")[0] : it.name).toLowerCase(); return names.has(bn) || names.has(`${it.name}`.toLowerCase()); }
+	_skWeaponAbility (it) { const props = (it.property || []).map(p => `${p}`.split("|")[0].toUpperCase()); const ranged = `${it.type || ""}`.split("|")[0] === "R"; if (props.includes("F")) return this.sidekickAbilityMod("str") >= this.sidekickAbilityMod("dex") ? "str" : "dex"; return ranged ? "dex" : "str"; }
+	sidekickWeaponAttack (it) {
+		const ability = this._skWeaponAbility(it); const abilMod = this.sidekickAbilityMod(ability);
+		const prof = this._skProficientWithWeapon(it);
+		const props = (it.property || []).map(p => `${p}`.split("|")[0].toUpperCase());
+		const active = this._skMagicActive(it);
+		const magicAtk = active ? this._bonusWeaponNum(it, "attack") : 0;
+		const magicDmg = active ? this._bonusWeaponNum(it, "damage") : 0;
+		const roleAtk = this.sidekickMartialRole() === "attacker" ? 2 : 0; // Warrior Attacker: +2 to-hit
+		const toHit = abilMod + (prof ? this.sidekickProfBonus() : 0) + magicAtk + roleAtk;
+		return {name: it.name, source: it.source, ability, prof, toHit, abilMod, dmg1: it.dmg1, dmg2: (props.includes("V") ? it.dmg2 : null), dmgType: it.dmgType, dmgBonus: abilMod + magicDmg, magicAtk, magicDmg, ranged: `${it.type || ""}`.split("|")[0] === "R", magic: magicAtk || magicDmg, properties: props.map(p => CW.WEAPON_PROP[p]).filter(Boolean)};
+	}
+	// worn/attuned magic-item AC bonus (Ring/Cloak of Protection, Bracers of Defense, …)
+	_sidekickWornAcBonus () {
+		const armored = !!this.sidekickArmorEnt() || !!this.sidekickShieldEnt(); let bonus = 0;
+		this.sidekickWornItems().forEach(it => { if (!this._skMagicActive(it)) return; const b = this._bonusAcNum(it); if (!b) return; if (this._itemAcUnarmoredOnly(it) && armored) return; bonus += b; });
+		return bonus;
+	}
+	// +N to all saves from worn/attuned items (Ring/Cloak of Protection)
+	sidekickItemSaveBonus () { let n = 0; this.sidekickWornItems().forEach(it => { if (this._skMagicActive(it) && it.bonusSavingThrow != null) n += parseInt(`${it.bonusSavingThrow}`.replace(/[^-0-9]/g, ""), 10) || 0; }); return n; }
+	sidekickItemResist () { const set = new Set(); this.sidekickWornItems().forEach(it => { if (this._skMagicActive(it)) (it.resist || []).forEach(r => set.add(r)); }); return [...set]; }
+	sidekickAcBreakdown () {
+		const armor = this.sidekickArmorEnt();
+		let base; let how;
+		if (armor) {
+			const typeAbv = `${armor.type || ""}`.split("|")[0]; const dex = this.sidekickAbilityMod("dex");
+			const magic = this._skMagicActive(armor) ? this._bonusAcNum(armor) : 0; const mTxt = magic ? ` (+${magic})` : "";
+			const baseAc = (armor.ac || 10) + magic;
+			if (typeAbv === "HA") { base = baseAc; how = `${armor.name}${mTxt}`; }
+			else if (typeAbv === "MA") { const d = Math.min(dex, armor.dexterityMax ?? 2); base = baseAc + d; how = `${armor.name}${mTxt} + Dex (max ${armor.dexterityMax ?? 2})`; }
+			else { base = baseAc + dex; how = `${armor.name}${mTxt} + Dex`; }
+		} else {
+			const ac = this.sidekickCreature()?.ac?.[0]; base = typeof ac === "number" ? ac : (ac?.ac ?? 10); how = "stat block";
+		}
+		const shield = this.sidekickShieldEnt();
+		if (shield) { const sMagic = this._skMagicActive(shield) ? this._bonusAcNum(shield) : 0; base += (shield.ac || 2) + sMagic; how += ` + Shield${sMagic ? ` (+${sMagic})` : ""}`; }
+		const wornAc = this._sidekickWornAcBonus(); if (wornAc) { base += wornAc; how += ` + ${CW.fmtMod(wornAc)} (items)`; }
+		if (this._skHasFeature("Improved Defense")) { base += 1; how += " + 1 (Improved Defense)"; } // Warrior L10
+		return {ac: base, how};
+	}
 	sidekickAcFrom () { const ac = this.sidekickCreature()?.ac?.[0]; return (ac && typeof ac === "object" && ac.from) ? ac.from : null; }
 	sidekickSpeed () {
 		const sp = this.sidekickCreature()?.speed; if (sp == null) return "—";
@@ -2016,7 +2093,7 @@ export class CharState {
 	}
 
 	sidekickSaveProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.save || {})); if (this.sidekick.saveProf) set.add(this.sidekick.saveProf); if (this.sidekick.sharpMindSave && this._skHasFeature("Sharp Mind")) set.add(this.sidekick.sharpMindSave); return set; } // + Expert L18 Sharp Mind
-	sidekickSaveMod (abv) { return this.sidekickAbilityMod(abv) + (this.sidekickSaveProfs().has(abv) ? this.sidekickProfBonus() : 0); }
+	sidekickSaveMod (abv) { return this.sidekickAbilityMod(abv) + (this.sidekickSaveProfs().has(abv) ? this.sidekickProfBonus() : 0) + this.sidekickItemSaveBonus(); }
 
 	sidekickSkillProfs () { const set = new Set(Object.keys(this.sidekickCreature()?.skill || {}).map(s => s.toLowerCase())); (this.sidekick.skillChoices || []).forEach(s => set.add(s)); return set; }
 	sidekickExpertise () { return new Set(this.sidekick.expertiseChoices || []); }
