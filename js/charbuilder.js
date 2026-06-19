@@ -1967,9 +1967,11 @@ export class CharState {
 	sidekickAttackBonus () { return this.sidekickPbDelta() + (this.sidekickMartialRole() === "attacker" ? 2 : 0); } // Attacker: +2 to all attack rolls
 
 	sidekickAbilityBase (abv) { return this.sidekickCreature()?.[abv] ?? 10; }
+	// ASI/feat entries that apply at the CURRENT level — an ASI assigned at a higher level is ignored if the sidekick was later lowered (the entry is kept, so raising the level restores it)
+	_sidekickActiveAsi () { const lvls = new Set(this.sidekickAsiLevels()); return Object.entries(this.sidekick.asi || {}).filter(([lv]) => lvls.has(+lv)).map(([lv, a]) => [+lv, a]); }
 	sidekickAbility (abv) {
 		let v = this.sidekickAbilityBase(abv);
-		Object.values(this.sidekick.asi || {}).forEach(a => {
+		this._sidekickActiveAsi().forEach(([, a]) => {
 			if (a?.type === "feat") { if (a.featUid) v += this._featAbilityBonus(a.featUid, a.featAbilChoose)[abv] || 0; }
 			else if (a?.inc?.[abv]) v += a.inc[abv];
 		});
@@ -1978,7 +1980,7 @@ export class CharState {
 	// feats the sidekick took in place of an ASI (TCE allows this at the DM's option): [{level, feat, choice}]
 	sidekickFeats () {
 		const out = [];
-		Object.entries(this.sidekick.asi || {}).forEach(([lv, a]) => { if (a?.type === "feat" && a.featUid) { const f = this._data.feats.find(x => CW.uid(x) === a.featUid); if (f) out.push({level: +lv, feat: f, choice: a}); } });
+		this._sidekickActiveAsi().forEach(([lv, a]) => { if (a?.type === "feat" && a.featUid) { const f = this._data.feats.find(x => CW.uid(x) === a.featUid); if (f) out.push({level: lv, feat: f, choice: a}); } });
 		return out.sort((a, b) => a.level - b.level);
 	}
 

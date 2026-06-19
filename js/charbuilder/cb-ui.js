@@ -969,7 +969,7 @@ export class CharBuilderUi {
 		monBlock("Bonus Actions", m.bonus);
 		monBlock("Reactions", m.reaction);
 		if (cls && (m.trait?.length || m.action?.length)) {
-			const asiTaken = Object.values(st.sidekick.asi || {}).some(a => Object.values(a?.inc || {}).some(v => v > 0));
+			const asiTaken = st._sidekickActiveAsi().some(([, a]) => Object.values(a?.inc || {}).some(v => v > 0));
 			const atkBonus = st.sidekickAttackBonus(); const attacker = st.sidekickMartialRole() === "attacker"; const pb = st.sidekickProfBonus();
 			const notes = [];
 			if (atkBonus) {
