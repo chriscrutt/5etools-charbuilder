@@ -2058,7 +2058,7 @@ export class CharBuilderUi {
 			inv: () => st.inventory, add: (o) => st.addToInventory(o), remove: (ix) => st.removeFromInventory(ix),
 			getArmorUid: () => st.armorUid, setArmorUid: (v) => { st.armorUid = v; },
 			getShieldUid: () => st.shieldUid, setShieldUid: (v) => { st.shieldUid = v; },
-			clear: () => { st.inventory = []; }, startingEquip: () => st.addStartingEquipmentToInventory(),
+			clear: () => { st.inventory = []; st.armorUid = null; st.shieldUid = null; st.attunedUids = []; }, startingEquip: () => st.addStartingEquipmentToInventory(),
 		});
 	}
 
@@ -2083,7 +2083,7 @@ export class CharBuilderUi {
 			if (t.length < 2) { results.style.display = "none"; return; }
 			const rank = (n) => n === t ? 0 : n.startsWith(t) ? 1 : 2; // exact, then prefix, then contains
 			const matches = (this._data.items || [])
-				.filter(it => it.name.toLowerCase().includes(t) && st.isVisible(it))
+				.filter(it => it.name.toLowerCase().includes(t) && st.isVisible(it) && !st._isGenericVariantTemplate(it)) // hide "pick a base" templates; their concrete variants remain
 				.sort((a, b) => (rank(a.name.toLowerCase()) - rank(b.name.toLowerCase())) || SortUtil.ascSortLower(a.name, b.name))
 				.slice(0, 25);
 			results.style.display = matches.length ? "block" : "none";

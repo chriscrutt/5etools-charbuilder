@@ -1047,7 +1047,8 @@ export class CharState {
 	requiresAttunement (it) { return !!it?.reqAttune; }
 	attuneCondition (it) { return typeof it?.reqAttune === "string" ? it.reqAttune : null; } // e.g. "by a spellcaster"
 	isAttuned (uid) { return this.attunedUids.includes(uid); }
-	attunedCount () { return this.attunedUids.length; }
+	// count only attunements to items still in the inventory — guards against stale uids (e.g. left over from an old Clear) wrongly showing "full"
+	attunedCount () { return this.attunedUids.filter(u => this._hasInInventory(u)).length; }
 	// max attunements, raised by class features whose text says "attune to up to N magic items"
 	attuneMax () {
 		let max = CharState.ATTUNE_MAX;
@@ -1126,6 +1127,8 @@ export class CharState {
 
 	/* ----- equipped magic-item effects (worn armor + shield + wielded weapons + worn rings/wondrous) ----- */
 	_isArmorOrShieldItem (it) { return !!(it && (it.armor || ["LA", "MA", "HA", "S"].includes(`${it.type || ""}`.split("|")[0]))); }
+	// a "Generic Variant" template (e.g. "Armor of Resistance", "+1 Armor") — a placeholder that needs a concrete base item picked, so it has no AC/damage and can't be worn/wielded. Concrete variants ("Breastplate of Acid Resistance") are real items and stay usable.
+	_isGenericVariantTemplate (it) { return !!(it && (it._category === "Generic Variant" || `${it.type || ""}`.split("|")[0] === "GV")); }
 	// a worn (not held/wielded) accessory: ring or wondrous item
 	isWearable (it) { if (!it) return false; return `${it.type || ""}`.split("|")[0] === "RG" || !!it.wondrous; }
 	// a held magic implement: wand, rod, or staff (spell focus / spell-attack bonuses / attached spells)
@@ -2029,7 +2032,7 @@ export class CharState {
 	}
 	// attunement — sidekicks use the base cap of 3 (no artificer features)
 	sidekickAttuneMax () { return CharState.ATTUNE_MAX; }
-	sidekickAttunedCount () { return (this.sidekick.attunedUids || []).length; }
+	sidekickAttunedCount () { return (this.sidekick.attunedUids || []).filter(u => this._skHasInInv(u)).length; }
 	sidekickIsAttuned (uid) { return (this.sidekick.attunedUids || []).includes(uid); }
 	sidekickCanAttuneMore () { return this.sidekickAttunedCount() < this.sidekickAttuneMax(); }
 	sidekickSetAttuned (uid, on) {
