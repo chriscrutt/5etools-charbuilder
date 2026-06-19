@@ -970,10 +970,16 @@ export class CharBuilderUi {
 		monBlock("Reactions", m.reaction);
 		if (cls && (m.trait?.length || m.action?.length)) {
 			const asiTaken = Object.values(st.sidekick.asi || {}).some(a => Object.values(a?.inc || {}).some(v => v > 0));
-			const atkBonus = st.sidekickAttackBonus(); const attacker = st.sidekickMartialRole() === "attacker";
+			const atkBonus = st.sidekickAttackBonus(); const attacker = st.sidekickMartialRole() === "attacker"; const pb = st.sidekickProfBonus();
 			const notes = [];
-			if (atkBonus) notes.push(`Stat-block <b>attack bonuses include +${atkBonus}</b>${attacker && pbDelta ? ` (proficiency +${pbDelta}, Attacker +2)` : attacker ? " (Attacker)" : " (proficiency increase, TCE)"}${pbDelta ? `; save DCs include +${pbDelta}` : ""}.`);
-			if (asiTaken) notes.push("Per TCE, also raise any attack/damage that uses an ability score you improved — apply that by hand (an unclear melee attack may use Strength or Dexterity).");
+			if (atkBonus) {
+				let msg;
+				if (attacker && pbDelta) msg = `The to-hit numbers in the creature's actions below already include <b>+${atkBonus}</b> — that's +${pbDelta} from its higher proficiency bonus (a stat block assumes +2; at this level the sidekick's is +${pb}) plus +2 from the Attacker role. Save DCs include the +${pbDelta} proficiency part.`;
+				else if (attacker) msg = `The to-hit numbers in the creature's actions below already include <b>+2</b> from the Attacker role.`;
+				else msg = `The to-hit numbers and save DCs in the creature's actions below already include <b>+${pbDelta}</b> — a sidekick's proficiency bonus grows with its level (a stat block assumes +2; at this level it's +${pb}).`;
+				notes.push(`${msg} You don't need to add that yourself.`);
+			}
+			if (asiTaken) notes.push(`<b>One thing to add by hand:</b> if you raised an ability score with an Ability Score Improvement, also add that increase to the to-hit and damage of the creature's own attacks that use it. The stat block doesn't record which ability each attack uses (a melee attack could be Strength or Dexterity), so the builder can't do it automatically. <i>Weapons you equip on the Equipment step already include it.</i>`);
 			if (notes.length) ee(wrp)`<div class="ve-muted ve-small ve-mt-1">${notes.join(" ")}</div>`;
 		}
 
