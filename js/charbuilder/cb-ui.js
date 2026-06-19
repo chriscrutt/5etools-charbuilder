@@ -1066,7 +1066,7 @@ export class CharBuilderUi {
 
 	_renderSkPlaySpells (sec) {
 		const st = this._state; const prog = st.sidekickSpellProgress(); const book = st.skSpellbook();
-		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(${CW.ABIL_FULL[st.sidekickSpellAbility()]} • DC ${st.sidekickSpellSaveDc()} • click a spell to cast)</span></h4>`;
+		ee(sec)`<h4>Spells <span class="ve-muted ve-small">(${CW.ABIL_FULL[st.sidekickSpellAbility()]} • DC ${st.sidekickSpellSaveDc()} • roll buttons for attacks &amp; damage; Cast expends a slot)</span></h4>`;
 		const pip = (filled) => `<span style="display:inline-block;width:15px;height:15px;border-radius:50%;border:2px solid #2196f3;margin:0 2px;vertical-align:middle;background:${filled ? "#2196f3" : "transparent"}"></span>`;
 		Object.keys(prog?.slots || {}).map(Number).sort((a, b) => a - b).forEach(lvl => {
 			const total = st.skSlotsTotal(lvl); const rem = st.skSlotsRemaining(lvl);
@@ -2329,15 +2329,40 @@ export class CharBuilderUi {
 		const counter = ee`<span class="ve-muted ve-small">${chosenArr.length}/${max}</span>`;
 		ee(wrp)`<h4 class="ve-mb-1">${label} (${counter})</h4>`;
 		if (!spells.length) { ee(wrp)`<p class="ve-muted ve-small">None available at this level.</p>`; return; }
-		this._renderChipPicker(wrp, {
-			items: spells,
-			getValue: sp => CW.uid(sp),
-			getLabel: sp => `${sp.level ? `<span class="ve-muted ve-small">${sp.level}</span> ` : "✦ "}${refLink(UrlUtil.PG_SPELLS, sp)}`,
-			getTitle: sp => `${Parser.spLevelToFull(sp.level)} ${Parser.spSchoolAbvToFull(sp.school)}`,
-			arr: chosenArr,
-			max,
-			counterEle: counter,
-			gridStyle: "display:flex;flex-wrap:wrap;gap:4px;max-height:230px;overflow:auto;border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px",
+
+		const box = ee`<div style="border:1px solid rgba(127,127,127,.2);padding:6px;border-radius:4px"></div>`.appendTo(wrp);
+		const search = spells.length > 14 ? ee`<input class="ve-form-control ve-input-xs ve-mb-1" placeholder="Filter by name…" style="max-width:240px">`.appendTo(box) : null;
+		const scroll = ee`<div style="max-height:260px;overflow:auto"></div>`.appendTo(box);
+
+		// group spells by level so a long prepared/known list is scannable
+		const byLvl = new Map();
+		spells.forEach(sp => { const k = sp.level || 0; if (!byLvl.has(k)) byLvl.set(k, []); byLvl.get(k).push(sp); });
+		const multiLevel = byLvl.size > 1;
+		const records = []; // {sp, chip, input, head}
+		[...byLvl.keys()].sort((a, b) => a - b).forEach(lvl => {
+			const head = multiLevel ? ee`<div class="ve-muted ve-small ve-bold ve-mt-1">${lvl ? `Level ${lvl}` : "Cantrips"}</div>`.appendTo(scroll) : null;
+			const grid = ee`<div style="display:flex;flex-wrap:wrap;gap:4px"></div>`.appendTo(scroll);
+			byLvl.get(lvl).forEach(sp => {
+				const val = CW.uid(sp);
+				const chip = ee`<label class="cb__chip" style="cursor:pointer" title="${`${Parser.spLevelToFull(sp.level)} ${Parser.spSchoolAbvToFull(sp.school)}`.qq()}">${refLink(UrlUtil.PG_SPELLS, sp)} <input type="checkbox" ${chosenArr.includes(val) ? "checked" : ""}></label>`;
+				const input = chip.querySelector("input");
+				input.addEventListener("change", () => {
+					if (input.checked) { if (chosenArr.length < max) chosenArr.push(val); else input.checked = false; } else { const i = chosenArr.indexOf(val); if (i >= 0) chosenArr.splice(i, 1); }
+					this._save(); refresh();
+				});
+				chip.appendTo(grid);
+				records.push({sp, chip, input, head});
+			});
+		});
+
+		const refresh = () => { const atMax = chosenArr.length >= max; records.forEach(r => { r.input.disabled = !r.input.checked && atMax; }); counter.txt(`${chosenArr.length}/${max}`); };
+		refresh();
+
+		if (search) search.onn("input", () => {
+			const q = search.val().toLowerCase().trim();
+			const headHas = new Map();
+			records.forEach(r => { const show = !q || r.sp.name.toLowerCase().includes(q); r.chip.style.display = show ? "" : "none"; if (show && r.head) headHas.set(r.head, true); });
+			new Set(records.map(r => r.head).filter(Boolean)).forEach(h => { h.style.display = headHas.get(h) ? "" : "none"; });
 		});
 	}
 

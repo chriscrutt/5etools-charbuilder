@@ -348,7 +348,9 @@ export class CharState {
 	/* ----- action economy: what you can do on your turn ----- */
 	_spellCastCategory (sp) { const u = sp?.time?.[0]?.unit; return u === "action" ? "action" : u === "bonus" ? "bonus" : u === "reaction" ? "reaction" : "other"; }
 	// features that grant a bonus action / reaction (heuristic scan; "action" is omitted as Attack/Cast-a-Spell already cover it)
-	_featureActionKinds (entries) {
+	_featureActionKinds (name, entries) {
+		// skip "choose one of many options" wrapper features — their text aggregates options that mention reaction/bonus action (false positives), and the chosen option isn't tracked here
+		if (/^(Fighting Style|Eldritch Invocations?|Metamagic|Maneuvers|Combat Superiority|Pact Boon|Pact Magic|Artificer Infusions?|Infuse Item|Channel Divinity|Mystic Arcanum|Martial Role)$/i.test(`${name || ""}`.trim())) return [];
 		const t = JSON.stringify(entries || "").toLowerCase(); const out = [];
 		if (/\bbonus action\b/.test(t)) out.push("bonus");
 		if (/\breaction\b/.test(t)) out.push("reaction");
@@ -370,7 +372,7 @@ export class CharState {
 		}));
 		// features
 		const seenF = {bonus: new Set(), reaction: new Set()};
-		this._turnFeatures().forEach(f => this._featureActionKinds(f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
+		this._turnFeatures().forEach(f => this._featureActionKinds(f.name, f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
 		return out;
 	}
 	featuresHaveName (re) { return this.featureSections().some(s => s.items.some(f => re.test(f.name))); }
@@ -2136,10 +2138,12 @@ export class CharState {
 		out.action.push({action: "Attack", suffix: n > 1 ? ` (${n} attacks)` : ""});
 		if (this.sidekickIsCaster()) out.action.push({action: "Cast a Spell"});
 		out.reaction.push({action: "Opportunity Attack"});
+		// Defender martial role is an explicit reaction (impose disadvantage on an attack against a nearby ally); "Martial Role" itself is skipped by the heuristic scan
+		if (this.sidekickMartialRole() === "defender") out.reaction.push({name: "Defender — impose disadvantage on an attack vs. an ally within 5 ft.", emph: true});
 		const book = this.skSpellbook(); const seenSp = new Set();
 		if (book) [...book.cantrips, ...book.leveled].forEach(sp => { const c = this._spellCastCategory(sp); if (c !== "bonus" && c !== "reaction") return; const k = `${c}|${sp.name}`; if (seenSp.has(k)) return; seenSp.add(k); out[c].push({spell: sp}); });
 		const seenF = {bonus: new Set(), reaction: new Set()};
-		this.sidekickFeatures().forEach(f => this._featureActionKinds(f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
+		this.sidekickFeatures().forEach(f => this._featureActionKinds(f.name, f.entries).forEach(kind => { if (!seenF[kind].has(f.name)) { seenF[kind].add(f.name); out[kind].push({feature: f}); } }));
 		(m?.bonus || []).forEach(a => out.bonus.push({name: a.name}));
 		(m?.reaction || []).forEach(a => out.reaction.push({name: a.name}));
 		return out;
