@@ -2156,10 +2156,12 @@ export class CharBuilderUi {
 				ee(wearCell)`${ee`<button class="ve-btn ve-btn-xs ve-ml-1 ${attuned ? "ve-btn-info" : "ve-btn-default"}" ${blocked ? "disabled" : ""} title="${title.qq()}"><span class="glyphicon glyphicon-flash"></span> ${attuned ? "Attuned ✓" : "Attune"}</button>`
 					.onn("click", () => { if (blocked) return; H.setAttuned(row.uid, !attuned); this._save(); this.render(); })}`;
 			}
-			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; } else { H.remove(ix); } this._save(); this._renderInvList(listWrp, H); });
+			// qty − : just decrement (no derived change) — but if it hits 0 the item is removed, which CAN change AC/effects/attunement, so do a full re-render then
+			const dec = ee`<button class="ve-btn ve-btn-default ve-btn-xs">−</button>`.onn("click", () => { if (row.qty > 1) { row.qty--; this._save(); this._renderInvList(listWrp, H); } else { H.remove(ix); this._save(); this.render(); } });
 			const inc = ee`<button class="ve-btn ve-btn-default ve-btn-xs">+</button>`.onn("click", () => { row.qty++; this._save(); this._renderInvList(listWrp, H); });
 			ee(tr)`<td class="ve-py-1 ve-text-center" style="white-space:nowrap">${dec} <b>${row.qty}</b> ${inc}</td>`;
-			const rm = ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => { H.remove(ix); this._save(); this._renderInvList(listWrp, H); });
+			// removing a worn/wielded/attuned item must refresh the whole sheet so its AC/effect/attack contributions drop, not just the list
+			const rm = ee`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Remove"><span class="glyphicon glyphicon-remove"></span></button>`.onn("click", () => { H.remove(ix); this._save(); this.render(); });
 			ee(tr)`<td class="ve-py-1 ve-text-right">${rm}</td>`;
 		});
 	}
