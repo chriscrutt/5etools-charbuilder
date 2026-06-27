@@ -7,7 +7,7 @@
 class VttBoard {
 	static _STORE_KEY = "vtt_scene_v1";
 	static _SWATCHES = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#f1c40f", "#7f8c8d", "#e84393", "#2c3e50"];
-	static _SIZE_CELLS = {T: 0.5, S: 1, M: 1, L: 2, H: 3, G: 4}; // 5e creature size → token footprint in cells
+	static _SIZE_FEET = {T: 2.5, S: 5, M: 5, L: 10, H: 15, G: 20}; // 5e creature size → footprint side in FEET (cells derive from the grid's ft-per-square)
 	static _UNDO_MAX = 50;
 	// 5e conditions + a few common buffs, for token status markers
 	static _CONDITIONS = [
@@ -156,8 +156,8 @@ class VttBoard {
 		const offY = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: g.offsetY || 0, style: "width:54px", title: "Grid Y offset"});
 		// keep refs so _syncMapInputs() can refresh them after a scene swap (undo/load/import). Handlers below read this._scene.grid LIVE (never a captured stale object).
 		this._els.gridCell = cell; this._els.gridFeet = feet; this._els.gridShow = show; this._els.gridSnap = snap; this._els.gridOffX = offX; this._els.gridOffY = offY;
-		cell.oninput = () => { this._scene.grid.cell = Math.max(4, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._save(); };
-		feet.oninput = () => { this._scene.grid.feet = Math.max(1, +feet.value || 5); this._save(); };
+		cell.oninput = () => { this._scene.grid.cell = Math.max(4, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._renderAoes(); this._save(); };
+		feet.oninput = () => { this._scene.grid.feet = Math.max(1, +feet.value || 5); this._renderTokens(); this._renderAoes(); this._save(); }; // feet changes token sizes (ft-based) & AoE px
 		show.onchange = () => { this._scene.grid.show = show.checked; this._renderGrid(); this._save(); };
 		snap.onchange = () => { this._scene.grid.snap = snap.checked; this._save(); };
 		offX.oninput = () => { this._scene.grid.offsetX = +offX.value || 0; this._renderGrid(); this._save(); };
@@ -215,13 +215,13 @@ class VttBoard {
 
 	_addMonsterToken (mon, opts = {}) {
 		const sizeAbv = Array.isArray(mon.size) ? mon.size[0] : mon.size;
-		const w = VttBoard._SIZE_CELLS[sizeAbv] || 1;
+		const ft = VttBoard._SIZE_FEET[sizeAbv] || 5;
 		const avg = mon.hp?.average ?? this._avgFromFormula(mon.hp?.formula) ?? 10;
 		const hp = opts.rollHp ? this._rollFormula(mon.hp?.formula, avg) : avg;
 		const dexMod = Math.floor((((mon.dex ?? 10)) - 10) / 2);
 		const init = opts.rollInit ? 1 + Math.floor(Math.random() * 20) + dexMod : null;
 		let img = null; try { if (Renderer.monster.hasToken(mon)) img = Renderer.monster.getTokenUrl(mon); } catch (e) { /* no token */ }
-		this._addToken({name: mon.name, w, h: w, hp, maxHp: hp, init, img, color: "#8a4b3b", square: w >= 3});
+		this._addToken({name: mon.name, ft, hp, maxHp: hp, init, img, color: "#8a4b3b", square: ft >= 15});
 	}
 
 	/* ---------- sidebar: Selected token ---------- */
@@ -248,8 +248,8 @@ class VttBoard {
 		const init = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: t.init ?? "", style: "width:64px"});
 		init.oninput = () => { t.init = init.value === "" ? null : +init.value; this._renderToken(t); this._renderInitiative(); this._save(); this._netPush(); };
 		const size = el("select", {class: "ve-form-control ve-input-xs", style: "width:auto"});
-		[["0.5", "Tiny (½)"], ["1", "Med (1)"], ["2", "Large (2)"], ["3", "Huge (3)"], ["4", "Gargantuan (4)"]].forEach(([v, txt]) => { const o = el("option", {value: v}, txt); if (+v === t.w) o.selected = true; size.appendChild(o); });
-		size.onchange = () => { t.w = t.h = +size.value; this._snapToken(t); this._renderToken(t); this._save(); this._netPush(); };
+		[["2.5", "Tiny (2.5 ft)"], ["5", "Medium (5 ft)"], ["10", "Large (10 ft)"], ["15", "Huge (15 ft)"], ["20", "Gargantuan (20 ft)"]].forEach(([v, txt]) => { const o = el("option", {value: v}, txt); if (+v === this._tokFt(t)) o.selected = true; size.appendChild(o); });
+		size.onchange = () => { t.ft = +size.value; this._snapToken(t); this._renderToken(t); this._save(); this._netPush(); };
 		const img = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Token image URL (optional)", value: t.img || ""});
 		img.oninput = () => { t.img = img.value.trim() || null; this._renderToken(t); this._save(); this._netPush(); };
 		const square = el("input", {type: "checkbox"}); square.checked = !!t.square;
@@ -471,6 +471,9 @@ class VttBoard {
 	}
 
 	_renderTokens () { this._scene.tokens.forEach(t => this._renderToken(t)); this._cleanupTokenEls(); }
+	// a token's footprint side in FEET (migrating old cell-based tokens: 1 cell ≈ 5 ft), and that in pixels for the current grid
+	_tokFt (t) { return t.ft != null ? t.ft : (t.w || 1) * 5; }
+	_tokenSidePx (t) { return this._tokFt(t) / this._scene.grid.feet * this._scene.grid.cell; }
 
 	_renderToken (t) {
 		let e = this._tokEls.get(t.id);
@@ -481,7 +484,7 @@ class VttBoard {
 			this._els.tokens.appendChild(e);
 			this._bindToken(e, t);
 		}
-		const px = t.w * this._scene.grid.cell;
+		const px = this._tokenSidePx(t);
 		e.style.left = `${t.x}px`; e.style.top = `${t.y}px`; e.style.width = `${px}px`; e.style.height = `${px}px`;
 		e.style.background = t.color || "#888";
 		e.classList.toggle("vtt-token--square", !!t.square);
@@ -825,7 +828,7 @@ class VttBoard {
 		const t = Object.assign({
 			id: `t${Date.now().toString(36)}${this._uid++}`,
 			x: Math.round(center.x / c) * c, y: Math.round(center.y / c) * c,
-			w: 1, h: 1, name: "", color: VttBoard._SWATCHES[this._scene.tokens.length % VttBoard._SWATCHES.length],
+			ft: 5, name: "", color: VttBoard._SWATCHES[this._scene.tokens.length % VttBoard._SWATCHES.length],
 			img: null, hp: null, maxHp: null, temp: 0, init: null, square: false, conditions: [], locked: false,
 		}, props);
 		this._scene.tokens.push(t); this._renderToken(t); this._select(t.id); this._renderInitiative(); this._save(); this._netPush();
@@ -907,7 +910,7 @@ class VttBoard {
 
 	_tokenById (id) { return this._scene.tokens.find(t => t.id === id); }
 
-	_centerOn (t) { const r = this._els.board.getBoundingClientRect(); const v = this._scene.view; const px = t.w * this._scene.grid.cell; v.x = r.width / 2 - (t.x + px / 2) * v.scale; v.y = r.height / 2 - (t.y + px / 2) * v.scale; this._applyView(); this._save(); }
+	_centerOn (t) { const r = this._els.board.getBoundingClientRect(); const v = this._scene.view; const px = this._tokenSidePx(t); v.x = r.width / 2 - (t.x + px / 2) * v.scale; v.y = r.height / 2 - (t.y + px / 2) * v.scale; this._applyView(); this._save(); }
 
 	/* ============================ initiative / turns ============================ */
 	_activeTokenId () { const o = this._scene.turn.order; const ix = this._scene.turn.ix; return ix >= 0 && ix < o.length ? o[ix] : null; }
