@@ -22,6 +22,7 @@
 .vtt-fog { position: absolute; top: 0; left: 0; pointer-events: none; } /* fog of war (above tokens) */
 .vtt-board.vtt-board--drawing { cursor: crosshair; }
 .vtt-board.vtt-board--fog { cursor: cell; }
+.vtt-board.vtt-board--align { cursor: crosshair; }
 .vtt-tokens { position: absolute; top: 0; left: 0; }
 
 /* tokens */

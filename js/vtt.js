@@ -34,13 +34,15 @@ class VttBoard {
 
 	_setMode (mode, on) {
 		const m = on ? mode : null;
-		this._measureMode = m === "measure"; this._drawMode = m === "draw"; this._fogMode = m === "fog";
+		this._measureMode = m === "measure"; this._drawMode = m === "draw"; this._fogMode = m === "fog"; this._alignMode = m === "align";
 		this._btnMeasure?.classList.toggle("active", this._measureMode);
 		this._btnDraw?.classList.toggle("active", this._drawMode);
 		this._btnFog?.classList.toggle("active", this._fogMode);
+		this._btnAlign?.classList.toggle("active", this._alignMode);
 		this._els.board.classList.toggle("vtt-board--measuring", this._measureMode);
 		this._els.board.classList.toggle("vtt-board--drawing", this._drawMode);
 		this._els.board.classList.toggle("vtt-board--fog", this._fogMode);
+		this._els.board.classList.toggle("vtt-board--align", this._alignMode);
 	}
 
 	_defaultScene () {
@@ -162,10 +164,13 @@ class VttBoard {
 		snap.onchange = () => { this._scene.grid.snap = snap.checked; this._save(); };
 		offX.oninput = () => { this._scene.grid.offsetX = +offX.value || 0; this._renderGrid(); this._save(); };
 		offY.oninput = () => { this._scene.grid.offsetY = +offY.value || 0; this._renderGrid(); this._save(); };
+		const btnAlign = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Calibrate the grid: drag a box across a whole number of the map's squares"}, "📐 Align grid to map");
+		btnAlign.onclick = () => { const on = !this._alignMode; this._setMode("align", on); toast(on ? "Align: drag a box across a whole number of the map's squares (snap the corners to gridline crossings)." : "Align cancelled.", "info"); };
+		this._btnAlign = btnAlign;
 		sec.append(
 			el("div", {class: "vtt-row"}, lbl("Cell px"), cell, lbl("= ft"), feet),
 			el("div", {class: "vtt-row"}, lbl("Offset"), offX, offY, wrapCb(snap, "Snap")),
-			el("div", {class: "vtt-row"}, wrapCb(show, "Show grid")),
+			el("div", {class: "vtt-row"}, wrapCb(show, "Show grid"), btnAlign),
 		);
 		return sec;
 	}
@@ -551,6 +556,7 @@ class VttBoard {
 		board.addEventListener("pointerdown", (e) => {
 			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar") || e.target.closest(".vtt-aoe-g")) return;
 			if (e.button === 2) return;
+			if (this._alignMode) return this._startAlign(e);
 			if (this._fogMode) return this._startFog(e);
 			if (this._drawMode) return this._startDraw(e);
 			if (this._measureMode || e.altKey) return this._startMeasure(e);
@@ -558,6 +564,7 @@ class VttBoard {
 			board.classList.add("vtt-board--panning"); board.setPointerCapture(e.pointerId);
 		});
 		board.addEventListener("pointermove", (e) => {
+			if (this._aligning) return this._moveAlign(e);
 			if (this._fogging) return this._moveFog(e);
 			if (this._drawing) return this._moveDraw(e);
 			if (this._measuring) return this._moveMeasure(e);
@@ -566,7 +573,7 @@ class VttBoard {
 			this._scene.view.y = this._panning.oy + (e.clientY - this._panning.sy);
 			this._applyView();
 		});
-		const endPan = (e) => { if (this._fogging) return this._endFog(); if (this._drawing) return this._endDraw(); if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
+		const endPan = (e) => { if (this._aligning) return this._endAlign(); if (this._fogging) return this._endFog(); if (this._drawing) return this._endDraw(); if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
 		board.addEventListener("pointerup", endPan);
 		board.addEventListener("pointercancel", endPan);
 		// double-click empty board → ping a spot (attention marker)
@@ -819,6 +826,38 @@ class VttBoard {
 	}
 	_endMeasure () { this._measuring = null; setTimeout(() => { this._els.svg.innerHTML = ""; }, 900); }
 
+	/* ============================ align grid to map ============================ */
+	_startAlign (e) { const w = this._screenToWorld(e.clientX, e.clientY); this._aligning = {x0: w.x, y0: w.y, x1: w.x, y1: w.y}; this._els.board.setPointerCapture(e.pointerId); }
+	_moveAlign (e) {
+		const w = this._screenToWorld(e.clientX, e.clientY); const a = this._aligning; a.x1 = w.x; a.y1 = w.y;
+		const x = Math.min(a.x0, a.x1), y = Math.min(a.y0, a.y1), wd = Math.abs(a.x1 - a.x0), ht = Math.abs(a.y1 - a.y0);
+		const svg = this._els.svg; svg.innerHTML = "";
+		svg.appendChild(svgEl("rect", {x, y, width: wd, height: ht, fill: "rgba(33,150,243,.15)", stroke: "#2196f3", "stroke-width": 2, "stroke-dasharray": "7 5"}));
+	}
+	_endAlign () {
+		const a = this._aligning; this._aligning = null; this._els.svg.innerHTML = "";
+		if (!a) return; const dw = Math.abs(a.x1 - a.x0), dh = Math.abs(a.y1 - a.y0);
+		if (dw < 6 && dh < 6) { this._setMode("align", false); return; }
+		const ans = prompt("How many of the MAP's squares did you drag across?\nFormat: columns x rows (e.g. 4x3). Put 0 for an axis you didn't span cleanly.", "4x4");
+		if (ans == null) { this._setMode("align", false); return; }
+		const m = /(\d+)\s*[x×,\s]\s*(\d+)/i.exec(ans.trim());
+		if (!m) { toast("Enter it like 4x3.", "warning"); return; }
+		const cols = +m[1], rows = +m[2]; const cands = [];
+		if (cols > 0 && dw > 0) cands.push(dw / cols); if (rows > 0 && dh > 0) cands.push(dh / rows);
+		if (!cands.length) { toast("Drag across at least one axis and give a non-zero count.", "warning"); return; }
+		const cell = Math.max(4, Math.round(cands.reduce((s, v) => s + v, 0) / cands.length));
+		const ftAns = prompt(`Feet per one of those squares?`, `${this._scene.grid.feet || 5}`);
+		this._pushUndo();
+		this._scene.grid.cell = cell;
+		const x0 = Math.min(a.x0, a.x1), y0 = Math.min(a.y0, a.y1);
+		this._scene.grid.offsetX = Math.round(((x0 % cell) + cell) % cell);
+		this._scene.grid.offsetY = Math.round(((y0 % cell) + cell) % cell);
+		if (ftAns != null && +ftAns > 0) this._scene.grid.feet = +ftAns;
+		this._setMode("align", false);
+		this._syncMapInputs(); this._renderGrid(); this._renderTokens(); this._renderAoes(); this._save(); this._netPush();
+		toast(`Grid aligned — ${cell}px = ${this._scene.grid.feet} ft squares.`, "success");
+	}
+
 	/* ============================ tokens CRUD ============================ */
 	_addToken (props = {}) {
 		const c = this._scene.grid.cell; const v = this._scene.view; const r = this._els.board.getBoundingClientRect();
@@ -1004,7 +1043,10 @@ class VttBoard {
 		if (g && g.size && !/hex/i.test(g.type || "") && !/mile|yard/i.test(g.units || "")) {
 			this._scene.grid.cell = Math.max(4, Math.round(g.size));
 			this._scene.grid.offsetX = g.offsetX || 0; this._scene.grid.offsetY = g.offsetY || 0;
-			if (typeof g.distance === "number" && g.distance > 0) this._scene.grid.feet = g.distance; // the map's real ft-per-square from 5etools' data (else keep the standard 5)
+			// the map's real ft-per-square from 5etools' data: `distance` is absolute feet; `scale` is a multiple of the standard 5-ft square (scale 4 → 20 ft). Else keep 5.
+			if (typeof g.distance === "number" && g.distance > 0) this._scene.grid.feet = g.distance;
+			else if (typeof g.scale === "number" && g.scale > 0) this._scene.grid.feet = 5 * g.scale;
+			else this._scene.grid.feet = 5;
 			this._syncMapInputs(); // refresh cell/feet/offset fields from the live grid
 			this._renderGrid(); this._renderTokens(); this._save();
 			toast(`Loaded "${m.title}" — matched its grid (${this._scene.grid.cell}px = ${this._scene.grid.feet} ft squares).`, "success");
