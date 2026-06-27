@@ -122,6 +122,7 @@ class VttBoard {
 			this._secDraw(),
 			this._secFog(),
 			this._secDice(),
+			this._secLibrary(),
 			this._secScene(),
 		);
 		sb.appendChild(scroll);
@@ -355,6 +356,58 @@ class VttBoard {
 		inp.onkeydown = (e) => { if (e.key === "Enter" && inp.value.trim()) { this._roll(inp.value.trim()); inp.select(); } };
 		sec.appendChild(inp);
 		return sec;
+	}
+
+	/* ---------- sidebar: Library (saved encounters + token presets) ---------- */
+	static _LS_ENC = "vtt_encounters_v1";
+	static _LS_TOK = "vtt_tokenlib_v1";
+	_lsGet (k) { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } }
+	_lsSet (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+	_secLibrary () {
+		const sec = el("div", {class: "vtt-sec"});
+		sec.appendChild(el("h4", {}, "Library"));
+		// encounters
+		sec.appendChild(el("div", {class: "vtt-mini ve-bold"}, "Saved encounters"));
+		const name = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Encounter name"});
+		const save = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary"}, "Save");
+		save.onclick = () => { const n = name.value.trim() || `Encounter ${new Date().toLocaleString()}`; this._saveEncounter(n); name.value = ""; this._renderLibrary(); toast(`Saved "${n.qq ? n.qq() : n}".`, "success"); };
+		name.onkeydown = (e) => { if (e.key === "Enter") save.onclick(); };
+		const encList = el("div", {id: "vtt-enc-list"}); this._els.encList = encList;
+		sec.append(el("div", {class: "vtt-row"}, name, save), encList);
+		// token presets
+		sec.appendChild(el("div", {class: "vtt-mini ve-bold ve-mt-2"}, "Token presets"));
+		const tpSave = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "Save selected token");
+		tpSave.onclick = () => { const t = this._tokenById(this._selId); if (!t) return toast("Select a token first.", "info"); const n = prompt("Preset name:", t.name || "Token"); if (n == null) return; this._saveTokenPreset((n.trim() || t.name || "Token"), t); this._renderLibrary(); };
+		const tpList = el("div", {id: "vtt-tp-list", class: "vtt-tp-list"}); this._els.tpList = tpList;
+		sec.append(el("div", {class: "vtt-row"}, tpSave), tpList);
+		this._renderLibrary();
+		return sec;
+	}
+
+	_saveEncounter (n) { const arr = this._lsGet(VttBoard._LS_ENC).filter(e => e.name !== n); arr.push({name: n, ts: Date.now(), scene: JSON.parse(JSON.stringify(this._scene))}); this._lsSet(VttBoard._LS_ENC, arr); }
+	_loadEncounter (n) {
+		const e = this._lsGet(VttBoard._LS_ENC).find(x => x.name === n); if (!e) return;
+		this._pushUndo();
+		this._scene = {...this._defaultScene(), ...e.scene}; this._selId = null; this._selAoeId = null;
+		this._tokEls.forEach(el => el.remove()); this._tokEls.clear(); this._aoeEls?.forEach(g => g.remove()); this._aoeEls?.clear();
+		this._renderAll(); this._save(); this._netPush(); toast(`Loaded "${n}".`, "info");
+	}
+	_deleteEncounter (n) { this._lsSet(VttBoard._LS_ENC, this._lsGet(VttBoard._LS_ENC).filter(x => x.name !== n)); this._renderLibrary(); }
+	_saveTokenPreset (n, t) { const arr = this._lsGet(VttBoard._LS_TOK).filter(p => p.name !== n); const {id, x, y, init, ...rest} = t; arr.push({name: n, token: rest}); this._lsSet(VttBoard._LS_TOK, arr); }
+	_deleteTokenPreset (n) { this._lsSet(VttBoard._LS_TOK, this._lsGet(VttBoard._LS_TOK).filter(p => p.name !== n)); this._renderLibrary(); }
+	_dropPreset (p) { const tok = (typeof structuredClone === "function") ? structuredClone(p.token) : JSON.parse(JSON.stringify(p.token)); delete tok.id; this._addToken(tok); }
+
+	_renderLibrary () {
+		if (!this._els.encList) return;
+		const enc = this._lsGet(VttBoard._LS_ENC).sort((a, b) => b.ts - a.ts);
+		this._els.encList.innerHTML = "";
+		if (!enc.length) this._els.encList.appendChild(el("div", {class: "vtt-mini"}, "None saved yet."));
+		enc.forEach(e => { const row = el("div", {class: "vtt-lib-row"}); const load = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default"}, "Load"); load.onclick = () => this._loadEncounter(e.name); const del = el("button", {class: "ve-btn ve-btn-xxs ve-btn-danger"}, "✕"); del.onclick = () => { if (confirm(`Delete encounter "${e.name}"?`)) this._deleteEncounter(e.name); }; row.append(el("span", {class: "vtt-lib-row__name", title: e.name}, e.name), load, del); this._els.encList.appendChild(row); });
+		const tp = this._lsGet(VttBoard._LS_TOK);
+		this._els.tpList.innerHTML = "";
+		if (!tp.length) this._els.tpList.appendChild(el("div", {class: "vtt-mini"}, "Save tokens (e.g. your PCs) to drop them again later."));
+		tp.forEach(p => { const chip = el("div", {class: "vtt-tp-chip", title: "Click to drop on the board"}); chip.style.background = p.token.color || "#888"; if (p.token.img) { const im = el("img", {src: p.token.img, class: "vtt-tp-chip__img"}); im.onerror = () => im.remove(); chip.appendChild(im); } chip.append(el("span", {class: "vtt-tp-chip__name"}, p.name)); const x = el("span", {class: "vtt-tp-x", title: "Delete preset"}, "✕"); x.onclick = (ev) => { ev.stopPropagation(); this._deleteTokenPreset(p.name); }; chip.appendChild(x); chip.onclick = () => this._dropPreset(p); this._els.tpList.appendChild(chip); });
 	}
 
 	/* ---------- sidebar: Scene save/load ---------- */

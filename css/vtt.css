@@ -76,6 +76,16 @@
 .vtt-mon-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vtt-mon-row__meta { opacity: .6; font-size: 10px; white-space: nowrap; }
 
+/* library: saved encounters + token presets */
+.vtt-lib-row { display: flex; align-items: center; gap: 5px; padding: 2px 0; }
+.vtt-lib-row__name { flex: 1 1 auto; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtt-tp-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.vtt-tp-chip { position: relative; display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 4px; border-radius: 11px; cursor: pointer; color: #fff; font-size: 11px; max-width: 130px; border: 1px solid rgba(0,0,0,.4); }
+.vtt-tp-chip__img { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; }
+.vtt-tp-chip__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 1px rgba(0,0,0,.6); }
+.vtt-tp-x { opacity: .7; padding-left: 2px; }
+.vtt-tp-x:hover { opacity: 1; }
+
 /* dead / bloodied / locked token states */
 .vtt-token--dead { filter: grayscale(.85) brightness(.6); }
 .vtt-token--dead::after { content: "✕"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ff5252; font-size: 130%; font-weight: bold; text-shadow: 0 0 4px #000; pointer-events: none; }
