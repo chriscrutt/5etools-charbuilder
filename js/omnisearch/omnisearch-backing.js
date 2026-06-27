@@ -175,6 +175,11 @@ export class OmnisearchBacking {
 			results = results.filter(res => !res.doc.s || !SourceUtil.isLegacySourceWotc(res.doc.s));
 		}
 
+		// fork: in Classic (2014) style, hide all non-classic (2024+) content from search too
+		if (VetoolsConfig.get("styleSwitcher", "style") === SITE_STYLE__CLASSIC) {
+			results = results.filter(res => !res.doc.s || SourceUtil.isClassicSource(res.doc.s));
+		}
+
 		if (!OmnisearchState.isShowBlocklisted && ExcludeUtil.getList().length) {
 			const resultsNxt = [];
 			for (const res of results) {

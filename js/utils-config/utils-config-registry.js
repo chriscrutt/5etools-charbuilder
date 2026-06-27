@@ -23,7 +23,7 @@ const settingsGroupStyleSwitcher = new ConfigSettingsGroup({
 			help: `The styling to be applied when rendering specific information (stat blocks, etc.). Does not affect what content is available, only how it is displayed. See also: https://2014.5e.tools.`,
 			isRowLabel: true,
 			isReloadRequired: true,
-			default: SITE_STYLE__ONE,
+			default: SITE_STYLE__CLASSIC, // fork: default to the 2014/Classic edition (this fork is 5e-2014 only). Switching to Modern reveals 2024 content again.
 			values: [
 				SITE_STYLE__CLASSIC,
 				SITE_STYLE__ONE,

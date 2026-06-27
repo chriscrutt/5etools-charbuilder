@@ -9314,7 +9314,24 @@ globalThis.ExcludeUtil = class {
 	 * @param [opts]
 	 * @param [opts.isNoCount]
 	 */
+	// fork: in the Classic (2014) style, treat every non-classic (2024+) source as absent everywhere. Coupled to the style so switching to Modern restores all content. Cached (style needs a reload to change; classic-ness is per-source static data).
+	static _cache_isClassicOnly;
+	static _cache_classicBySource = {};
+	static _isEditionHidden (source) {
+		if (!source) return false;
+		if (ExcludeUtil._cache_isClassicOnly === undefined) {
+			let style; try { style = VetoolsConfig.get("styleSwitcher", "style"); } catch (e) { return false; } // config not ready yet — don't cache, re-check next call
+			ExcludeUtil._cache_isClassicOnly = style === "classic";
+		}
+		if (!ExcludeUtil._cache_isClassicOnly) return false;
+		const src = `${source.source || source}`;
+		let classic = ExcludeUtil._cache_classicBySource[src];
+		if (classic === undefined) { try { classic = SourceUtil.isClassicSource(src); } catch (e) { classic = true; } ExcludeUtil._cache_classicBySource[src] = classic; }
+		return !classic;
+	}
+
 	static isExcluded (hash, category, source, opts) {
+		if (ExcludeUtil._isEditionHidden(source)) return true; // fork: 2014-only — hide non-classic (2024+) content when in Classic style
 		if (!ExcludeUtil._excludes || !ExcludeUtil._excludes.length) return false;
 		if (!source) throw new Error(`Entity had no source!`);
 		opts = opts || {};
