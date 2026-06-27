@@ -35,6 +35,7 @@ class VttBoard {
 			grid: {cell: 70, feet: 5, show: true, snap: true, color: "rgba(255,255,255,.16)"},
 			view: {x: 40, y: 40, scale: 1},
 			tokens: [],
+			aoes: [], // [{id, type:circle|cone|line|cube, x, y, size(ft), rot(deg), color}]
 			turn: {order: [], ix: -1, round: 1}, // initiative order = token ids
 		};
 	}
@@ -59,10 +60,11 @@ class VttBoard {
 		this._els.world = world;
 		const imgMap = el("img", {class: "vtt-map", alt: "", draggable: "false"}); this._els.imgMap = imgMap; imgMap.style.display = "none";
 		const cvGrid = el("canvas", {class: "vtt-grid"}); this._els.cvGrid = cvGrid;
+		const svgAoe = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svgAoe.setAttribute("class", "vtt-aoe"); this._els.svgAoe = svgAoe; // AoE templates, below tokens
 		const tokens = el("div", {class: "vtt-tokens"}); this._els.tokens = tokens;
 		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 		svg.setAttribute("class", "vtt-overlay"); this._els.svg = svg;
-		world.append(imgMap, cvGrid, tokens, svg);
+		world.append(imgMap, cvGrid, svgAoe, tokens, svg);
 		board.append(world, this._buildToolbar(), el("div", {class: "vtt-zoomread", id: "vtt-zoomread"}));
 		this._els.zoomread = board.querySelector("#vtt-zoomread");
 		return board;
@@ -74,6 +76,10 @@ class VttBoard {
 		this._btnMeasure = btn("📏 Measure", "Toggle measure mode (or hold Alt and drag)", () => { this._measureMode = !this._measureMode; this._btnMeasure.classList.toggle("active", this._measureMode); this._els.board.classList.toggle("vtt-board--measuring", this._measureMode); });
 		bar.append(
 			btn("＋ Token", "Add a token at the view center", () => this._addTokenInteractive()),
+			btn("○ Circle", "Add a circular AoE (e.g. Fireball 20 ft)", () => this._addAoe("circle")),
+			btn("◁ Cone", "Add a cone AoE (e.g. Burning Hands 15 ft)", () => this._addAoe("cone")),
+			btn("▬ Line", "Add a line AoE (e.g. Lightning Bolt 100 ft)", () => this._addAoe("line")),
+			btn("▢ Cube", "Add a square/cube AoE", () => this._addAoe("cube")),
 			this._btnMeasure,
 			btn("↶ Undo", "Undo the last change (Ctrl+Z)", () => this._doUndo()),
 			btn("⟳ Reset View", "Recenter & reset zoom", () => { this._scene.view = {x: 40, y: 40, scale: 1}; this._applyView(); this._save(); }),
@@ -88,6 +94,7 @@ class VttBoard {
 		scroll.append(
 			this._secMap(),
 			this._secSelected(),
+			this._secAoe(),
 			this._secInitiative(),
 			this._secDice(),
 			this._secScene(),
@@ -197,6 +204,9 @@ class VttBoard {
 		);
 	}
 
+	/* ---------- sidebar: Selected AoE ---------- */
+	_secAoe () { const sec = el("div", {class: "vtt-sec vtt-selpanel", id: "vtt-aoepanel"}); sec.style.display = "none"; this._els.aoePanel = sec; return sec; }
+
 	/* ---------- sidebar: Initiative ---------- */
 	_secInitiative () {
 		const sec = el("div", {class: "vtt-sec"});
@@ -249,7 +259,7 @@ class VttBoard {
 	}
 
 	/* ============================ rendering ============================ */
-	_renderAll () { this._renderMap(); this._renderGrid(); this._renderTokens(); this._renderInitiative(); this._renderSelPanel(); this._applyView(); }
+	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderTokens(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._applyView(); }
 
 	_worldSize () {
 		const m = this._scene.map; const cell = this._scene.grid.cell;
@@ -268,8 +278,8 @@ class VttBoard {
 		const {w, h} = this._worldSize(); const g = this._scene.grid; const cv = this._els.cvGrid;
 		cv.width = w; cv.height = h; cv.style.width = `${w}px`; cv.style.height = `${h}px`;
 		const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, w, h);
-		// size the SVG overlay to match
-		this._els.svg.setAttribute("width", w); this._els.svg.setAttribute("height", h); this._els.svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+		// size the SVG overlay + AoE layer to match
+		for (const s of [this._els.svg, this._els.svgAoe]) { s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${w} ${h}`); }
 		this._els.tokens.style.width = `${w}px`; this._els.tokens.style.height = `${h}px`;
 		if (!g.show) return;
 		ctx.strokeStyle = g.color; ctx.lineWidth = 1;
@@ -381,15 +391,15 @@ class VttBoard {
 			this._applyView(); this._saveThrottled();
 		}, {passive: false});
 		// deselect on empty click
-		board.addEventListener("click", (e) => { if (!e.target.closest(".vtt-token") && !e.target.closest(".vtt-toolbar")) this._select(null); });
+		board.addEventListener("click", (e) => { if (!e.target.closest(".vtt-token") && !e.target.closest(".vtt-toolbar") && !e.target.closest(".vtt-aoe-g")) { this._select(null); this._selectAoe(null); } });
 		// keyboard
 		document.addEventListener("keydown", (e) => {
 			const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
 			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !inField) { e.preventDefault(); return this._doUndo(); }
 			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d" && this._selId && !inField) { e.preventDefault(); const t = this._tokenById(this._selId); if (t) this._duplicateToken(t); return; }
 			if (inField) return;
-			if (e.key === "Escape") this._closeContextMenu();
-			if ((e.key === "Delete" || e.key === "Backspace") && this._selId) { e.preventDefault(); this._removeToken(this._selId); }
+			if (e.key === "Escape") { this._closeContextMenu(); this._selectAoe(null); }
+			if (e.key === "Delete" || e.key === "Backspace") { if (this._selAoeId) { e.preventDefault(); this._removeAoe(this._selAoeId); } else if (this._selId) { e.preventDefault(); this._removeToken(this._selId); } }
 		});
 	}
 
@@ -453,6 +463,100 @@ class VttBoard {
 	_closeContextMenu () { this._ctxCloser?.(); this._ctxCloser = null; if (this._ctxMenu) { this._ctxMenu.remove(); this._ctxMenu = null; } }
 
 	_snapToken (t) { if (!this._scene.grid.snap) return; const c = this._scene.grid.cell; t.x = Math.round(t.x / c) * c; t.y = Math.round(t.y / c) * c; }
+
+	/* ============================ AoE templates ============================ */
+	static _AOE_DEFAULTS = {circle: {size: 20}, cone: {size: 15}, line: {size: 100, width: 5}, cube: {size: 15}}; // 5e defaults (ft)
+	_ftToPx (ft) { return ft / this._scene.grid.feet * this._scene.grid.cell; }
+
+	_addAoe (type) {
+		this._pushUndo();
+		const r = this._els.board.getBoundingClientRect();
+		const center = this._screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
+		const def = VttBoard._AOE_DEFAULTS[type] || {size: 15};
+		const a = {id: `a${Date.now().toString(36)}${this._uid++}`, type, x: center.x, y: center.y, size: def.size, width: def.width || 5, rot: 0, color: "#e6394633"};
+		this._scene.aoes.push(a); this._renderAoe(a); this._selectAoe(a.id); this._save(); this._netPush();
+		return a;
+	}
+	_removeAoe (id) { this._pushUndo(); this._scene.aoes = this._scene.aoes.filter(a => a.id !== id); const g = this._aoeEls?.get(id); if (g) { g.remove(); this._aoeEls.delete(id); } if (this._selAoeId === id) this._selectAoe(null); this._save(); this._netPush(); }
+	_aoeById (id) { return this._scene.aoes.find(a => a.id === id); }
+
+	_renderAoes () { this._aoeEls = this._aoeEls || new Map(); (this._scene.aoes || []).forEach(a => this._renderAoe(a)); const ids = new Set((this._scene.aoes || []).map(a => a.id)); for (const [id, g] of this._aoeEls) { if (!ids.has(id)) { g.remove(); this._aoeEls.delete(id); } } }
+
+	// local-coords shape geometry (origin at 0,0, pointing +x)
+	_aoeShapePoints (a) {
+		const L = this._ftToPx(a.size);
+		switch (a.type) {
+			case "circle": return {tag: "circle", attrs: {cx: 0, cy: 0, r: L}, reach: L};
+			case "cube": { const s = L; return {tag: "rect", attrs: {x: -s / 2, y: -s / 2, width: s, height: s}, reach: s / 2}; }
+			case "cone": return {tag: "polygon", attrs: {points: `0,0 ${L},${-L / 2} ${L},${L / 2}`}, reach: L};
+			case "line": { const w = this._ftToPx(a.width || 5); return {tag: "polygon", attrs: {points: `0,${-w / 2} ${L},${-w / 2} ${L},${w / 2} 0,${w / 2}`}, reach: L}; }
+			default: return {tag: "circle", attrs: {cx: 0, cy: 0, r: L}, reach: L};
+		}
+	}
+
+	_renderAoe (a) {
+		let g = this._aoeEls.get(a.id);
+		if (!g) { g = svgEl("g", {class: "vtt-aoe-g"}); this._aoeEls.set(a.id, g); this._els.svgAoe.appendChild(g); this._bindAoe(g, a); }
+		g.setAttribute("transform", `translate(${a.x} ${a.y}) rotate(${a.rot})`);
+		g.innerHTML = "";
+		const shp = this._aoeShapePoints(a);
+		const fill = a.color || "#e6394633";
+		const stroke = (a.color || "#e63946").slice(0, 7);
+		const sh = svgEl(shp.tag, {...shp.attrs, fill, stroke, "stroke-width": this._selAoeId === a.id ? 3 : 2, "stroke-dasharray": this._selAoeId === a.id ? "6 4" : "none", class: "vtt-aoe-shape"});
+		g.appendChild(sh);
+		// rotation handle (cone/line/cube)
+		if (a.type !== "circle") {
+			const hd = shp.reach + 16;
+			g.appendChild(svgEl("line", {x1: 0, y1: 0, x2: hd, y2: 0, stroke: stroke, "stroke-width": 1, "stroke-dasharray": "3 3", "pointer-events": "none"}));
+			const handle = svgEl("circle", {cx: hd, cy: 0, r: 7, fill: stroke, class: "vtt-aoe-handle"});
+			handle.dataset.role = "rot"; g.appendChild(handle);
+		}
+		// size label
+		const lab = svgEl("text", {x: 0, y: -shp.reach - 6, fill: "#fff", "font-size": 13, "text-anchor": "middle", "paint-order": "stroke", stroke: "#000", "stroke-width": 3, "pointer-events": "none", transform: `rotate(${-a.rot})`});
+		lab.textContent = a.type === "line" ? `${a.size} ft line` : a.type === "circle" ? `${a.size} ft radius` : `${a.size} ft`;
+		g.appendChild(lab);
+	}
+
+	_bindAoe (g, a) {
+		g.addEventListener("pointerdown", (ev) => {
+			ev.stopPropagation(); this._selectAoe(a.id);
+			const isRot = ev.target.dataset?.role === "rot";
+			const start = this._screenToWorld(ev.clientX, ev.clientY);
+			this._aoeDrag = {id: a.id, rot: isRot, dx: start.x - a.x, dy: start.y - a.y, moved: false};
+			g.setPointerCapture(ev.pointerId);
+		});
+		g.addEventListener("pointermove", (ev) => {
+			if (!this._aoeDrag || this._aoeDrag.id !== a.id) return;
+			if (!this._aoeDrag.moved) { this._pushUndo(); this._aoeDrag.moved = true; }
+			const w = this._screenToWorld(ev.clientX, ev.clientY);
+			if (this._aoeDrag.rot) { a.rot = Math.round(Math.atan2(w.y - a.y, w.x - a.x) * 180 / Math.PI); }
+			else { a.x = w.x - this._aoeDrag.dx; a.y = w.y - this._aoeDrag.dy; }
+			this._renderAoe(a); this._netPushThrottled();
+		});
+		const end = () => { if (this._aoeDrag?.id === a.id) { if (this._aoeDrag.moved) { this._save(); this._netPush(); } this._aoeDrag = null; } };
+		g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+	}
+
+	_selectAoe (id) { this._selAoeId = id; if (id) this._select(null); (this._scene.aoes || []).forEach(a => this._renderAoe(a)); this._renderAoePanel(); }
+
+	_renderAoePanel () {
+		const sec = this._els.aoePanel; if (!sec) return;
+		sec.innerHTML = ""; sec.appendChild(el("h4", {}, "Selected AoE"));
+		const a = this._aoeById(this._selAoeId);
+		if (!a) { sec.style.display = "none"; return; }
+		sec.style.display = "";
+		const mk = (label, inp) => el("div", {class: "vtt-row"}, lbl(label), inp);
+		const size = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: a.size, min: "1", style: "width:64px"});
+		size.oninput = () => { a.size = Math.max(1, +size.value || 5); this._renderAoe(a); this._save(); this._netPush(); };
+		const rot = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: a.rot, style: "width:64px"});
+		rot.oninput = () => { a.rot = +rot.value || 0; this._renderAoe(a); this._save(); this._netPush(); };
+		const colors = ["#e63946", "#2a9d8f", "#457b9d", "#9b5de5", "#f4a261", "#ffd54a"];
+		const sw = el("div", {class: "vtt-swatches"});
+		colors.forEach(c => { const on = (a.color || "").startsWith(c); const s = el("div", {class: "vtt-swatch" + (on ? " vtt-swatch--sel" : ""), style: `background:${c}`}); s.onclick = () => { a.color = c + "33"; this._renderAoe(a); this._renderAoePanel(); this._save(); this._netPush(); }; sw.appendChild(s); });
+		const del = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Delete AoE");
+		del.onclick = () => this._removeAoe(a.id);
+		sec.append(el("div", {class: "vtt-mini"}, `${a.type} • drag to move${a.type !== "circle" ? ", drag the dot to rotate" : ""}`), mk(a.type === "line" ? "Length ft" : a.type === "circle" ? "Radius ft" : "Size ft", size), a.type === "circle" ? el("span") : mk("Rotation°", rot), el("div", {class: "vtt-row"}, sw), el("div", {class: "vtt-row"}, del));
+	}
 
 	/* ============================ measurement ============================ */
 	_startMeasure (e) { const w = this._screenToWorld(e.clientX, e.clientY); this._measuring = {x0: w.x, y0: w.y}; this._els.board.setPointerCapture(e.pointerId); }
@@ -553,9 +657,9 @@ class VttBoard {
 
 	/* ---------- undo ---------- */
 	_pushUndo () { try { this._undo.push(JSON.stringify(this._scene)); if (this._undo.length > VttBoard._UNDO_MAX) this._undo.shift(); } catch (e) {} }
-	_doUndo () { const snap = this._undo.pop(); if (!snap) return toast("Nothing to undo.", "info"); try { this._scene = JSON.parse(snap); this._selId = null; this._tokEls.forEach(e => e.remove()); this._tokEls.clear(); this._renderAll(); this._save(); this._netPush(); } catch (e) {} }
+	_doUndo () { const snap = this._undo.pop(); if (!snap) return toast("Nothing to undo.", "info"); try { this._scene = JSON.parse(snap); this._selId = null; this._selAoeId = null; this._tokEls.forEach(e => e.remove()); this._tokEls.clear(); this._aoeEls?.forEach(g => g.remove()); this._aoeEls?.clear(); this._renderAll(); this._save(); this._netPush(); } catch (e) {} }
 
-	_select (id) { this._selId = id; this._scene.tokens.forEach(t => { const e = this._tokEls.get(t.id); if (e) e.classList.toggle("vtt-token--sel", t.id === id); }); this._renderSelPanel(); }
+	_select (id) { this._selId = id; if (id && this._selAoeId) { this._selAoeId = null; (this._scene.aoes || []).forEach(a => this._renderAoe(a)); this._renderAoePanel(); } this._scene.tokens.forEach(t => { const e = this._tokEls.get(t.id); if (e) e.classList.toggle("vtt-token--sel", t.id === id); }); this._renderSelPanel(); }
 
 	_tokenById (id) { return this._scene.tokens.find(t => t.id === id); }
 

@@ -13,6 +13,10 @@
 .vtt-map { position: absolute; top: 0; left: 0; pointer-events: none; user-select: none; }
 .vtt-grid { position: absolute; top: 0; left: 0; pointer-events: none; }
 .vtt-overlay { position: absolute; top: 0; left: 0; pointer-events: none; } /* measurement, pings */
+.vtt-aoe { position: absolute; top: 0; left: 0; pointer-events: none; } /* AoE templates layer */
+.vtt-aoe-g { pointer-events: auto; cursor: move; }
+.vtt-aoe-shape { transition: none; }
+.vtt-aoe-handle { cursor: grab; }
 .vtt-tokens { position: absolute; top: 0; left: 0; }
 
 /* tokens */
