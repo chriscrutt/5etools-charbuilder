@@ -4,7 +4,8 @@
 .vtt-root { flex: 1 1 auto; min-height: 0; display: flex; }
 
 /* ---- left: the board ---- */
-.vtt-board { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: #1a1a1d; cursor: grab; }
+.vtt-board { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: #1a1a1d; cursor: grab; user-select: none; -webkit-user-select: none; }
+.vtt-board img { -webkit-user-drag: none; user-select: none; pointer-events: none; }
 .vtt-board.vtt-board--panning { cursor: grabbing; }
 .vtt-board.vtt-board--measuring { cursor: crosshair; }
 

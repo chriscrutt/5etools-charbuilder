@@ -59,9 +59,9 @@ class VttBoard {
 	/* ============================ init / DOM ============================ */
 	init () {
 		this._root.innerHTML = "";
+		this._load(); // load saved scene BEFORE building the UI so initial control values match
 		this._root.appendChild(this._buildBoard());
 		this._root.appendChild(this._buildSidebar());
-		this._load();
 		this._renderAll();
 		this._bindBoard();
 		window.addEventListener("resize", () => this._applyView());
@@ -74,7 +74,7 @@ class VttBoard {
 		this._els.board = board;
 		const world = el("div", {class: "vtt-world"});
 		this._els.world = world;
-		const imgMap = el("img", {class: "vtt-map", alt: "", draggable: "false"}); this._els.imgMap = imgMap; imgMap.style.display = "none";
+		const imgMap = el("img", {class: "vtt-map", alt: "", draggable: false}); this._els.imgMap = imgMap; imgMap.style.display = "none";
 		const cvGrid = el("canvas", {class: "vtt-grid"}); this._els.cvGrid = cvGrid;
 		const svgAoe = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svgAoe.setAttribute("class", "vtt-aoe"); this._els.svgAoe = svgAoe; // AoE templates, below tokens
 		const cvDraw = el("canvas", {class: "vtt-draw"}); this._els.cvDraw = cvDraw; // freehand annotations
@@ -154,13 +154,14 @@ class VttBoard {
 		const snap = el("input", {type: "checkbox"}); snap.checked = g.snap;
 		const offX = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: g.offsetX || 0, style: "width:54px", title: "Grid X offset (align to a map's printed grid)"});
 		const offY = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: g.offsetY || 0, style: "width:54px", title: "Grid Y offset"});
-		this._els.gridCell = cell; this._els.gridOffX = offX; this._els.gridOffY = offY; // map browser updates these
-		cell.oninput = () => { g.cell = Math.max(4, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._save(); };
-		feet.oninput = () => { g.feet = Math.max(1, +feet.value || 5); this._save(); };
-		show.onchange = () => { g.show = show.checked; this._renderGrid(); this._save(); };
-		snap.onchange = () => { g.snap = snap.checked; this._save(); };
-		offX.oninput = () => { g.offsetX = +offX.value || 0; this._renderGrid(); this._save(); };
-		offY.oninput = () => { g.offsetY = +offY.value || 0; this._renderGrid(); this._save(); };
+		// keep refs so _syncMapInputs() can refresh them after a scene swap (undo/load/import). Handlers below read this._scene.grid LIVE (never a captured stale object).
+		this._els.gridCell = cell; this._els.gridFeet = feet; this._els.gridShow = show; this._els.gridSnap = snap; this._els.gridOffX = offX; this._els.gridOffY = offY;
+		cell.oninput = () => { this._scene.grid.cell = Math.max(4, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._save(); };
+		feet.oninput = () => { this._scene.grid.feet = Math.max(1, +feet.value || 5); this._save(); };
+		show.onchange = () => { this._scene.grid.show = show.checked; this._renderGrid(); this._save(); };
+		snap.onchange = () => { this._scene.grid.snap = snap.checked; this._save(); };
+		offX.oninput = () => { this._scene.grid.offsetX = +offX.value || 0; this._renderGrid(); this._save(); };
+		offY.oninput = () => { this._scene.grid.offsetY = +offY.value || 0; this._renderGrid(); this._save(); };
 		sec.append(
 			el("div", {class: "vtt-row"}, lbl("Cell px"), cell, lbl("= ft"), feet),
 			el("div", {class: "vtt-row"}, lbl("Offset"), offX, offY, wrapCb(snap, "Snap")),
@@ -435,7 +436,9 @@ class VttBoard {
 	}
 
 	/* ============================ rendering ============================ */
-	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderDrawings(); this._renderTokens(); this._renderFog(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._renderFogPanel(); this._applyView(); }
+	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderDrawings(); this._renderTokens(); this._renderFog(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._renderFogPanel(); this._syncMapInputs(); this._applyView(); }
+	// refresh the Map & Grid inputs from the live scene (after undo / load encounter / import swaps this._scene)
+	_syncMapInputs () { const g = this._scene.grid; const E = this._els; if (E.gridCell) E.gridCell.value = g.cell; if (E.gridFeet) E.gridFeet.value = g.feet; if (E.gridShow) E.gridShow.checked = !!g.show; if (E.gridSnap) E.gridSnap.checked = !!g.snap; if (E.gridOffX) E.gridOffX.value = g.offsetX || 0; if (E.gridOffY) E.gridOffY.value = g.offsetY || 0; }
 
 	_worldSize () {
 		const m = this._scene.map; const cell = this._scene.grid.cell;
@@ -487,7 +490,7 @@ class VttBoard {
 		e.classList.toggle("vtt-token--dead", this._isDead(t));
 		e.classList.toggle("vtt-token--bloodied", this._isBloodied(t));
 		e.innerHTML = "";
-		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: "false"}); im.onerror = () => { im.remove(); if (!e.querySelector(".vtt-token__initletter")) e.insertBefore(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)), e.firstChild); }; e.appendChild(im); }
+		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: false}); im.onerror = () => { im.remove(); if (!e.querySelector(".vtt-token__initletter")) e.insertBefore(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)), e.firstChild); }; e.appendChild(im); }
 		else e.appendChild(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)));
 		if (t.name) e.appendChild(el("div", {class: "vtt-token__name"}, t.name));
 		if (t.maxHp) {
@@ -540,6 +543,7 @@ class VttBoard {
 
 	_bindBoard () {
 		const board = this._els.board;
+		board.addEventListener("dragstart", (e) => e.preventDefault()); // stop the browser's native image drag-and-drop when panning over the map/tokens
 		// pan with left-drag on empty space; Alt-drag (or measure mode) = ruler
 		board.addEventListener("pointerdown", (e) => {
 			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar") || e.target.closest(".vtt-aoe-g")) return;
