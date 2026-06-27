@@ -46,7 +46,7 @@ class VttBoard {
 	_defaultScene () {
 		return {
 			map: null, // {src, w, h}
-			grid: {cell: 70, feet: 5, show: true, snap: true, color: "rgba(255,255,255,.16)"},
+			grid: {cell: 70, feet: 5, show: true, snap: true, color: "rgba(255,255,255,.16)", offsetX: 0, offsetY: 0},
 			view: {x: 40, y: 40, scale: 1},
 			tokens: [],
 			aoes: [], // [{id, type:circle|cone|line|cube, x, y, size(ft), rot(deg), color}]
@@ -142,7 +142,9 @@ class VttBoard {
 		btnFile.onclick = () => inpFile.click();
 		inpFile.onchange = () => { const f = inpFile.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => this._setMap(r.result); r.readAsDataURL(f); };
 		btnClear.onclick = () => { this._scene.map = null; this._renderMap(); this._save(); };
-		sec.append(el("div", {class: "vtt-row"}, inpUrl), el("div", {class: "vtt-row"}, btnLoad, btnFile, btnClear, inpFile));
+		const btnSite = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary", title: "Browse maps from the 5etools adventures & books"}, "🗺 Site Maps");
+		btnSite.onclick = () => this._openMapBrowser();
+		sec.append(el("div", {class: "vtt-row"}, btnSite), el("div", {class: "vtt-row"}, inpUrl), el("div", {class: "vtt-row"}, btnLoad, btnFile, btnClear, inpFile));
 
 		// grid controls
 		const g = this._scene.grid;
@@ -150,13 +152,19 @@ class VttBoard {
 		const feet = el("input", {type: "number", class: "ve-form-control ve-input-xs", min: "1", max: "100", value: g.feet, style: "width:54px"});
 		const show = el("input", {type: "checkbox"}); show.checked = g.show;
 		const snap = el("input", {type: "checkbox"}); snap.checked = g.snap;
-		cell.oninput = () => { g.cell = Math.max(10, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._save(); };
+		const offX = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: g.offsetX || 0, style: "width:54px", title: "Grid X offset (align to a map's printed grid)"});
+		const offY = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: g.offsetY || 0, style: "width:54px", title: "Grid Y offset"});
+		this._els.gridCell = cell; this._els.gridOffX = offX; this._els.gridOffY = offY; // map browser updates these
+		cell.oninput = () => { g.cell = Math.max(4, +cell.value || 70); this._renderGrid(); this._renderTokens(); this._save(); };
 		feet.oninput = () => { g.feet = Math.max(1, +feet.value || 5); this._save(); };
 		show.onchange = () => { g.show = show.checked; this._renderGrid(); this._save(); };
 		snap.onchange = () => { g.snap = snap.checked; this._save(); };
+		offX.oninput = () => { g.offsetX = +offX.value || 0; this._renderGrid(); this._save(); };
+		offY.oninput = () => { g.offsetY = +offY.value || 0; this._renderGrid(); this._save(); };
 		sec.append(
 			el("div", {class: "vtt-row"}, lbl("Cell px"), cell, lbl("= ft"), feet),
-			el("div", {class: "vtt-row"}, wrapCb(show, "Show grid"), wrapCb(snap, "Snap")),
+			el("div", {class: "vtt-row"}, lbl("Offset"), offX, offY, wrapCb(snap, "Snap")),
+			el("div", {class: "vtt-row"}, wrapCb(show, "Show grid")),
 		);
 		return sec;
 	}
@@ -453,8 +461,9 @@ class VttBoard {
 		if (!g.show) return;
 		ctx.strokeStyle = g.color; ctx.lineWidth = 1;
 		ctx.beginPath();
-		for (let x = 0; x <= w; x += g.cell) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, h); }
-		for (let y = 0; y <= h; y += g.cell) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
+		const ox = (((g.offsetX || 0) % g.cell) + g.cell) % g.cell, oy = (((g.offsetY || 0) % g.cell) + g.cell) % g.cell;
+		for (let x = ox; x <= w; x += g.cell) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, h); }
+		for (let y = oy; y <= h; y += g.cell) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
 		ctx.stroke();
 	}
 
@@ -638,7 +647,7 @@ class VttBoard {
 	}
 	_closeContextMenu () { this._ctxCloser?.(); this._ctxCloser = null; if (this._ctxMenu) { this._ctxMenu.remove(); this._ctxMenu = null; } }
 
-	_snapToken (t) { if (!this._scene.grid.snap) return; const c = this._scene.grid.cell; t.x = Math.round(t.x / c) * c; t.y = Math.round(t.y / c) * c; }
+	_snapToken (t) { if (!this._scene.grid.snap) return; const g = this._scene.grid, c = g.cell, ox = g.offsetX || 0, oy = g.offsetY || 0; t.x = Math.round((t.x - ox) / c) * c + ox; t.y = Math.round((t.y - oy) / c) * c + oy; }
 
 	/* ============================ AoE templates ============================ */
 	static _AOE_DEFAULTS = {circle: {size: 20}, cone: {size: 15}, line: {size: 100, width: 5}, cube: {size: 15}}; // 5e defaults (ft)
@@ -922,6 +931,78 @@ class VttBoard {
 		im.onload = () => { this._scene.map = {src, w: im.naturalWidth, h: im.naturalHeight}; this._renderMap(); this._fitMap(); this._save(); this._netPush(); };
 		im.onerror = () => toast("Couldn't load that image.", "danger");
 		im.src = src;
+	}
+
+	/* ---------- browse maps from the 5etools adventures/books ---------- */
+	async _openMapBrowser () {
+		const backdrop = el("div", {class: "vtt-modal-backdrop"});
+		const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
+		const onKey = (e) => { if (e.key === "Escape") close(); };
+		backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+		document.addEventListener("keydown", onKey);
+		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
+		const search = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Filter maps…", style: "max-width:240px"});
+		const advSel = el("select", {class: "ve-form-control ve-input-xs", style: "max-width:280px"});
+		const status = el("span", {class: "vtt-mini"}, "Loading map index…");
+		const body = el("div", {class: "vtt-modal__body"});
+		const modal = el("div", {class: "vtt-modal"},
+			el("div", {class: "vtt-modal__head"}, el("h3", {}, "Load a map from the site"), btnX),
+			el("div", {class: "vtt-modal__controls"}, search, advSel, status),
+			body,
+		);
+		backdrop.appendChild(modal); document.body.appendChild(backdrop); search.focus();
+
+		let maps = [];
+		try { const data = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/generated/gendata-maps.json`); maps = this._flattenMaps(data); }
+		catch (e) { status.textContent = "Couldn't load the map index."; console.error(e); return; }
+		status.textContent = `${maps.length} maps`;
+		const advs = [...new Set(maps.map(m => m.advName))].sort();
+		advSel.appendChild(el("option", {value: ""}, `All (${advs.length} books)`));
+		advs.forEach(a => advSel.appendChild(el("option", {value: a}, a)));
+
+		const render = () => {
+			const q = search.value.toLowerCase().trim(); const adv = advSel.value;
+			const list = maps.filter(m => (!adv || m.advName === adv) && (!q || m.title.toLowerCase().includes(q) || m.advName.toLowerCase().includes(q))).slice(0, 400);
+			body.innerHTML = "";
+			if (!list.length) { body.appendChild(el("div", {class: "vtt-mini"}, "No maps match.")); return; }
+			list.forEach(m => {
+				const card = el("div", {class: "vtt-map-card", title: `${m.title} — ${m.advName}`});
+				const thumb = el("img", {class: "vtt-map-card__img", loading: "lazy", src: Renderer.get().getMediaUrl("img", m.path)});
+				thumb.onerror = () => thumb.replaceWith(el("div", {class: "vtt-map-card__noimg"}, "(no local preview)"));
+				card.append(thumb, el("div", {class: "vtt-map-card__title"}, `${m.player ? "🧑 " : ""}${m.title}`), el("div", {class: "vtt-map-card__adv"}, `${m.advName} · ${m.width || "?"}×${m.height || "?"}`));
+				card.onclick = () => { this._applyMapWithGrid(m); close(); };
+				body.appendChild(card);
+			});
+		};
+		search.oninput = render; advSel.onchange = render; render();
+	}
+
+	_flattenMaps (data) {
+		const out = [];
+		for (const key of Object.keys(data || {})) {
+			const adv = data[key]; if (!adv || (adv.source && !SourceUtil.isClassicSource(adv.source))) continue; // 2014-only
+			(adv.chapters || []).forEach(ch => (ch.images || []).forEach(im => {
+				if (!["map", "mapPlayer"].includes(im.imageType)) return; const path = im.href?.path; if (!path) return;
+				out.push({advName: adv.name || key, source: adv.source, title: im.title || ch.name || "Map", path, width: im.width, height: im.height, grid: im.grid, player: im.imageType === "mapPlayer"});
+			}));
+		}
+		return out.sort((a, b) => a.advName.localeCompare(b.advName) || a.title.localeCompare(b.title));
+	}
+
+	// load a site map and, when it has a square printed grid, match the VTT grid to it (cell size + offset)
+	_applyMapWithGrid (m) {
+		this._pushUndo();
+		this._setMap(Renderer.get().getMediaUrl("img", m.path));
+		const g = m.grid;
+		if (g && g.size && !/hex/i.test(g.type || "") && !/mile/i.test(g.units || "")) {
+			this._scene.grid.cell = Math.max(4, Math.round(g.size));
+			this._scene.grid.offsetX = g.offsetX || 0; this._scene.grid.offsetY = g.offsetY || 0;
+			if (this._els.gridCell) this._els.gridCell.value = this._scene.grid.cell;
+			if (this._els.gridOffX) this._els.gridOffX.value = this._scene.grid.offsetX;
+			if (this._els.gridOffY) this._els.gridOffY.value = this._scene.grid.offsetY;
+			this._renderGrid(); this._save();
+			toast(`Loaded "${m.title}" — matched its grid (${this._scene.grid.cell}px cells).`, "success");
+		} else toast(`Loaded "${m.title}".`, "info");
 	}
 
 	/* ============================ dice ============================ */
