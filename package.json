@@ -45,6 +45,7 @@
 		"serve:dev": "http-server -c-1 --cors --port 5050",
 		"serve:dev:tls": "http-server -c-1 --cors --port 5051 --tls --cert certs-dev-only/throwaway-cert.pem --key certs-dev-only/throwaway-key.pem",
 		"serve:fast": "http-server -p 5050 --cors -b -g -c31536000 -s",
+		"vtt": "node tools-local/vtt-server.mjs",
 		"local:precompress": "node tools-local/precompress.mjs",
 		"local:precompress:clean": "node tools-local/precompress.mjs --clean",
 		"spellcheck:check-data": "node node/spellcheck.js",

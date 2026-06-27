@@ -27,6 +27,7 @@ class VttBoard {
 		this._els = {}; // cached DOM
 		this._tokEls = new Map(); // tokenId → element
 		this._undo = []; // scene snapshots for Ctrl+Z
+		this._role = "dm"; // "dm" (sees through fog) | "player" (fog is opaque); set on joining a game
 		this._drawColor = "#ffd54a";
 		this._drawWidth = 4;
 		this._fogBrush = 2; // brush radius in cells
@@ -67,8 +68,11 @@ class VttBoard {
 		this._renderAll();
 		this._bindBoard();
 		window.addEventListener("resize", () => this._applyView());
-		// expose for the (later) network layer + debugging
+		// expose for the network layer + debugging
 		globalThis.dbg_vtt = this;
+		// auto-join a game from a shared link (#room=CODE)
+		const rm = /room=([A-Za-z0-9]+)/i.exec(location.hash || "");
+		if (rm && globalThis.VttNet) { this._joinHint = rm[1].toUpperCase(); globalThis.VttNet.join(this, this._joinHint, () => this._renderNetPanel()); }
 	}
 
 	_buildBoard () {
@@ -124,6 +128,7 @@ class VttBoard {
 			this._secDraw(),
 			this._secFog(),
 			this._secDice(),
+			this._secMultiplayer(),
 			this._secLibrary(),
 			this._secScene(),
 		);
@@ -372,6 +377,39 @@ class VttBoard {
 		return sec;
 	}
 
+	/* ---------- sidebar: Multiplayer ---------- */
+	_secMultiplayer () { const sec = el("div", {class: "vtt-sec", id: "vtt-netpanel"}); this._els.netPanel = sec; this._renderNetPanel(); return sec; }
+	_netStatus () { this._renderNetPanel(); }
+	_netError (msg) { toast(msg, "danger"); this._renderNetPanel(); }
+	_renderNetPanel () {
+		const sec = this._els.netPanel; if (!sec) return; sec.innerHTML = "";
+		sec.appendChild(el("h4", {}, "Multiplayer"));
+		const net = globalThis.VttNet;
+		if (net?.room) {
+			const link = `${location.origin}/vtt.html#room=${net.room}`;
+			sec.append(
+				el("div", {class: "vtt-row"}, el("span", {}, net.role === "dm" ? "Hosting room " : "Joined room "), el("span", {class: "vtt-room-code"}, net.room)),
+				el("div", {class: "vtt-mini"}, `${net.peers} connected • ${net.role === "dm" ? "you're the DM (you see through fog)" : "player view (fog hides DM areas)"}`),
+			);
+			if (net.role === "dm") {
+				const copy = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "Copy invite link");
+				copy.onclick = () => { try { navigator.clipboard.writeText(link); toast("Invite link copied — send it to your players.", "success"); } catch (e) { toast(link, "info"); } };
+				sec.append(el("div", {class: "vtt-row"}, copy), el("div", {class: "vtt-mini", style: "word-break:break-all;opacity:.7"}, link));
+			}
+			const leave = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Leave game");
+			leave.onclick = () => { net.leave(); this._renderNetPanel(); };
+			sec.append(el("div", {class: "vtt-row ve-mt-1"}, leave));
+		} else {
+			const host = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary"}, "Host game (DM)");
+			host.onclick = () => net?.host(this, () => { this._renderNetPanel(); this._netPush(); });
+			const code = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Room code", style: "max-width:96px;text-transform:uppercase"});
+			if (this._joinHint) code.value = this._joinHint;
+			const join = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "Join");
+			join.onclick = () => { if (code.value.trim()) net?.join(this, code.value.trim(), () => this._renderNetPanel()); };
+			sec.append(el("div", {class: "vtt-row"}, host), el("div", {class: "vtt-row"}, code, join), el("div", {class: "vtt-mini"}, "Host shares the room code/link; players join live. Needs the relay running: npm run vtt"));
+		}
+	}
+
 	/* ---------- sidebar: Library (saved encounters + token presets) ---------- */
 	static _LS_ENC = "vtt_encounters_v1";
 	static _LS_TOK = "vtt_tokenlib_v1";
@@ -552,6 +590,8 @@ class VttBoard {
 	_bindBoard () {
 		const board = this._els.board;
 		board.addEventListener("dragstart", (e) => e.preventDefault()); // stop the browser's native image drag-and-drop when panning over the map/tokens
+		// after any interaction ends, apply a remote scene that arrived mid-drag
+		document.addEventListener("pointerup", () => setTimeout(() => { if (this._pendingRemote && !this._isInteracting()) { const s = this._pendingRemote; this._pendingRemote = null; this.applyRemoteScene(s); } }, 0));
 		// pan with left-drag on empty space; Alt-drag (or measure mode) = ruler
 		board.addEventListener("pointerdown", (e) => {
 			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar") || e.target.closest(".vtt-aoe-g")) return;
@@ -768,7 +808,7 @@ class VttBoard {
 	_moveDraw (e) { if (!this._curStroke) return; const wp = this._screenToWorld(e.clientX, e.clientY); this._curStroke.pts.push([wp.x, wp.y]); this._renderDrawings(); this._netPushThrottled(); }
 	_endDraw () { this._drawing = false; if (this._curStroke) { if (this._curStroke.pts.length < 2) this._scene.drawings.pop(); this._curStroke = null; this._save(); this._netPush(); } }
 
-	_ping (x, y) {
+	_ping (x, y, remote) {
 		const svg = this._els.svg;
 		const g = svgEl("g", {});
 		[0, 0.18].forEach(delay => {
@@ -778,7 +818,7 @@ class VttBoard {
 			g.appendChild(c);
 		});
 		svg.appendChild(g); setTimeout(() => g.remove(), 1300);
-		this._netPing?.(x, y);
+		if (!remote) globalThis.VttNet?.ping?.(x, y); // broadcast local pings (don't echo remote ones)
 	}
 
 	/* ============================ fog of war ============================ */
@@ -788,7 +828,7 @@ class VttBoard {
 		const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, w, h);
 		const f = this._scene.fog; if (!f?.on) return;
 		const c = this._scene.grid.cell;
-		ctx.fillStyle = this._fogMode ? "rgba(8,10,16,.5)" : "rgba(8,10,16,.62)"; // DM sees through dimly; lighter while painting
+		ctx.fillStyle = this._role === "player" ? "rgb(6,8,12)" : (this._fogMode ? "rgba(8,10,16,.5)" : "rgba(8,10,16,.62)"); // players see solid fog; DM sees through dimly
 		if (f.base === "covered") {
 			ctx.fillRect(0, 0, w, h); // everything fogged…
 			(f.cells || []).forEach(k => { const [cc, cr] = k.split(",").map(Number); ctx.clearRect(cc * c, cr * c, c, c); }); // …except revealed cells
@@ -1074,7 +1114,15 @@ class VttBoard {
 	/* ============================ network hooks (Phase 2) ============================ */
 	_netPush () { if (globalThis.VttNet?.pushScene) try { globalThis.VttNet.pushScene(this._scene); } catch (e) {} }
 	_netPushThrottled () { if (!globalThis.VttNet?.pushScene) return; clearTimeout(this._netT); this._netT = setTimeout(() => this._netPush(), 60); }
-	applyRemoteScene (scene) { this._scene = {...this._defaultScene(), ...scene}; this._renderAll(); this._save(); } // called by the net layer
+	_isInteracting () { return !!(this._drag || this._aoeDrag || this._panning || this._drawing || this._fogging || this._aligning || this._measuring); }
+	// called by the net layer when a remote scene arrives. Defer while the local user is mid-interaction so their drag isn't yanked.
+	applyRemoteScene (scene) {
+		if (this._isInteracting()) { this._pendingRemote = scene; return; }
+		this._scene = {...this._defaultScene(), ...scene};
+		this._selId = null; this._selAoeId = null;
+		this._tokEls.forEach(e => e.remove()); this._tokEls.clear(); this._aoeEls?.forEach(g => g.remove()); this._aoeEls?.clear();
+		this._renderAll(); this._save();
+	}
 }
 
 /* ---------------- tiny DOM helpers ---------------- */
