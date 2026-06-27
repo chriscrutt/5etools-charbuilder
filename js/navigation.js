@@ -92,6 +92,7 @@ class NavBar {
 
 		this._addElement_dropdown({category: NavBar._CAT_DUNGEON_MASTER});
 		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "dmscreen.html", aText: "DM Screen"});
+		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "vtt.html", aText: "Tabletop (VTT)"});
 		this._addElement_divider({keyPath: [NavBar._CAT_DUNGEON_MASTER]});
 		this._addElement_dropdown({keyPath: [NavBar._CAT_DUNGEON_MASTER], category: NavBar._CAT_ADVENTURES, isSide: true, page: "adventures.html"});
 		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER, NavBar._CAT_ADVENTURES], page: "adventures.html", aText: "View All/Homebrew"});
