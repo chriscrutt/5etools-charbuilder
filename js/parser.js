@@ -4127,6 +4127,13 @@ Parser.SOURCES_LEGACY_WOTC = new Set([
 	Parser.SRC_MTF,
 ]);
 
+// fork: of the legacy sources, the 2014 core books whose only successor is a 2024 (One D&D) reprint. In Classic/2014 mode that successor is hidden, so these are the current edition and shouldn't carry the "[L]" legacy badge.
+Parser.SOURCES_LEGACY_SUPERSEDED_BY_ODND = new Set([
+	Parser.SRC_PHB, // → XPHB
+	Parser.SRC_DMG, // → XDMG
+	Parser.SRC_MM, // → XMM
+]);
+
 // An opinionated set of source that could be considered "core-core"
 Parser.SOURCES_VANILLA = new Set([
 	// Parser.SRC_DMG, // "Legacy" source, removed in favor of XDMG

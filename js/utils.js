@@ -595,7 +595,19 @@ globalThis.SourceUtil = class {
 
 	static isLegacySourceWotc (source) {
 		if (source == null) return false;
-		return Parser.SOURCES_LEGACY_WOTC.has(source);
+		if (!Parser.SOURCES_LEGACY_WOTC.has(source)) return false;
+		// fork: in Classic (2014) mode, a 2014 book superseded only by a 2024 (One D&D) reprint is NOT legacy — its successor is hidden, so it's the current edition here (PHB/DMG/MM). VGM/MTF etc. stay legacy (superseded by MPMM, which is present).
+		if (SourceUtil._isStyleClassic() && Parser.SOURCES_LEGACY_SUPERSEDED_BY_ODND.has(source)) return false;
+		return true;
+	}
+	// cached "is the site in Classic (2014) style?" — style needs a reload to change; only caches once the config is readable
+	static _cache_isStyleClassic;
+	static _isStyleClassic () {
+		if (SourceUtil._cache_isStyleClassic === undefined) {
+			let style; try { style = VetoolsConfig.get("styleSwitcher", "style"); } catch (e) { return false; }
+			SourceUtil._cache_isStyleClassic = style === "classic";
+		}
+		return SourceUtil._cache_isStyleClassic;
 	}
 
 	// TODO(Future) remove this in favor of simply checking existence in `PrereleaseUtil`
