@@ -998,14 +998,13 @@ class VttBoard {
 		this._pushUndo();
 		this._setMap(Renderer.get().getMediaUrl("img", m.path));
 		const g = m.grid;
-		if (g && g.size && !/hex/i.test(g.type || "") && !/mile/i.test(g.units || "")) {
+		if (g && g.size && !/hex/i.test(g.type || "") && !/mile|yard/i.test(g.units || "")) {
 			this._scene.grid.cell = Math.max(4, Math.round(g.size));
 			this._scene.grid.offsetX = g.offsetX || 0; this._scene.grid.offsetY = g.offsetY || 0;
-			if (this._els.gridCell) this._els.gridCell.value = this._scene.grid.cell;
-			if (this._els.gridOffX) this._els.gridOffX.value = this._scene.grid.offsetX;
-			if (this._els.gridOffY) this._els.gridOffY.value = this._scene.grid.offsetY;
-			this._renderGrid(); this._save();
-			toast(`Loaded "${m.title}" — matched its grid (${this._scene.grid.cell}px cells).`, "success");
+			if (typeof g.distance === "number" && g.distance > 0) this._scene.grid.feet = g.distance; // the map's real ft-per-square from 5etools' data (else keep the standard 5)
+			this._syncMapInputs(); // refresh cell/feet/offset fields from the live grid
+			this._renderGrid(); this._renderTokens(); this._save();
+			toast(`Loaded "${m.title}" — matched its grid (${this._scene.grid.cell}px = ${this._scene.grid.feet} ft squares).`, "success");
 		} else toast(`Loaded "${m.title}".`, "info");
 	}
 
