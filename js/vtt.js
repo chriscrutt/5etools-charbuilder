@@ -29,15 +29,18 @@ class VttBoard {
 		this._undo = []; // scene snapshots for Ctrl+Z
 		this._drawColor = "#ffd54a";
 		this._drawWidth = 4;
+		this._fogBrush = 2; // brush radius in cells
 	}
 
 	_setMode (mode, on) {
-		this._measureMode = mode === "measure" ? on : false;
-		this._drawMode = mode === "draw" ? on : false;
+		const m = on ? mode : null;
+		this._measureMode = m === "measure"; this._drawMode = m === "draw"; this._fogMode = m === "fog";
 		this._btnMeasure?.classList.toggle("active", this._measureMode);
 		this._btnDraw?.classList.toggle("active", this._drawMode);
+		this._btnFog?.classList.toggle("active", this._fogMode);
 		this._els.board.classList.toggle("vtt-board--measuring", this._measureMode);
 		this._els.board.classList.toggle("vtt-board--drawing", this._drawMode);
+		this._els.board.classList.toggle("vtt-board--fog", this._fogMode);
 	}
 
 	_defaultScene () {
@@ -48,6 +51,7 @@ class VttBoard {
 			tokens: [],
 			aoes: [], // [{id, type:circle|cone|line|cube, x, y, size(ft), rot(deg), color}]
 			drawings: [], // [{color, width, pts:[[x,y],…]}] freehand annotations
+			fog: {on: false, base: "covered", cells: []}, // cell-based fog; cells = exception keys "c,r" to the base state
 			turn: {order: [], ix: -1, round: 1}, // initiative order = token ids
 		};
 	}
@@ -75,9 +79,10 @@ class VttBoard {
 		const svgAoe = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svgAoe.setAttribute("class", "vtt-aoe"); this._els.svgAoe = svgAoe; // AoE templates, below tokens
 		const cvDraw = el("canvas", {class: "vtt-draw"}); this._els.cvDraw = cvDraw; // freehand annotations
 		const tokens = el("div", {class: "vtt-tokens"}); this._els.tokens = tokens;
+		const cvFog = el("canvas", {class: "vtt-fog"}); this._els.cvFog = cvFog; // fog of war, above tokens
 		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 		svg.setAttribute("class", "vtt-overlay"); this._els.svg = svg;
-		world.append(imgMap, cvGrid, svgAoe, cvDraw, tokens, svg);
+		world.append(imgMap, cvGrid, svgAoe, cvDraw, tokens, cvFog, svg);
 		board.append(world, this._buildToolbar(), el("div", {class: "vtt-zoomread", id: "vtt-zoomread"}));
 		this._els.zoomread = board.querySelector("#vtt-zoomread");
 		return board;
@@ -88,6 +93,7 @@ class VttBoard {
 		const btn = (txt, title, fn) => { const b = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title}, txt); b.onclick = fn; return b; };
 		this._btnMeasure = btn("📏 Measure", "Toggle measure mode (or hold Alt and drag)", () => { this._setMode("measure", !this._measureMode); });
 		this._btnDraw = btn("✎ Draw", "Toggle freehand drawing", () => { this._setMode("draw", !this._drawMode); });
+		this._btnFog = btn("🌫 Fog", "Toggle fog of war painting (drag reveals, Shift-drag hides)", () => { const on = !this._fogMode; if (on) { this._scene.fog.on = true; this._renderFog(); } this._setMode("fog", on); this._renderFogPanel?.(); });
 		bar.append(
 			btn("＋ Token", "Add a token at the view center", () => this._addTokenInteractive()),
 			btn("○ Circle", "Add a circular AoE (e.g. Fireball 20 ft)", () => this._addAoe("circle")),
@@ -96,6 +102,7 @@ class VttBoard {
 			btn("▢ Cube", "Add a square/cube AoE", () => this._addAoe("cube")),
 			this._btnMeasure,
 			this._btnDraw,
+			this._btnFog,
 			btn("↶ Undo", "Undo the last change (Ctrl+Z)", () => this._doUndo()),
 			btn("⟳ Reset View", "Recenter & reset zoom", () => { this._scene.view = {x: 40, y: 40, scale: 1}; this._applyView(); this._save(); }),
 			btn("⤢ Fit Map", "Zoom to fit the map", () => this._fitMap()),
@@ -112,6 +119,7 @@ class VttBoard {
 			this._secAoe(),
 			this._secInitiative(),
 			this._secDraw(),
+			this._secFog(),
 			this._secDice(),
 			this._secScene(),
 		);
@@ -260,6 +268,27 @@ class VttBoard {
 		return sec;
 	}
 
+	/* ---------- sidebar: Fog of war ---------- */
+	_secFog () { const sec = el("div", {class: "vtt-sec", id: "vtt-fogpanel"}); this._els.fogPanel = sec; this._renderFogPanel(); return sec; }
+	_renderFogPanel () {
+		const sec = this._els.fogPanel; if (!sec) return; sec.innerHTML = ""; const f = this._scene.fog;
+		sec.appendChild(el("h4", {}, "Fog of War"));
+		const on = el("input", {type: "checkbox"}); on.checked = !!f.on;
+		on.onchange = () => { this._pushUndo(); f.on = on.checked; this._renderFog(); this._save(); this._netPush(); };
+		const brush = el("input", {type: "range", min: "0", max: "6", value: this._fogBrush, style: "width:100px"});
+		brush.oninput = () => { this._fogBrush = +brush.value; };
+		const reveal = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "Reveal all");
+		const cover = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "Cover all");
+		reveal.onclick = () => { this._pushUndo(); f.base = "revealed"; f.cells = []; this._renderFog(); this._save(); this._netPush(); };
+		cover.onclick = () => { this._pushUndo(); f.base = "covered"; f.cells = []; this._renderFog(); this._save(); this._netPush(); };
+		sec.append(
+			el("div", {class: "vtt-row"}, wrapCb(on, "Fog enabled"), el("span", {class: "vtt-mini"}, f.on && this._fogMode ? "(painting)" : "")),
+			el("div", {class: "vtt-mini"}, "Click 🌫 Fog, then drag to reveal · Shift-drag to hide."),
+			el("div", {class: "vtt-row"}, lbl("Brush"), brush),
+			el("div", {class: "vtt-row"}, reveal, cover),
+		);
+	}
+
 	/* ---------- sidebar: Dice ---------- */
 	_secDice () {
 		const sec = el("div", {class: "vtt-sec"});
@@ -290,7 +319,7 @@ class VttBoard {
 	}
 
 	/* ============================ rendering ============================ */
-	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderDrawings(); this._renderTokens(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._applyView(); }
+	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderDrawings(); this._renderTokens(); this._renderFog(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._renderFogPanel(); this._applyView(); }
 
 	_worldSize () {
 		const m = this._scene.map; const cell = this._scene.grid.cell;
@@ -398,12 +427,14 @@ class VttBoard {
 		board.addEventListener("pointerdown", (e) => {
 			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar") || e.target.closest(".vtt-aoe-g")) return;
 			if (e.button === 2) return;
+			if (this._fogMode) return this._startFog(e);
 			if (this._drawMode) return this._startDraw(e);
 			if (this._measureMode || e.altKey) return this._startMeasure(e);
 			this._panning = {sx: e.clientX, sy: e.clientY, ox: this._scene.view.x, oy: this._scene.view.y};
 			board.classList.add("vtt-board--panning"); board.setPointerCapture(e.pointerId);
 		});
 		board.addEventListener("pointermove", (e) => {
+			if (this._fogging) return this._moveFog(e);
 			if (this._drawing) return this._moveDraw(e);
 			if (this._measuring) return this._moveMeasure(e);
 			if (!this._panning) return;
@@ -411,7 +442,7 @@ class VttBoard {
 			this._scene.view.y = this._panning.oy + (e.clientY - this._panning.sy);
 			this._applyView();
 		});
-		const endPan = (e) => { if (this._drawing) return this._endDraw(); if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
+		const endPan = (e) => { if (this._fogging) return this._endFog(); if (this._drawing) return this._endDraw(); if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
 		board.addEventListener("pointerup", endPan);
 		board.addEventListener("pointercancel", endPan);
 		// double-click empty board → ping a spot (attention marker)
@@ -618,6 +649,37 @@ class VttBoard {
 		svg.appendChild(g); setTimeout(() => g.remove(), 1300);
 		this._netPing?.(x, y);
 	}
+
+	/* ============================ fog of war ============================ */
+	_renderFog () {
+		const cv = this._els.cvFog; if (!cv) return; const {w, h} = this._worldSize();
+		if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; cv.style.width = `${w}px`; cv.style.height = `${h}px`; }
+		const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, w, h);
+		const f = this._scene.fog; if (!f?.on) return;
+		const c = this._scene.grid.cell;
+		ctx.fillStyle = this._fogMode ? "rgba(8,10,16,.5)" : "rgba(8,10,16,.62)"; // DM sees through dimly; lighter while painting
+		if (f.base === "covered") {
+			ctx.fillRect(0, 0, w, h); // everything fogged…
+			(f.cells || []).forEach(k => { const [cc, cr] = k.split(",").map(Number); ctx.clearRect(cc * c, cr * c, c, c); }); // …except revealed cells
+		} else {
+			(f.cells || []).forEach(k => { const [cc, cr] = k.split(",").map(Number); ctx.fillRect(cc * c, cr * c, c, c); }); // base revealed: only fog the exception cells
+		}
+	}
+	_fogPaintAt (sx, sy, hide) {
+		const wp = this._screenToWorld(sx, sy); const c = this._scene.grid.cell;
+		const cc = Math.floor(wp.x / c), cr = Math.floor(wp.y / c); const rad = this._fogBrush;
+		const set = new Set(this._scene.fog.cells); const reveal = !hide;
+		for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+			const key = `${cc + dc},${cr + dr}`;
+			// exceptions flip the base: covered base → exceptions are revealed; revealed base → exceptions are hidden
+			const addException = this._scene.fog.base === "covered" ? reveal : hide;
+			if (addException) set.add(key); else set.delete(key);
+		}
+		this._scene.fog.cells = [...set]; this._renderFog();
+	}
+	_startFog (e) { this._pushUndo(); this._fogging = true; this._fogHide = e.shiftKey; this._els.board.setPointerCapture(e.pointerId); this._fogPaintAt(e.clientX, e.clientY, this._fogHide); }
+	_moveFog (e) { if (this._fogging) { this._fogPaintAt(e.clientX, e.clientY, this._fogHide); this._netPushThrottled(); } }
+	_endFog () { if (this._fogging) { this._fogging = false; this._save(); this._netPush(); } }
 
 	/* ============================ measurement ============================ */
 	_startMeasure (e) { const w = this._screenToWorld(e.clientX, e.clientY); this._measuring = {x0: w.x, y0: w.y}; this._els.board.setPointerCapture(e.pointerId); }
