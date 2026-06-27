@@ -27,6 +27,17 @@ class VttBoard {
 		this._els = {}; // cached DOM
 		this._tokEls = new Map(); // tokenId → element
 		this._undo = []; // scene snapshots for Ctrl+Z
+		this._drawColor = "#ffd54a";
+		this._drawWidth = 4;
+	}
+
+	_setMode (mode, on) {
+		this._measureMode = mode === "measure" ? on : false;
+		this._drawMode = mode === "draw" ? on : false;
+		this._btnMeasure?.classList.toggle("active", this._measureMode);
+		this._btnDraw?.classList.toggle("active", this._drawMode);
+		this._els.board.classList.toggle("vtt-board--measuring", this._measureMode);
+		this._els.board.classList.toggle("vtt-board--drawing", this._drawMode);
 	}
 
 	_defaultScene () {
@@ -36,6 +47,7 @@ class VttBoard {
 			view: {x: 40, y: 40, scale: 1},
 			tokens: [],
 			aoes: [], // [{id, type:circle|cone|line|cube, x, y, size(ft), rot(deg), color}]
+			drawings: [], // [{color, width, pts:[[x,y],…]}] freehand annotations
 			turn: {order: [], ix: -1, round: 1}, // initiative order = token ids
 		};
 	}
@@ -61,10 +73,11 @@ class VttBoard {
 		const imgMap = el("img", {class: "vtt-map", alt: "", draggable: "false"}); this._els.imgMap = imgMap; imgMap.style.display = "none";
 		const cvGrid = el("canvas", {class: "vtt-grid"}); this._els.cvGrid = cvGrid;
 		const svgAoe = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svgAoe.setAttribute("class", "vtt-aoe"); this._els.svgAoe = svgAoe; // AoE templates, below tokens
+		const cvDraw = el("canvas", {class: "vtt-draw"}); this._els.cvDraw = cvDraw; // freehand annotations
 		const tokens = el("div", {class: "vtt-tokens"}); this._els.tokens = tokens;
 		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 		svg.setAttribute("class", "vtt-overlay"); this._els.svg = svg;
-		world.append(imgMap, cvGrid, svgAoe, tokens, svg);
+		world.append(imgMap, cvGrid, svgAoe, cvDraw, tokens, svg);
 		board.append(world, this._buildToolbar(), el("div", {class: "vtt-zoomread", id: "vtt-zoomread"}));
 		this._els.zoomread = board.querySelector("#vtt-zoomread");
 		return board;
@@ -73,7 +86,8 @@ class VttBoard {
 	_buildToolbar () {
 		const bar = el("div", {class: "vtt-toolbar no-print"});
 		const btn = (txt, title, fn) => { const b = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title}, txt); b.onclick = fn; return b; };
-		this._btnMeasure = btn("📏 Measure", "Toggle measure mode (or hold Alt and drag)", () => { this._measureMode = !this._measureMode; this._btnMeasure.classList.toggle("active", this._measureMode); this._els.board.classList.toggle("vtt-board--measuring", this._measureMode); });
+		this._btnMeasure = btn("📏 Measure", "Toggle measure mode (or hold Alt and drag)", () => { this._setMode("measure", !this._measureMode); });
+		this._btnDraw = btn("✎ Draw", "Toggle freehand drawing", () => { this._setMode("draw", !this._drawMode); });
 		bar.append(
 			btn("＋ Token", "Add a token at the view center", () => this._addTokenInteractive()),
 			btn("○ Circle", "Add a circular AoE (e.g. Fireball 20 ft)", () => this._addAoe("circle")),
@@ -81,6 +95,7 @@ class VttBoard {
 			btn("▬ Line", "Add a line AoE (e.g. Lightning Bolt 100 ft)", () => this._addAoe("line")),
 			btn("▢ Cube", "Add a square/cube AoE", () => this._addAoe("cube")),
 			this._btnMeasure,
+			this._btnDraw,
 			btn("↶ Undo", "Undo the last change (Ctrl+Z)", () => this._doUndo()),
 			btn("⟳ Reset View", "Recenter & reset zoom", () => { this._scene.view = {x: 40, y: 40, scale: 1}; this._applyView(); this._save(); }),
 			btn("⤢ Fit Map", "Zoom to fit the map", () => this._fitMap()),
@@ -96,6 +111,7 @@ class VttBoard {
 			this._secSelected(),
 			this._secAoe(),
 			this._secInitiative(),
+			this._secDraw(),
 			this._secDice(),
 			this._secScene(),
 		);
@@ -229,6 +245,21 @@ class VttBoard {
 		return sec;
 	}
 
+	/* ---------- sidebar: Drawing ---------- */
+	_secDraw () {
+		const sec = el("div", {class: "vtt-sec"});
+		sec.appendChild(el("h4", {}, "Drawing & Pings"));
+		const colors = ["#ffd54a", "#ff5252", "#69f0ae", "#40c4ff", "#ffffff", "#111111"];
+		const sw = el("div", {class: "vtt-swatches"});
+		colors.forEach(c => { const s = el("div", {class: "vtt-swatch" + (c === this._drawColor ? " vtt-swatch--sel" : ""), style: `background:${c}`}); s.onclick = () => { this._drawColor = c; [...sw.children].forEach(x => x.classList.remove("vtt-swatch--sel")); s.classList.add("vtt-swatch--sel"); }; sw.appendChild(s); });
+		const width = el("input", {type: "range", min: "1", max: "20", value: this._drawWidth, style: "width:110px"});
+		width.oninput = () => { this._drawWidth = +width.value; };
+		const clear = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Clear drawings");
+		clear.onclick = () => { if (this._scene.drawings.length) { this._pushUndo(); this._scene.drawings = []; this._renderDrawings(); this._save(); this._netPush(); } };
+		sec.append(el("div", {class: "vtt-mini"}, "Toggle ✎ Draw then drag. Double-click empty map to ping a spot."), el("div", {class: "vtt-row"}, sw), el("div", {class: "vtt-row"}, lbl("Width"), width), el("div", {class: "vtt-row"}, clear));
+		return sec;
+	}
+
 	/* ---------- sidebar: Dice ---------- */
 	_secDice () {
 		const sec = el("div", {class: "vtt-sec"});
@@ -259,7 +290,7 @@ class VttBoard {
 	}
 
 	/* ============================ rendering ============================ */
-	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderTokens(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._applyView(); }
+	_renderAll () { this._renderMap(); this._renderGrid(); this._renderAoes(); this._renderDrawings(); this._renderTokens(); this._renderInitiative(); this._renderSelPanel(); this._renderAoePanel(); this._applyView(); }
 
 	_worldSize () {
 		const m = this._scene.map; const cell = this._scene.grid.cell;
@@ -281,6 +312,7 @@ class VttBoard {
 		// size the SVG overlay + AoE layer to match
 		for (const s of [this._els.svg, this._els.svgAoe]) { s.setAttribute("width", w); s.setAttribute("height", h); s.setAttribute("viewBox", `0 0 ${w} ${h}`); }
 		this._els.tokens.style.width = `${w}px`; this._els.tokens.style.height = `${h}px`;
+		this._renderDrawings();
 		if (!g.show) return;
 		ctx.strokeStyle = g.color; ctx.lineWidth = 1;
 		ctx.beginPath();
@@ -364,21 +396,26 @@ class VttBoard {
 		const board = this._els.board;
 		// pan with left-drag on empty space; Alt-drag (or measure mode) = ruler
 		board.addEventListener("pointerdown", (e) => {
-			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar")) return;
+			if (e.target.closest(".vtt-token") || e.target.closest(".vtt-toolbar") || e.target.closest(".vtt-aoe-g")) return;
+			if (e.button === 2) return;
+			if (this._drawMode) return this._startDraw(e);
 			if (this._measureMode || e.altKey) return this._startMeasure(e);
 			this._panning = {sx: e.clientX, sy: e.clientY, ox: this._scene.view.x, oy: this._scene.view.y};
 			board.classList.add("vtt-board--panning"); board.setPointerCapture(e.pointerId);
 		});
 		board.addEventListener("pointermove", (e) => {
+			if (this._drawing) return this._moveDraw(e);
 			if (this._measuring) return this._moveMeasure(e);
 			if (!this._panning) return;
 			this._scene.view.x = this._panning.ox + (e.clientX - this._panning.sx);
 			this._scene.view.y = this._panning.oy + (e.clientY - this._panning.sy);
 			this._applyView();
 		});
-		const endPan = (e) => { if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
+		const endPan = (e) => { if (this._drawing) return this._endDraw(); if (this._measuring) return this._endMeasure(); if (this._panning) { this._panning = null; board.classList.remove("vtt-board--panning"); this._save(); } };
 		board.addEventListener("pointerup", endPan);
 		board.addEventListener("pointercancel", endPan);
+		// double-click empty board → ping a spot (attention marker)
+		board.addEventListener("dblclick", (e) => { if (e.target.closest(".vtt-token") || e.target.closest(".vtt-aoe-g") || e.target.closest(".vtt-toolbar")) return; const wp = this._screenToWorld(e.clientX, e.clientY); this._ping(wp.x, wp.y); });
 		// zoom to cursor
 		board.addEventListener("wheel", (e) => {
 			e.preventDefault();
@@ -556,6 +593,30 @@ class VttBoard {
 		const del = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Delete AoE");
 		del.onclick = () => this._removeAoe(a.id);
 		sec.append(el("div", {class: "vtt-mini"}, `${a.type} • drag to move${a.type !== "circle" ? ", drag the dot to rotate" : ""}`), mk(a.type === "line" ? "Length ft" : a.type === "circle" ? "Radius ft" : "Size ft", size), a.type === "circle" ? el("span") : mk("Rotation°", rot), el("div", {class: "vtt-row"}, sw), el("div", {class: "vtt-row"}, del));
+	}
+
+	/* ============================ drawing & pings ============================ */
+	_renderDrawings () {
+		const cv = this._els.cvDraw; if (!cv) return; const {w, h} = this._worldSize();
+		if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; cv.style.width = `${w}px`; cv.style.height = `${h}px`; }
+		const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, w, h); ctx.lineCap = "round"; ctx.lineJoin = "round";
+		(this._scene.drawings || []).forEach(d => { if (!d.pts?.length) return; ctx.strokeStyle = d.color; ctx.lineWidth = d.width; ctx.beginPath(); ctx.moveTo(d.pts[0][0], d.pts[0][1]); if (d.pts.length === 1) ctx.lineTo(d.pts[0][0] + 0.1, d.pts[0][1]); for (let i = 1; i < d.pts.length; i++) ctx.lineTo(d.pts[i][0], d.pts[i][1]); ctx.stroke(); });
+	}
+	_startDraw (e) { this._pushUndo(); const wp = this._screenToWorld(e.clientX, e.clientY); this._curStroke = {color: this._drawColor, width: this._drawWidth, pts: [[wp.x, wp.y]]}; this._scene.drawings.push(this._curStroke); this._drawing = true; this._els.board.setPointerCapture(e.pointerId); }
+	_moveDraw (e) { if (!this._curStroke) return; const wp = this._screenToWorld(e.clientX, e.clientY); this._curStroke.pts.push([wp.x, wp.y]); this._renderDrawings(); this._netPushThrottled(); }
+	_endDraw () { this._drawing = false; if (this._curStroke) { if (this._curStroke.pts.length < 2) this._scene.drawings.pop(); this._curStroke = null; this._save(); this._netPush(); } }
+
+	_ping (x, y) {
+		const svg = this._els.svg;
+		const g = svgEl("g", {});
+		[0, 0.18].forEach(delay => {
+			const c = svgEl("circle", {cx: x, cy: y, r: 6, fill: "none", stroke: "#ffd54a", "stroke-width": 4});
+			c.appendChild(svgEl("animate", {attributeName: "r", from: 6, to: 64, dur: "0.85s", begin: `${delay}s`, fill: "freeze"}));
+			c.appendChild(svgEl("animate", {attributeName: "opacity", from: 1, to: 0, dur: "0.85s", begin: `${delay}s`, fill: "freeze"}));
+			g.appendChild(c);
+		});
+		svg.appendChild(g); setTimeout(() => g.remove(), 1300);
+		this._netPing?.(x, y);
 	}
 
 	/* ============================ measurement ============================ */

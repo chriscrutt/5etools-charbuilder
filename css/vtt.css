@@ -17,6 +17,8 @@
 .vtt-aoe-g { pointer-events: auto; cursor: move; }
 .vtt-aoe-shape { transition: none; }
 .vtt-aoe-handle { cursor: grab; }
+.vtt-draw { position: absolute; top: 0; left: 0; pointer-events: none; } /* freehand drawing canvas */
+.vtt-board.vtt-board--drawing { cursor: crosshair; }
 .vtt-tokens { position: absolute; top: 0; left: 0; }
 
 /* tokens */
