@@ -69,6 +69,13 @@
 .vtt-dice-tray { display: flex; gap: 4px; flex-wrap: wrap; }
 .vtt-dice-tray .ve-btn { padding: 2px 7px; }
 
+/* monster search results */
+.vtt-mon-results { border: 1px solid rgba(127,127,127,.25); border-radius: 4px; margin-top: 4px; }
+.vtt-mon-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 3px 7px; cursor: pointer; font-size: 12px; }
+.vtt-mon-row:hover { background: rgba(33,150,243,.2); }
+.vtt-mon-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtt-mon-row__meta { opacity: .6; font-size: 10px; white-space: nowrap; }
+
 /* dead / bloodied / locked token states */
 .vtt-token--dead { filter: grayscale(.85) brightness(.6); }
 .vtt-token--dead::after { content: "✕"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ff5252; font-size: 130%; font-weight: bold; text-shadow: 0 0 4px #000; pointer-events: none; }

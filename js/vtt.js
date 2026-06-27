@@ -115,6 +115,7 @@ class VttBoard {
 		const scroll = el("div", {class: "vtt-sidebar__scroll"});
 		scroll.append(
 			this._secMap(),
+			this._secMonsters(),
 			this._secSelected(),
 			this._secAoe(),
 			this._secInitiative(),
@@ -157,6 +158,60 @@ class VttBoard {
 			el("div", {class: "vtt-row"}, wrapCb(show, "Show grid"), wrapCb(snap, "Snap")),
 		);
 		return sec;
+	}
+
+	/* ---------- sidebar: Add Monster (from the bestiary) ---------- */
+	_secMonsters () {
+		const sec = el("div", {class: "vtt-sec"});
+		sec.appendChild(el("h4", {}, "Add Monster"));
+		const search = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Search the bestiary…"});
+		const status = el("div", {class: "vtt-mini"}, "Type to search (loads the bestiary once).");
+		const results = el("div", {class: "vtt-mon-results", style: "max-height:240px;overflow:auto;display:none"});
+		const rollHp = el("input", {type: "checkbox"});
+		const rollInit = el("input", {type: "checkbox"}); rollInit.checked = true;
+		let loaded = false, monsters = [];
+		const renderResults = () => {
+			const q = search.value.toLowerCase().trim(); results.innerHTML = "";
+			if (!loaded || q.length < 2) { results.style.display = "none"; return; }
+			const rank = (n) => n === q ? 0 : n.startsWith(q) ? 1 : 2;
+			const matches = monsters.filter(m => m.name.toLowerCase().includes(q)).sort((a, b) => (rank(a.name.toLowerCase()) - rank(b.name.toLowerCase())) || SortUtil.ascSortLower(a.name, b.name)).slice(0, 40);
+			results.style.display = matches.length ? "block" : "none";
+			matches.forEach(m => {
+				const row = el("div", {class: "vtt-mon-row"});
+				row.append(el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${Parser.monCrToFull ? Parser.monCrToFull(m.cr) : (m.cr?.cr ?? m.cr ?? "?")} · ${m.source}`));
+				row.onclick = () => { this._addMonsterToken(m, {rollHp: rollHp.checked, rollInit: rollInit.checked}); };
+				results.appendChild(row);
+			});
+		};
+		const doLoad = async () => {
+			if (loaded || this._monLoading) return; this._monLoading = true; status.textContent = "Loading bestiary…";
+			try { monsters = await this._loadBestiary(); loaded = true; status.textContent = `${monsters.length} creatures — click to drop a token.`; } catch (e) { status.textContent = "Bestiary failed to load."; console.error(e); }
+			this._monLoading = false; renderResults();
+		};
+		search.onfocus = doLoad; search.oninput = () => { doLoad(); renderResults(); };
+		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results);
+		return sec;
+	}
+
+	async _loadBestiary () {
+		await ExcludeUtil.pInitialise().catch(() => {});
+		const all = await DataLoader.pCacheAndGetAllSite(UrlUtil.PG_BESTIARY);
+		const hb = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BESTIARY];
+		return all.filter(m => !m._isCopy && !ExcludeUtil.isExcluded(hb(m), "monster", m.source)).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+	}
+
+	_avgFromFormula (f) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return null; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; return Math.max(1, Math.floor(+m[1] * (+m[2] + 1) / 2 + mod)); }
+	_rollFormula (f, fallback) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return fallback; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; let t = mod; for (let i = 0; i < +m[1]; i++) t += 1 + Math.floor(Math.random() * +m[2]); return Math.max(1, t); }
+
+	_addMonsterToken (mon, opts = {}) {
+		const sizeAbv = Array.isArray(mon.size) ? mon.size[0] : mon.size;
+		const w = VttBoard._SIZE_CELLS[sizeAbv] || 1;
+		const avg = mon.hp?.average ?? this._avgFromFormula(mon.hp?.formula) ?? 10;
+		const hp = opts.rollHp ? this._rollFormula(mon.hp?.formula, avg) : avg;
+		const dexMod = Math.floor((((mon.dex ?? 10)) - 10) / 2);
+		const init = opts.rollInit ? 1 + Math.floor(Math.random() * 20) + dexMod : null;
+		let img = null; try { if (Renderer.monster.hasToken(mon)) img = Renderer.monster.getTokenUrl(mon); } catch (e) { /* no token */ }
+		this._addToken({name: mon.name, w, h: w, hp, maxHp: hp, init, img, color: "#8a4b3b", square: w >= 3});
 	}
 
 	/* ---------- sidebar: Selected token ---------- */
@@ -370,7 +425,7 @@ class VttBoard {
 		e.classList.toggle("vtt-token--dead", this._isDead(t));
 		e.classList.toggle("vtt-token--bloodied", this._isBloodied(t));
 		e.innerHTML = "";
-		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: "false"}); e.appendChild(im); }
+		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: "false"}); im.onerror = () => { im.remove(); if (!e.querySelector(".vtt-token__initletter")) e.insertBefore(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)), e.firstChild); }; e.appendChild(im); }
 		else e.appendChild(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)));
 		if (t.name) e.appendChild(el("div", {class: "vtt-token__name"}, t.name));
 		if (t.maxHp) {
