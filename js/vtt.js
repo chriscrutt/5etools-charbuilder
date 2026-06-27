@@ -8,6 +8,16 @@ class VttBoard {
 	static _STORE_KEY = "vtt_scene_v1";
 	static _SWATCHES = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#f1c40f", "#7f8c8d", "#e84393", "#2c3e50"];
 	static _SIZE_CELLS = {T: 0.5, S: 1, M: 1, L: 2, H: 3, G: 4}; // 5e creature size → token footprint in cells
+	static _UNDO_MAX = 50;
+	// 5e conditions + a few common buffs, for token status markers
+	static _CONDITIONS = [
+		{k: "blinded", ab: "Bli", c: "#607d8b"}, {k: "charmed", ab: "Chm", c: "#e91e63"}, {k: "deafened", ab: "Dea", c: "#795548"},
+		{k: "frightened", ab: "Fr", c: "#9c27b0"}, {k: "grappled", ab: "Grp", c: "#8d6e63"}, {k: "incapacitated", ab: "Inc", c: "#546e7a"},
+		{k: "invisible", ab: "Inv", c: "#00bcd4"}, {k: "paralyzed", ab: "Par", c: "#3f51b5"}, {k: "petrified", ab: "Pet", c: "#9e9e9e"},
+		{k: "poisoned", ab: "Poi", c: "#4caf50"}, {k: "prone", ab: "Prn", c: "#ff9800"}, {k: "restrained", ab: "Res", c: "#6d4c41"},
+		{k: "stunned", ab: "Stn", c: "#fbc02d"}, {k: "unconscious", ab: "Unc", c: "#212121"}, {k: "concentration", ab: "Conc", c: "#2196f3"},
+		{k: "blessed", ab: "Bls", c: "#ffd54a"}, {k: "hasted", ab: "Hst", c: "#ff7043"}, {k: "raging", ab: "Rage", c: "#d32f2f"},
+	];
 
 	constructor (root) {
 		this._root = root;
@@ -16,6 +26,7 @@ class VttBoard {
 		this._uid = 0;
 		this._els = {}; // cached DOM
 		this._tokEls = new Map(); // tokenId → element
+		this._undo = []; // scene snapshots for Ctrl+Z
 	}
 
 	_defaultScene () {
@@ -64,6 +75,7 @@ class VttBoard {
 		bar.append(
 			btn("＋ Token", "Add a token at the view center", () => this._addTokenInteractive()),
 			this._btnMeasure,
+			btn("↶ Undo", "Undo the last change (Ctrl+Z)", () => this._doUndo()),
 			btn("⟳ Reset View", "Recenter & reset zoom", () => { this._scene.view = {x: 40, y: 40, scale: 1}; this._applyView(); this._save(); }),
 			btn("⤢ Fit Map", "Zoom to fit the map", () => this._fitMap()),
 		);
@@ -151,16 +163,37 @@ class VttBoard {
 		const sw = el("div", {class: "vtt-swatches"});
 		VttBoard._SWATCHES.forEach(c => { const s = el("div", {class: "vtt-swatch" + (c === t.color ? " vtt-swatch--sel" : ""), style: `background:${c}`}); s.onclick = () => { t.color = c; this._renderToken(t); this._renderSelPanel(); this._renderInitiative(); this._save(); this._netPush(); }; sw.appendChild(s); });
 
-		const del = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Delete token");
+		// quick damage / heal
+		const dmgAmt = el("input", {type: "number", class: "ve-form-control ve-input-xs", placeholder: "amt"});
+		const bDmg = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Damage");
+		const bHeal = el("button", {class: "ve-btn ve-btn-xs ve-btn-success"}, "Heal");
+		const doDmg = () => { if (dmgAmt.value !== "") { this._applyDamage(t, dmgAmt.value); dmgAmt.value = ""; } };
+		const doHeal = () => { if (dmgAmt.value !== "") { this._applyHeal(t, dmgAmt.value); dmgAmt.value = ""; } };
+		bDmg.onclick = doDmg; bHeal.onclick = doHeal; dmgAmt.onkeydown = (ev) => { if (ev.key === "Enter") doDmg(); };
+		// temp HP
+		const temp = el("input", {type: "number", class: "ve-form-control ve-input-xs", value: t.temp || 0, style: "width:64px"});
+		temp.oninput = () => { t.temp = Math.max(0, +temp.value || 0); this._renderToken(t); this._save(); this._netPush(); };
+		// conditions
+		const condGrid = el("div", {class: "vtt-cond-grid"});
+		VttBoard._CONDITIONS.forEach(cd => { const on = (t.conditions || []).includes(cd.k); const chip = el("div", {class: "vtt-cond-chip" + (on ? " vtt-cond-chip--on" : ""), title: cd.k}, cd.ab); if (on) chip.style.background = cd.c; chip.onclick = () => this._toggleCondition(t, cd.k); condGrid.appendChild(chip); });
+		// duplicate / lock / delete
+		const dup = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Ctrl+D"}, "⧉ Duplicate");
+		dup.onclick = () => this._duplicateToken(t);
+		const lock = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, t.locked ? "🔓 Unlock" : "🔒 Lock");
+		lock.onclick = () => this._toggleLock(t);
+		const del = el("button", {class: "ve-btn ve-btn-xs ve-btn-danger"}, "Delete");
 		del.onclick = () => this._removeToken(t.id);
+
 		sec.append(
 			mk("Name", name),
-			mk("HP", hp), mk("Max HP", maxhp), mk("Init", init),
+			el("div", {class: "vtt-row vtt-dmg-row"}, dmgAmt, bDmg, bHeal),
+			mk("HP", hp), mk("Max HP", maxhp), mk("Temp", temp), mk("Init", init),
 			mk("Size", size),
 			mk("Image", img),
 			el("div", {class: "vtt-row"}, wrapCb(square, "Square token")),
 			el("div", {class: "vtt-row"}, sw),
-			el("div", {class: "vtt-row"}, del),
+			el("div", {class: "vtt-mini ve-mt-1"}, "Conditions"), condGrid,
+			el("div", {class: "vtt-row ve-mt-1"}, dup, lock, del),
 		);
 	}
 
@@ -263,12 +296,22 @@ class VttBoard {
 		e.classList.toggle("vtt-token--square", !!t.square);
 		e.classList.toggle("vtt-token--sel", t.id === this._selId);
 		e.classList.toggle("vtt-token--active", this._activeTokenId() === t.id);
+		e.classList.toggle("vtt-token--dead", this._isDead(t));
+		e.classList.toggle("vtt-token--bloodied", this._isBloodied(t));
 		e.innerHTML = "";
 		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: "false"}); e.appendChild(im); }
 		else e.appendChild(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)));
 		if (t.name) e.appendChild(el("div", {class: "vtt-token__name"}, t.name));
-		if (t.maxHp) { const wrap = el("div", {class: "vtt-token__hpwrap"}); const bar = el("div", {class: "vtt-token__hpbar"}); const frac = Math.max(0, Math.min(1, (t.hp ?? t.maxHp) / t.maxHp)); bar.style.width = `${frac * 100}%`; bar.style.background = frac > 0.5 ? "#4caf50" : frac > 0.25 ? "#ff9800" : "#f44336"; wrap.appendChild(bar); e.appendChild(wrap); }
+		if (t.maxHp) {
+			const wrap = el("div", {class: "vtt-token__hpwrap" + (t.temp > 0 ? " vtt-token__hpwrap--temp" : "")});
+			const bar = el("div", {class: "vtt-token__hpbar"}); const frac = Math.max(0, Math.min(1, (t.hp ?? t.maxHp) / t.maxHp));
+			bar.style.width = `${frac * 100}%`; bar.style.background = frac > 0.5 ? "#4caf50" : frac > 0.25 ? "#ff9800" : "#f44336";
+			wrap.appendChild(bar); e.appendChild(wrap);
+		}
 		if (t.init != null) e.appendChild(el("div", {class: "vtt-token__init-badge"}, `${t.init}`));
+		if (t.locked) e.appendChild(el("div", {class: "vtt-token__lock", title: "Locked"}, "🔒"));
+		if (t.conditions?.length) { const cw = el("div", {class: "vtt-token__conds"}); t.conditions.forEach(k => { const cd = VttBoard._CONDITIONS.find(c => c.k === k); const d = el("div", {class: "vtt-cond-dot", title: k}, cd ? cd.ab : k.slice(0, 3)); d.style.background = cd ? cd.c : "#666"; cw.appendChild(d); }); e.appendChild(cw); }
+		const ix = this._scene.tokens.indexOf(t); e.style.zIndex = `${10 + (ix < 0 ? 0 : ix)}`;
 	}
 
 	_cleanupTokenEls () { const ids = new Set(this._scene.tokens.map(t => t.id)); for (const [id, e] of this._tokEls) { if (!ids.has(id)) { e.remove(); this._tokEls.delete(id); } } }
@@ -281,11 +324,15 @@ class VttBoard {
 		if (!ordered.length) { list.appendChild(el("div", {class: "vtt-mini"}, "No initiative yet. Set Init on tokens or click Roll.")); }
 		const activeId = this._activeTokenId();
 		ordered.forEach(t => {
+			const dead = this._isDead(t);
 			const row = el("div", {class: "vtt-init-row" + (t.id === activeId ? " vtt-init-row--active" : "")});
+			const conds = el("div", {class: "vtt-init-row__conds"});
+			(t.conditions || []).forEach(k => { const cd = VttBoard._CONDITIONS.find(c => c.k === k); const d = el("div", {class: "vtt-cond-dot", title: k}, cd ? cd.ab : k.slice(0, 3)); d.style.background = cd ? cd.c : "#666"; conds.appendChild(d); });
 			row.append(
 				el("div", {class: "vtt-init-row__swatch", style: `background:${t.color || "#888"}`}),
-				el("div", {class: "vtt-init-row__name"}, t.name || "(token)"),
-				el("div", {class: "vtt-init-row__hp"}, t.maxHp ? `${t.hp ?? t.maxHp}/${t.maxHp}` : ""),
+				el("div", {class: "vtt-init-row__name", style: dead ? "text-decoration:line-through;opacity:.6" : ""}, `${dead ? "☠ " : ""}${t.name || "(token)"}`),
+				conds,
+				el("div", {class: "vtt-init-row__hp"}, t.maxHp ? `${t.hp ?? t.maxHp}/${t.maxHp}${t.temp ? ` +${t.temp}` : ""}` : ""),
 				el("div", {class: "vtt-init-row__init"}, `${t.init}`),
 			);
 			row.onclick = () => { this._select(t.id); this._centerOn(t); };
@@ -337,22 +384,30 @@ class VttBoard {
 		board.addEventListener("click", (e) => { if (!e.target.closest(".vtt-token") && !e.target.closest(".vtt-toolbar")) this._select(null); });
 		// keyboard
 		document.addEventListener("keydown", (e) => {
-			if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+			const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !inField) { e.preventDefault(); return this._doUndo(); }
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d" && this._selId && !inField) { e.preventDefault(); const t = this._tokenById(this._selId); if (t) this._duplicateToken(t); return; }
+			if (inField) return;
+			if (e.key === "Escape") this._closeContextMenu();
 			if ((e.key === "Delete" || e.key === "Backspace") && this._selId) { e.preventDefault(); this._removeToken(this._selId); }
 		});
 	}
 
 	/* ============================ token interaction ============================ */
 	_bindToken (e, t) {
+		e.addEventListener("contextmenu", (ev) => { ev.preventDefault(); ev.stopPropagation(); this._select(t.id); this._showContextMenu(ev.clientX, ev.clientY, t); });
 		e.addEventListener("pointerdown", (ev) => {
+			if (ev.button === 2) return; // right-click → context menu
 			ev.stopPropagation();
 			this._select(t.id);
+			if (t.locked) return; // locked tokens don't drag
 			const start = this._screenToWorld(ev.clientX, ev.clientY);
 			this._drag = {id: t.id, dx: start.x - t.x, dy: start.y - t.y, moved: false};
 			e.classList.add("vtt-token--dragging"); e.setPointerCapture(ev.pointerId);
 		});
 		e.addEventListener("pointermove", (ev) => {
 			if (!this._drag || this._drag.id !== t.id) return;
+			if (!this._drag.moved) this._pushUndo(); // snapshot once, at the start of a real move
 			const w = this._screenToWorld(ev.clientX, ev.clientY);
 			t.x = w.x - this._drag.dx; t.y = w.y - this._drag.dy; this._drag.moved = true;
 			e.style.left = `${t.x}px`; e.style.top = `${t.y}px`;
@@ -368,6 +423,34 @@ class VttBoard {
 		e.addEventListener("pointercancel", end);
 		e.addEventListener("dblclick", (ev) => { ev.stopPropagation(); this._select(t.id); this._els.selPanel.scrollIntoView({block: "nearest"}); });
 	}
+
+	/* ---------- right-click context menu ---------- */
+	_showContextMenu (sx, sy, t) {
+		this._closeContextMenu();
+		const menu = el("div", {class: "vtt-ctx"});
+		const item = (label, fn, {danger = false, sub = ""} = {}) => { const it = el("div", {class: "vtt-ctx__item" + (danger ? " vtt-ctx__item--danger" : "")}); it.append(el("span", {}, label), sub ? el("span", {class: "vtt-ctx__sub"}, sub) : el("span")); it.onclick = () => { this._closeContextMenu(); fn(); }; menu.appendChild(it); return it; };
+		const sep = () => menu.appendChild(el("div", {class: "vtt-ctx__sep"}));
+		item("💥 Damage…", () => { const n = prompt(`Damage ${t.name || "token"}:`, "0"); if (n != null) this._applyDamage(t, n); }, {sub: "right-panel too"});
+		item("➕ Heal…", () => { const n = prompt(`Heal ${t.name || "token"}:`, "0"); if (n != null) this._applyHeal(t, n); });
+		item("🛡 Temp HP…", () => { const n = prompt(`Temp HP for ${t.name || "token"}:`, `${t.temp || 0}`); if (n != null) this._setTemp(t, n); });
+		sep();
+		item("⧉ Duplicate", () => this._duplicateToken(t), {sub: "Ctrl+D"});
+		item(t.locked ? "🔓 Unlock" : "🔒 Lock", () => this._toggleLock(t));
+		item("⬆ Bring to front", () => this._bringToFront(t));
+		item("⬇ Send to back", () => this._sendToBack(t));
+		sep();
+		item("🗑 Delete", () => this._removeToken(t.id), {danger: true, sub: "Del"});
+		document.body.appendChild(menu);
+		// keep on-screen
+		const r = menu.getBoundingClientRect();
+		menu.style.left = `${Math.min(sx, window.innerWidth - r.width - 6)}px`;
+		menu.style.top = `${Math.min(sy, window.innerHeight - r.height - 6)}px`;
+		this._ctxMenu = menu;
+		const onDocDown = (ev) => { if (!menu.contains(ev.target)) this._closeContextMenu(); }; // close only on OUTSIDE click (item clicks close themselves)
+		setTimeout(() => document.addEventListener("pointerdown", onDocDown), 0);
+		this._ctxCloser = () => document.removeEventListener("pointerdown", onDocDown);
+	}
+	_closeContextMenu () { this._ctxCloser?.(); this._ctxCloser = null; if (this._ctxMenu) { this._ctxMenu.remove(); this._ctxMenu = null; } }
 
 	_snapToken (t) { if (!this._scene.grid.snap) return; const c = this._scene.grid.cell; t.x = Math.round(t.x / c) * c; t.y = Math.round(t.y / c) * c; }
 
@@ -390,11 +473,12 @@ class VttBoard {
 		const c = this._scene.grid.cell; const v = this._scene.view; const r = this._els.board.getBoundingClientRect();
 		// place at the center of the current view, snapped
 		const center = this._screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
+		this._pushUndo();
 		const t = Object.assign({
 			id: `t${Date.now().toString(36)}${this._uid++}`,
 			x: Math.round(center.x / c) * c, y: Math.round(center.y / c) * c,
 			w: 1, h: 1, name: "", color: VttBoard._SWATCHES[this._scene.tokens.length % VttBoard._SWATCHES.length],
-			img: null, hp: null, maxHp: null, init: null, square: false,
+			img: null, hp: null, maxHp: null, temp: 0, init: null, square: false, conditions: [], locked: false,
 		}, props);
 		this._scene.tokens.push(t); this._renderToken(t); this._select(t.id); this._renderInitiative(); this._save(); this._netPush();
 		return t;
@@ -408,11 +492,68 @@ class VttBoard {
 	}
 
 	_removeToken (id) {
+		this._pushUndo();
 		this._scene.tokens = this._scene.tokens.filter(t => t.id !== id);
 		const e = this._tokEls.get(id); if (e) { e.remove(); this._tokEls.delete(id); }
 		if (this._selId === id) this._select(null);
 		this._renderInitiative(); this._save(); this._netPush();
 	}
+
+	// spawn a copy one cell down-right, auto-numbering the name (Goblin → Goblin 2, 3…)
+	_duplicateToken (t) {
+		this._pushUndo();
+		const c = this._scene.grid.cell;
+		const base = (t.name || "").replace(/\s+\d+$/, "").trim();
+		let n = 2; if (base) { const used = this._scene.tokens.map(x => x.name); while (used.includes(`${base} ${n}`)) n++; }
+		const copy = {...structuredClone(t), id: `t${Date.now().toString(36)}${this._uid++}`, x: t.x + c, y: t.y + c, name: base ? `${base} ${n}` : t.name, init: null};
+		this._scene.tokens.push(copy); this._renderToken(copy); this._select(copy.id); this._renderInitiative(); this._save(); this._netPush();
+		return copy;
+	}
+
+	_isDead (t) { return t.maxHp != null && (t.hp ?? t.maxHp) <= 0; }
+	_isBloodied (t) { return t.maxHp != null && (t.hp ?? t.maxHp) > 0 && (t.hp ?? t.maxHp) <= t.maxHp / 2; }
+
+	// apply damage: temp HP soaks first; floats a number over the token
+	_applyDamage (t, amt) {
+		amt = Math.abs(+amt || 0); if (!amt) return; this._pushUndo();
+		let rem = amt;
+		if (t.temp > 0) { const soak = Math.min(t.temp, rem); t.temp -= soak; rem -= soak; }
+		if (t.hp == null) t.hp = t.maxHp ?? 0;
+		t.hp = Math.max(t.maxHp != null ? -t.maxHp : -999, t.hp - rem);
+		this._floatNum(t, `-${amt}`, "#ff5252"); this._afterTokenStat(t);
+	}
+	_applyHeal (t, amt) {
+		amt = Math.abs(+amt || 0); if (!amt) return; this._pushUndo();
+		if (t.hp == null) t.hp = 0;
+		t.hp = t.maxHp != null ? Math.min(t.maxHp, t.hp + amt) : t.hp + amt;
+		this._floatNum(t, `+${amt}`, "#69f0ae"); this._afterTokenStat(t);
+	}
+	_setTemp (t, amt) { this._pushUndo(); t.temp = Math.max(0, +amt || 0); this._afterTokenStat(t); }
+	_afterTokenStat (t) { this._renderToken(t); this._renderInitiative(); this._renderSelPanel(); this._save(); this._netPush(); }
+
+	_floatNum (t, txt, color) {
+		const e = this._tokEls.get(t.id); if (!e) return;
+		const f = el("div", {class: "vtt-floatnum"}, txt); f.style.color = color;
+		f.style.left = "50%"; f.style.top = "0";
+		e.appendChild(f); setTimeout(() => f.remove(), 1000);
+	}
+
+	_toggleCondition (t, k) {
+		this._pushUndo();
+		t.conditions = t.conditions || [];
+		const i = t.conditions.indexOf(k);
+		if (i >= 0) t.conditions.splice(i, 1); else t.conditions.push(k);
+		this._renderToken(t); this._renderInitiative(); this._renderSelPanel(); this._save(); this._netPush();
+	}
+
+	_toggleLock (t) { this._pushUndo(); t.locked = !t.locked; this._renderToken(t); this._renderSelPanel(); this._save(); this._netPush(); }
+	_bringToFront (t) { this._pushUndo(); this._scene.tokens = this._scene.tokens.filter(x => x.id !== t.id).concat(t); this._renderTokensZ(); this._save(); this._netPush(); }
+	_sendToBack (t) { this._pushUndo(); this._scene.tokens = [t, ...this._scene.tokens.filter(x => x.id !== t.id)]; this._renderTokensZ(); this._save(); this._netPush(); }
+	_renderTokensZ () { this._scene.tokens.forEach((t, i) => { const e = this._tokEls.get(t.id); if (e) e.style.zIndex = `${10 + i}`; }); }
+
+	/* ---------- undo ---------- */
+	_pushUndo () { try { this._undo.push(JSON.stringify(this._scene)); if (this._undo.length > VttBoard._UNDO_MAX) this._undo.shift(); } catch (e) {} }
+	_doUndo () { const snap = this._undo.pop(); if (!snap) return toast("Nothing to undo.", "info"); try { this._scene = JSON.parse(snap); this._selId = null; this._tokEls.forEach(e => e.remove()); this._tokEls.clear(); this._renderAll(); this._save(); this._netPush(); } catch (e) {} }
 
 	_select (id) { this._selId = id; this._scene.tokens.forEach(t => { const e = this._tokEls.get(t.id); if (e) e.classList.toggle("vtt-token--sel", t.id === id); }); this._renderSelPanel(); }
 

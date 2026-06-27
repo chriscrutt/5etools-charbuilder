@@ -60,3 +60,35 @@
 
 .vtt-dice-tray { display: flex; gap: 4px; flex-wrap: wrap; }
 .vtt-dice-tray .ve-btn { padding: 2px 7px; }
+
+/* dead / bloodied / locked token states */
+.vtt-token--dead { filter: grayscale(.85) brightness(.6); }
+.vtt-token--dead::after { content: "✕"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ff5252; font-size: 130%; font-weight: bold; text-shadow: 0 0 4px #000; pointer-events: none; }
+.vtt-token--bloodied { border-color: #b71c1c; }
+.vtt-token__lock { position: absolute; bottom: -2px; right: -2px; font-size: 11px; pointer-events: none; filter: drop-shadow(0 1px 1px #000); }
+
+/* temp-HP pip on the HP bar */
+.vtt-token__hpwrap--temp { box-shadow: 0 0 0 1px #29b6f6; }
+
+/* condition markers under a token */
+.vtt-token__conds { position: absolute; left: 50%; bottom: -32px; transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
+.vtt-cond-dot { min-width: 13px; height: 13px; padding: 0 2px; border-radius: 3px; font-size: 9px; font-weight: bold; color: #fff; display: flex; align-items: center; justify-content: center; text-shadow: 0 1px 1px rgba(0,0,0,.7); border: 1px solid rgba(0,0,0,.5); }
+
+/* condition chips in the selected-token panel */
+.vtt-cond-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+.vtt-cond-chip { font-size: 10px; padding: 1px 5px; border-radius: 9px; cursor: pointer; border: 1px solid rgba(127,127,127,.4); opacity: .55; user-select: none; }
+.vtt-cond-chip--on { opacity: 1; color: #fff; border-color: transparent; }
+.vtt-init-row__conds { display: flex; gap: 2px; }
+
+/* damage/heal floating number */
+.vtt-floatnum { position: absolute; font-weight: bold; font-size: 18px; pointer-events: none; z-index: 60; text-shadow: 0 1px 3px #000, 0 0 4px #000; animation: vtt-float 1s ease-out forwards; }
+@keyframes vtt-float { from { opacity: 1; transform: translate(-50%,0); } to { opacity: 0; transform: translate(-50%,-34px); } }
+
+/* right-click context menu */
+.vtt-ctx { position: fixed; z-index: 200; min-width: 168px; background: #26282c; color: #eee; border: 1px solid rgba(127,127,127,.4); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.5); padding: 4px; font-size: 13px; }
+.vtt-ctx__item { padding: 5px 9px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; white-space: nowrap; }
+.vtt-ctx__item:hover { background: rgba(33,150,243,.3); }
+.vtt-ctx__item--danger:hover { background: rgba(211,47,47,.4); }
+.vtt-ctx__sep { height: 1px; background: rgba(127,127,127,.25); margin: 4px 2px; }
+.vtt-ctx__sub { font-size: 10px; opacity: .6; }
+.vtt-dmg-row input { width: 60px; }
