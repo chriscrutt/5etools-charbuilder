@@ -224,7 +224,9 @@ class VttBoard {
 		btnEnc.onclick = () => this._openEncounterBuilder();
 		const btnChar = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Drop a saved player character onto the board as a token"}, "🧑 Import Character");
 		btnChar.onclick = () => this._openCharacterImport();
-		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results, el("div", {class: "vtt-row ve-mt-1"}, btnEnc), el("div", {class: "vtt-row"}, btnChar));
+		const btnTables = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Roll on a published random-encounter table from an adventure or the DMG"}, "📋 Encounter Tables");
+		btnTables.onclick = () => this._openEncounterTables();
+		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results, el("div", {class: "vtt-row ve-mt-1"}, btnEnc), el("div", {class: "vtt-row"}, btnChar), el("div", {class: "vtt-row"}, btnTables));
 		return sec;
 	}
 
@@ -237,6 +239,7 @@ class VttBoard {
 	}
 	_monByUid (uid) { return (this._bestiaryCache || []).find(m => `${m.name}|${m.source}` === uid); }
 	_crStr (cr) { return cr == null ? "—" : `${cr.cr ?? cr}`; }
+	_renderInline (str) { try { return Renderer.get().render(`${str}`); } catch (e) { return `${str}`.replace(/[<>]/g, ""); } }
 
 	_avgFromFormula (f) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return null; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; return Math.max(1, Math.floor(+m[1] * (+m[2] + 1) / 2 + mod)); }
 	_rollFormula (f, fallback) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return fallback; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; let t = mod; for (let i = 0; i < +m[1]; i++) t += 1 + Math.floor(Math.random() * +m[2]); return Math.max(1, t); }
@@ -399,6 +402,108 @@ class VttBoard {
 		});
 		this._save(); this._netPush();
 		toast(`Added ${expanded.length} monster${expanded.length === 1 ? "" : "s"} to the tabletop.`, "success");
+	}
+
+	/* ---------- Published encounter tables (roll on an adventure's printed table) ---------- */
+	_parseRollRange (cell) {
+		if (cell && typeof cell === "object") { const r = cell.roll; if (r) { const lo = r.min ?? r.exact, hi = r.max ?? r.exact; if (lo != null) return [lo, hi ?? lo]; } return null; }
+		const s = `${cell}`.trim().replace(/[–—]/g, "-"); const num = (x) => x === "00" ? 100 : parseInt(x, 10);
+		let m = /^(\d+)\s*-\s*(\d+)$/.exec(s); if (m) return [num(m[1]), num(m[2])];
+		m = /^(\d+)$/.exec(s); if (m) return [num(m[1]), num(m[1])];
+		return null;
+	}
+	_rollTableDie (label, nRows) {
+		const expr = `${label}`.replace(/\{@dice\s+([^}|]+)(\|[^}]*)?\}/i, "$1");
+		const terms = [...expr.matchAll(/(\d*)d(\d+)/gi)];
+		if (!terms.length) return {roll: 1 + Math.floor(Math.random() * nRows), label: `d${nRows}`};
+		let total = 0; terms.forEach(t => { const c = +(t[1] || 1), f = +t[2]; for (let i = 0; i < c; i++) total += 1 + Math.floor(Math.random() * f); });
+		return {roll: total, label: expr.replace(/\s+/g, "")};
+	}
+	_cellText (cell) { return typeof cell === "string" ? cell : (cell?.entry || ""); }
+	_extractCreatures (row) {
+		const txt = (row || []).map(c => this._cellText(c)).join(" "); const out = []; const seen = new Set();
+		const re = /\{@creature\s+([^}|]+?)(?:\|([^}|]*))?(?:\|[^}]*)?\}/gi; let m;
+		while ((m = re.exec(txt))) { const name = m[1].trim(); const key = name.toLowerCase(); if (!seen.has(key)) { seen.add(key); out.push({name, source: (m[2] || "").trim() || null}); } }
+		return out;
+	}
+	_findMon (name, source) { const cache = this._bestiaryCache || []; const lc = `${name}`.toLowerCase(); return cache.find(m => m.name.toLowerCase() === lc && (!source || m.source === source)) || cache.find(m => m.name.toLowerCase() === lc) || null; }
+
+	async _openEncounterTables () {
+		const base = Renderer.get().baseUrl;
+		let raw = []; try { const [a, b] = await Promise.all([DataUtil.loadJSON(`${base}data/tables.json`), DataUtil.loadJSON(`${base}data/generated/gendata-tables.json`)]); raw = [...((a && a.table) || []), ...((b && b.table) || [])]; } catch (e) {}
+		const all = raw;
+		const tables = all
+			.filter(t => /encounter/i.test(`${t.caption || t.name || ""}`) && t.source && SourceUtil.isClassicSource(t.source) && (t.rows || []).some(r => (r || []).some(c => /\{@creature /i.test(this._cellText(c)))))
+			.sort((a, b) => SortUtil.ascSortLower(`${a.caption || a.name}`, `${b.caption || b.name}`));
+		const bySource = new Map(); tables.forEach(t => { if (!bySource.has(t.source)) bySource.set(t.source, []); bySource.get(t.source).push(t); });
+		const sources = [...bySource.keys()].sort((a, b) => SortUtil.ascSortLower(Parser.sourceJsonToFull(a), Parser.sourceJsonToFull(b)));
+
+		const backdrop = el("div", {class: "vtt-modal-backdrop"});
+		const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
+		const onKey = (e) => { if (e.key === "Escape") close(); };
+		document.addEventListener("keydown", onKey); backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
+		const srcSel = el("select", {class: "ve-form-control ve-input-xs", style: "max-width:230px"});
+		sources.forEach(s => srcSel.appendChild(el("option", {value: s}, `${Parser.sourceJsonToFull(s)} (${bySource.get(s).length})`)));
+		const tblSel = el("select", {class: "ve-form-control ve-input-xs", style: "max-width:260px"});
+		const view = el("div", {class: "vtt-tbl-view"});
+		const modal = el("div", {class: "vtt-modal vtt-modal--enc"},
+			el("div", {class: "vtt-modal__head"}, el("h3", {}, "Encounter Tables"), btnX),
+			el("div", {class: "vtt-modal__controls"}, lbl("Book"), srcSel, lbl("Table"), tblSel),
+			el("div", {class: "vtt-enc-body"}, view),
+		);
+		backdrop.appendChild(modal); document.body.appendChild(backdrop);
+		if (!tables.length) { view.appendChild(el("div", {class: "vtt-mini"}, "No published encounter tables found.")); return; }
+
+		const fillTables = () => { tblSel.innerHTML = ""; (bySource.get(srcSel.value) || []).forEach((t, i) => tblSel.appendChild(el("option", {value: `${i}`}, `${t.caption || t.name}`))); };
+		const showTable = () => this._renderEncounterTable(bySource.get(srcSel.value)?.[+tblSel.value || 0], view, close);
+		srcSel.onchange = () => { fillTables(); showTable(); };
+		tblSel.onchange = showTable;
+		srcSel.value = sources[0]; fillTables(); showTable();
+	}
+	_renderEncounterTable (t, view, closeModal) {
+		view.innerHTML = ""; if (!t) return;
+		const die = `${(t.colLabels || [])[0] || ""}`;
+		const resultBox = el("div", {class: "vtt-tbl-result"});
+		const roll = el("button", {class: "ve-btn ve-btn-sm ve-btn-primary"}, "🎲 Roll");
+		view.append(el("div", {class: "vtt-tbl-head"}, el("b", {}, t.caption || t.name || "Table"), roll, resultBox));
+		const tbl = el("table", {class: "vtt-tbl"});
+		const thr = el("tr"); (t.colLabels || []).forEach(c => { const th = el("th"); th.innerHTML = this._renderInline(this._cellText(c)); thr.appendChild(th); }); tbl.appendChild(thr);
+		const rowEls = [];
+		(t.rows || []).forEach((row, i) => {
+			const tr = el("tr");
+			(row || []).forEach(cell => { const td = el("td"); td.innerHTML = this._renderInline(this._cellText(cell)); tr.appendChild(td); });
+			tbl.appendChild(tr); rowEls.push({tr, range: this._parseRollRange(row?.[0]), row});
+		});
+		const scroller = el("div", {class: "vtt-tbl-scroll"}, tbl); view.appendChild(scroller);
+		roll.onclick = () => {
+			const {roll: r, label} = this._rollTableDie(die, (t.rows || []).length);
+			let hit = rowEls.find(re => re.range && r >= re.range[0] && r <= re.range[1]);
+			if (!hit) hit = rowEls[Math.min(rowEls.length - 1, Math.max(0, r - 1))]; // fallback by index
+			rowEls.forEach(re => re.tr.classList.toggle("vtt-tbl-row--hit", re === hit));
+			hit?.tr.scrollIntoView({block: "center", behavior: "smooth"});
+			resultBox.innerHTML = "";
+			resultBox.append(el("span", {class: "vtt-tbl-rolled"}, `${label}: ${r}`));
+			const creatures = hit ? this._extractCreatures(hit.row) : [];
+			if (creatures.length) {
+				const add = el("button", {class: "ve-btn ve-btn-xs ve-btn-success"}, `➕ Add ${creatures.length} to Encounter Builder`);
+				add.onclick = async () => { await this._addTableCreaturesToBuilder(creatures); closeModal(); };
+				resultBox.append(add);
+			} else resultBox.append(el("span", {class: "vtt-mini"}, "(no creatures in this result)"));
+		};
+	}
+	async _addTableCreaturesToBuilder (creatures) {
+		await this._loadBestiary().catch(() => {});
+		const enc = this._encLoad(); const missing = [];
+		creatures.forEach(({name, source}) => {
+			const mon = this._findMon(name, source); if (!mon) { missing.push(name); return; }
+			const uid = `${mon.name}|${mon.source}`; const ex = enc.list.find(x => x.uid === uid);
+			if (ex) ex.qty++; else enc.list.push({uid, name: mon.name, source: mon.source, crStr: this._crStr(mon.cr), xp: Parser.crToXpNumber(mon.cr) || 0, qty: 1});
+		});
+		this._encSave();
+		if (missing.length) toast(`Added to Encounter Builder. Not in the 2014 bestiary: ${missing.join(", ")}.`, "warning");
+		else toast("Added to Encounter Builder.", "success");
+		this._openEncounterBuilder();
 	}
 
 	/* ---------- Import a player character (from the Character Builder roster) ---------- */
