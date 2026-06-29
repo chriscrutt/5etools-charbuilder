@@ -91,6 +91,15 @@
 /* multiplayer */
 .vtt-room-code { font-weight: bold; font-size: 16px; letter-spacing: 2px; color: #4caf50; background: rgba(76,175,80,.12); padding: 0 6px; border-radius: 4px; }
 
+/* floating monster stat block (run the creature from the board) */
+.vtt-statblock { position: fixed; z-index: 280; width: 340px; max-width: 92vw; max-height: 78vh; background: #f1e4c8; color: #1a1a1a; border: 1px solid #8a6d2f; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.55); display: flex; flex-direction: column; overflow: hidden; }
+.vtt-statblock__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; background: #58180d; color: #fff; }
+.vtt-statblock__title { font-weight: bold; font-variant: small-caps; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtt-statblock__body { overflow-y: auto; padding: 8px 10px; }
+.vtt-statblock__body .ve-stats { background: transparent; color: #1a1a1a; }
+.vtt-statblock__body .render-roller, .vtt-statblock__body [data-packed-dice] { color: #58180d; font-weight: bold; text-decoration: underline dotted; }
+.vtt-statblock__body [data-packed-dice]:hover { background: rgba(88,24,13,.12); border-radius: 3px; }
+
 /* map browser modal */
 .vtt-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 300; display: flex; align-items: center; justify-content: center; }
 .vtt-modal { width: min(1040px, 93vw); height: min(82vh, 780px); background: #26282c; color: #eee; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 10px 44px rgba(0,0,0,.6); overflow: hidden; }

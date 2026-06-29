@@ -406,6 +406,7 @@ class VttBoard {
 			el("div", {class: "vtt-mini ve-mt-1"}, "Conditions"), condGrid,
 			el("div", {class: "vtt-row ve-mt-1"}, dup, lock, del),
 		);
+		if (t.monUid) { const sb = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Open the stat block to roll its attacks"}, "📖 Stat block"); sb.onclick = () => this._openStatblock(t.monUid); sec.append(el("div", {class: "vtt-row ve-mt-1"}, sb)); }
 	}
 
 	/* ---------- sidebar: Selected AoE ---------- */
@@ -787,6 +788,7 @@ class VttBoard {
 		item("💥 Damage…", () => { const n = prompt(`Damage ${t.name || "token"}:`, "0"); if (n != null) this._applyDamage(t, n); }, {sub: "right-panel too"});
 		item("➕ Heal…", () => { const n = prompt(`Heal ${t.name || "token"}:`, "0"); if (n != null) this._applyHeal(t, n); });
 		item("🛡 Temp HP…", () => { const n = prompt(`Temp HP for ${t.name || "token"}:`, `${t.temp || 0}`); if (n != null) this._setTemp(t, n); });
+		if (t.monUid) { sep(); item("📖 Stat block", () => this._openStatblock(t.monUid), {sub: "roll its attacks"}); }
 		sep();
 		item("⧉ Duplicate", () => this._duplicateToken(t), {sub: "Ctrl+D"});
 		item(t.locked ? "🔓 Unlock" : "🔒 Lock", () => this._toggleLock(t));
@@ -805,6 +807,40 @@ class VttBoard {
 		this._ctxCloser = () => document.removeEventListener("pointerdown", onDocDown);
 	}
 	_closeContextMenu () { this._ctxCloser?.(); this._ctxCloser = null; if (this._ctxMenu) { this._ctxMenu.remove(); this._ctxMenu = null; } }
+
+	/* ---------- monster stat block on the token (run the creature from the board) ---------- */
+	async _openStatblock (uid) {
+		await this._loadBestiary().catch(() => {});
+		const mon = this._monByUid(uid);
+		if (!mon) return toast("Stat block not found for this token.", "warning");
+		const close = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default", title: "Close"}, "✕");
+		const head = el("div", {class: "vtt-statblock__head"}, el("span", {class: "vtt-statblock__title"}, mon.name), close);
+		const body = el("div", {class: "vtt-statblock__body"});
+		try { body.innerHTML = `<table class="ve-w-100 ve-stats vtt-statblock__tbl"><tbody>${Renderer.monster.getCompactRenderedString(mon)}</tbody></table>`; } catch (e) { body.textContent = "Failed to render stat block."; console.error(e); }
+		// make inline dice ({@hit}/{@damage}/{@h}) clickable → roll into the dice tray
+		body.querySelectorAll("[data-packed-dice]").forEach(node => {
+			node.style.cursor = "pointer";
+			node.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); try { const d = JSON.parse(node.getAttribute("data-packed-dice")); if (d?.toRoll) this._roll(`${d.toRoll}`.replace(/\s+/g, ""), `${mon.name}: ${(node.textContent || "").trim()}`); } catch (e) {} });
+		});
+		const panel = el("div", {class: "vtt-statblock"}, head, body);
+		document.body.appendChild(panel);
+		// cascade position so multiple don't fully overlap
+		this._sbN = ((this._sbN || 0) % 6) + 1;
+		panel.style.left = `${Math.min(window.innerWidth - 360, 90 + this._sbN * 26)}px`;
+		panel.style.top = `${40 + this._sbN * 24}px`;
+		close.onclick = () => panel.remove();
+		this._makeDraggable(panel, head);
+	}
+	_makeDraggable (panel, handle) {
+		handle.style.cursor = "move";
+		handle.addEventListener("pointerdown", (e) => {
+			if (e.target.closest("button")) return;
+			e.preventDefault(); const r = panel.getBoundingClientRect(); const ox = e.clientX - r.left, oy = e.clientY - r.top;
+			const move = (ev) => { panel.style.left = `${Math.max(0, Math.min(window.innerWidth - 60, ev.clientX - ox))}px`; panel.style.top = `${Math.max(0, Math.min(window.innerHeight - 30, ev.clientY - oy))}px`; };
+			const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); };
+			document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+		});
+	}
 
 	_snapToken (t) { if (!this._scene.grid.snap) return; const g = this._scene.grid, c = g.cell, ox = g.offsetX || 0, oy = g.offsetY || 0; t.x = Math.round((t.x - ox) / c) * c + ox; t.y = Math.round((t.y - oy) / c) * c + oy; }
 
@@ -1199,16 +1235,16 @@ class VttBoard {
 	}
 
 	/* ============================ dice ============================ */
-	_roll (expr) {
+	_roll (expr, label) {
 		try {
-			if (globalThis.Renderer?.dice?.pRollEntry) { Renderer.dice.pRollEntry({toRoll: expr}, {name: "Tabletop", label: expr}); return; }
+			if (globalThis.Renderer?.dice?.pRollEntry) { Renderer.dice.pRollEntry({toRoll: expr}, {name: label || "Tabletop", label: label || expr}); return; }
 		} catch (e) { /* fall through */ }
 		// fallback: parse "NdM+K" and toast
-		const m = /^(\d*)d(\d+)\s*([+-]\s*\d+)?$/i.exec(expr.replace(/\s+/g, ""));
+		const m = /^(\d*)d(\d+)\s*([+-]\s*\d+)?$/i.exec(`${expr}`.replace(/\s+/g, ""));
 		if (!m) return toast(`Couldn't parse "${expr}".`, "warning");
 		const n = +(m[1] || 1), faces = +m[2], mod = m[3] ? +m[3].replace(/\s/g, "") : 0;
 		let total = mod; const rolls = []; for (let i = 0; i < n; i++) { const r = 1 + Math.floor(Math.random() * faces); rolls.push(r); total += r; }
-		toast(`${expr}: <b>${total}</b> (${rolls.join(", ")}${mod ? ` ${mod >= 0 ? "+" : ""}${mod}` : ""})`, "info");
+		toast(`${label ? `${label} — ` : ""}${expr}: <b>${total}</b> (${rolls.join(", ")}${mod ? ` ${mod >= 0 ? "+" : ""}${mod}` : ""})`, "info");
 	}
 
 	/* ============================ persistence ============================ */
