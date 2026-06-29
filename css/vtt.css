@@ -146,6 +146,11 @@
 /* temp-HP pip on the HP bar */
 .vtt-token__hpwrap--temp { box-shadow: 0 0 0 1px #29b6f6; }
 
+/* player-character token: gold ring to set PCs apart from monsters */
+.vtt-token--pc { box-shadow: 0 0 0 2px #ffd54a, 0 0 6px rgba(0,0,0,.5); }
+/* AC badge (top-left, shield) */
+.vtt-token__ac { position: absolute; top: -8px; left: -8px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 3px; background: #455a64; color: #fff; font-size: 10px; font-weight: bold; line-height: 16px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.6); pointer-events: none; }
+
 /* condition markers under a token */
 .vtt-token__conds { position: absolute; left: 50%; bottom: -32px; transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
 .vtt-cond-dot { min-width: 13px; height: 13px; padding: 0 2px; border-radius: 3px; font-size: 9px; font-weight: bold; color: #fff; display: flex; align-items: center; justify-content: center; text-shadow: 0 1px 1px rgba(0,0,0,.7); border: 1px solid rgba(0,0,0,.5); }

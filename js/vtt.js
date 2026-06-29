@@ -222,7 +222,9 @@ class VttBoard {
 		search.onfocus = doLoad; search.oninput = () => { doLoad(); renderResults(); };
 		const btnEnc = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Build a balanced encounter (XP budget & difficulty), then drop it on the board"}, "⚔ Encounter Builder");
 		btnEnc.onclick = () => this._openEncounterBuilder();
-		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results, el("div", {class: "vtt-row ve-mt-1"}, btnEnc));
+		const btnChar = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Drop a saved player character onto the board as a token"}, "🧑 Import Character");
+		btnChar.onclick = () => this._openCharacterImport();
+		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results, el("div", {class: "vtt-row ve-mt-1"}, btnEnc), el("div", {class: "vtt-row"}, btnChar));
 		return sec;
 	}
 
@@ -338,6 +340,37 @@ class VttBoard {
 		});
 		this._save(); this._netPush();
 		toast(`Added ${expanded.length} monster${expanded.length === 1 ? "" : "s"} to the tabletop.`, "success");
+	}
+
+	/* ---------- Import a player character (from the Character Builder roster) ---------- */
+	async _openCharacterImport () {
+		let roster = []; try { roster = (await StorageUtil.pGet("charbuilder_roster")) || []; } catch (e) {}
+		const backdrop = el("div", {class: "vtt-modal-backdrop"});
+		const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
+		const onKey = (e) => { if (e.key === "Escape") close(); };
+		document.addEventListener("keydown", onKey);
+		backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
+		const body = el("div", {class: "vtt-enc-body"});
+		if (!roster.length) {
+			body.appendChild(el("div", {class: "vtt-mini"}, "No saved characters found. Open the Character Builder, build a character, then “My Characters → Save current character” — they’ll show up here. (Same browser.)"));
+			const open = el("button", {class: "ve-btn ve-btn-xs ve-btn-default ve-mt-1"}, "Open Character Builder"); open.onclick = () => window.open("charbuilder.html", "_blank"); body.appendChild(el("div", {class: "vtt-row"}, open));
+		} else {
+			roster.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+			roster.forEach(entry => {
+				const s = entry.summary || {};
+				const add = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary"}, "Add to board"); add.onclick = () => { this._addCharacterToken(entry); close(); };
+				body.appendChild(el("div", {class: "vtt-enc-row"}, el("span", {class: "vtt-enc-row__name"}, s.name || "Unnamed"), el("span", {class: "vtt-enc-row__cr"}, `${[s.race, s.classLabel].filter(Boolean).join(" ") || "—"} · HP ${s.maxHp ?? "?"} · AC ${s.ac ?? "?"}`), add));
+			});
+		}
+		const modal = el("div", {class: "vtt-modal vtt-modal--enc"}, el("div", {class: "vtt-modal__head"}, el("h3", {}, "Import Character"), btnX), body);
+		backdrop.appendChild(modal); document.body.appendChild(backdrop);
+	}
+	_addCharacterToken (entry) {
+		const s = entry.summary || {};
+		const ft = VttBoard._SIZE_FEET[s.sizeAbv] || 5;
+		this._addToken({name: s.name || "Character", ft, hp: s.maxHp ?? null, maxHp: s.maxHp ?? null, ac: s.ac ?? null, color: "#3f78c4", isPc: true, charId: entry.id});
+		toast(`Added ${s.name || "character"} to the tabletop.`, "success");
 	}
 
 	/* ---------- sidebar: Selected token ---------- */
@@ -693,6 +726,7 @@ class VttBoard {
 		e.classList.toggle("vtt-token--active", this._activeTokenId() === t.id);
 		e.classList.toggle("vtt-token--dead", this._isDead(t));
 		e.classList.toggle("vtt-token--bloodied", this._isBloodied(t));
+		e.classList.toggle("vtt-token--pc", !!t.isPc);
 		e.innerHTML = "";
 		if (t.img) { const im = el("img", {class: "vtt-token__img", src: t.img, draggable: false}); im.onerror = () => { im.remove(); if (!e.querySelector(".vtt-token__initletter")) e.insertBefore(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)), e.firstChild); }; e.appendChild(im); }
 		else e.appendChild(el("div", {class: "vtt-token__initletter"}, (t.name || "?").slice(0, 2)));
@@ -704,6 +738,7 @@ class VttBoard {
 			wrap.appendChild(bar); e.appendChild(wrap);
 		}
 		if (t.init != null) e.appendChild(el("div", {class: "vtt-token__init-badge"}, `${t.init}`));
+		if (t.ac != null) e.appendChild(el("div", {class: "vtt-token__ac", title: `Armor Class ${t.ac}`}, `${t.ac}`));
 		if (t.locked) e.appendChild(el("div", {class: "vtt-token__lock", title: "Locked"}, "🔒"));
 		if (t.conditions?.length) { const cw = el("div", {class: "vtt-token__conds"}); t.conditions.forEach(k => { const cd = VttBoard._CONDITIONS.find(c => c.k === k); const d = el("div", {class: "vtt-cond-dot", title: k}, cd ? cd.ab : k.slice(0, 3)); d.style.background = cd ? cd.c : "#666"; cw.appendChild(d); }); e.appendChild(cw); }
 		const ix = this._scene.tokens.indexOf(t); e.style.zIndex = `${10 + (ix < 0 ? 0 : ix)}`;

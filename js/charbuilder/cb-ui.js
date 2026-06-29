@@ -71,6 +71,55 @@ export class CharBuilderUi {
 
 	_save () { this._fnSave?.(); }
 
+	/* ---------- My Characters: a roster of saved characters shared with the Tabletop (VTT) ---------- */
+	async _pGetRoster () { try { return (await StorageUtil.pGet(CharBuilderUi._ROSTER_KEY)) || []; } catch (e) { return []; } }
+	async _pSetRoster (list) { try { await StorageUtil.pSet(CharBuilderUi._ROSTER_KEY, list); } catch (e) {} }
+	// denormalised snapshot the VTT can turn into a token without loading the rules engine
+	_rosterSummary () {
+		const st = this._state;
+		try {
+			const classLabel = st.classList().map(c => `${c.cls.name}${c.subclassEnt ? ` (${c.subclassEnt.name})` : ""} ${c.level}`).join(" / ");
+			return {name: st.name || "Unnamed", level: st.totalLevel || 1, race: st.raceEnt?.name || "", classLabel: classLabel || "—", maxHp: st.playMaxHp(), ac: st.playAc(), sizeAbv: (st.raceEnt?.size && st.raceEnt.size[0]) || "M"};
+		} catch (e) { return {name: st.name || "Unnamed", level: st.totalLevel || 1, race: "", classLabel: "—", maxHp: null, ac: null, sizeAbv: "M"}; }
+	}
+	async _pSaveToRoster () {
+		const list = await this._pGetRoster();
+		const json = this._state.toJson(); const summary = this._rosterSummary();
+		let entry = this._rosterId ? list.find(x => x.id === this._rosterId) : null;
+		if (entry) { entry.json = json; entry.summary = summary; entry.savedAt = Date.now(); }
+		else { const id = `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`; list.push({id, json, summary, savedAt: Date.now()}); this._rosterId = id; }
+		await this._pSetRoster(list);
+		JqueryUtil.doToast({type: "success", content: "Saved to My Characters."});
+	}
+	async _pDeleteFromRoster (id) { const list = (await this._pGetRoster()).filter(x => x.id !== id); await this._pSetRoster(list); if (this._rosterId === id) this._rosterId = null; }
+	async _pOpenRoster () {
+		const {eleModalInner, doClose} = UiUtil.getShowModal({title: "My Characters", isUncappedHeight: true});
+		const wrp = ee`<div class="ve-flex-col" style="gap:8px;min-width:min(560px,86vw)"></div>`.appendTo(eleModalInner);
+		const render = async () => {
+			wrp.innerHTML = "";
+			const bar = ee`<div class="ve-flex" style="gap:6px;align-items:center;flex-wrap:wrap;border-bottom:1px solid rgba(127,127,127,.25);padding-bottom:8px"></div>`.appendTo(wrp);
+			ee(bar)`<button class="ve-btn ve-btn-primary ve-btn-sm">${this._rosterId ? "Update saved character" : "＋ Save current character"}</button>`.onn("click", async () => { await this._pSaveToRoster(); await render(); });
+			if (this._rosterId) ee(bar)`<button class="ve-btn ve-btn-default ve-btn-sm" title="Save the current build as a separate, additional character">Save as new</button>`.onn("click", async () => { this._rosterId = null; await this._pSaveToRoster(); await render(); });
+			ee(bar)`<span class="ve-muted ve-small">Saved characters appear on the Tabletop’s “Import Character” too.</span>`;
+			const list = await this._pGetRoster();
+			if (!list.length) { ee(wrp)`<div class="ve-muted ve-small ve-py-2">No saved characters yet — build one, then “Save current character.”</div>`; return; }
+			list.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+			list.forEach(entry => {
+				const s = entry.summary || {};
+				const isCur = entry.id === this._rosterId;
+				const row = ee`<div class="ve-flex" style="gap:8px;align-items:center;border:1px solid ${isCur ? "#4caf50" : "rgba(127,127,127,.25)"};border-radius:6px;padding:6px 9px"></div>`.appendTo(wrp);
+				ee(row)`<div class="ve-flex-col" style="flex:1 1 auto;min-width:0">
+					<div class="ve-bold" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${`${s.name || "Unnamed"}`.qq()}${isCur ? ` <span class="ve-muted ve-small">(loaded)</span>` : ""}</div>
+					<div class="ve-muted ve-small">${`${[s.race, s.classLabel].filter(Boolean).join(" ") || "—"}`.qq()} • HP ${s.maxHp ?? "?"} • AC ${s.ac ?? "?"}</div>
+				</div>`;
+				ee(row)`<button class="ve-btn ve-btn-default ve-btn-xs" title="Open this character in the builder">Load</button>`.onn("click", () => { this._rosterId = entry.id; this._state.fromJson(entry.json); this._save(); this._ixStep = 0; this.render(); doClose(); });
+				ee(row)`<button class="ve-btn ve-btn-default ve-btn-xs" title="Download as a file"><span class="glyphicon glyphicon-download-alt"></span></button>`.onn("click", () => DataUtil.userDownload(`${s.name || "character"}`, entry.json, {fileType: "charbuilder"}));
+				ee(row)`<button class="ve-btn ve-btn-danger ve-btn-xs" title="Delete"><span class="glyphicon glyphicon-trash"></span></button>`.onn("click", async () => { if (!await InputUiUtil.pGetUserBoolean({title: "Delete character", htmlDescription: `Remove “${`${s.name || "Unnamed"}`.qq()}” from your saved characters?`})) return; await this._pDeleteFromRoster(entry.id); await render(); });
+			});
+		};
+		await render();
+	}
+
 	// "Race" under 2014 rules, "Species" under 2024 rules
 	_raceWord () { return this._data.styleHint === "one" ? "Species" : "Race"; }
 
@@ -182,19 +231,22 @@ export class CharBuilderUi {
 				const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: ["charbuilder", "charwizard"]}); // accept exports made under the old "charwizard" name
 				DataUtil.doHandleFileLoadErrorsGeneric(errors);
 				if (!jsons?.length) return;
-				this._state.fromJson(jsons[0]); this._save(); this._ixStep = 0; this.render();
+				this._rosterId = null; // imported file is a fresh character, not (yet) a saved roster entry
+					this._state.fromJson(jsons[0]); this._save(); this._ixStep = 0; this.render();
 			});
 		const btnPrint = ee`<button class="ve-btn ve-btn-default ve-btn-sm"><span class="glyphicon glyphicon-print"></span> Print</button>`
 			.onn("click", () => { this._ixStep = this._steps().length - 1; this.render(); setTimeout(() => window.print(), 100); });
 		const btnReset = ee`<button class="ve-btn ve-btn-danger ve-btn-sm"><span class="glyphicon glyphicon-trash"></span></button>`
 			.onn("click", async () => {
 				if (!await InputUiUtil.pGetUserBoolean({title: "Reset Character", htmlDescription: "Clear all choices and start over?"})) return;
-				this._state.reset(); this._save(); this._ixStep = 0; this.render();
+				this._rosterId = null; this._state.reset(); this._save(); this._ixStep = 0; this.render();
 			});
-		return ee`<div class="ve-btn-group no-print">${btnSave}${btnExport}${btnImport}${btnPrint}${btnReset}</div>`;
+		return ee`<div class="ve-btn-group no-print">${btnSave}${ee`<button class="ve-btn ve-btn-default ve-btn-sm" title="Save and switch between multiple characters"><span class="glyphicon glyphicon-list"></span> My Characters</button>`.onn("click", () => this._pOpenRoster())}${btnExport}${btnImport}${btnPrint}${btnReset}</div>`;
 	}
 
 	// non-FR campaign settings excluded by the "Forgotten Realms + neutral" preset
+	static _ROSTER_KEY = "charbuilder_roster"; // shared (non-page-scoped) StorageUtil key — read by the Tabletop (VTT) too
+
 	static _NON_FR_SOURCES = new Set([
 		"GGR", "GRR", // Ravnica
 		"MOT", // Theros
