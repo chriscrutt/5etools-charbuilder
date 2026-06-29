@@ -61,6 +61,7 @@ function handleMessage (socket, txt) {
 		}
 		case "scene": { const room = rooms.get(socket._room); if (!room) break; room.scene = m.scene; for (const c of room.clients) if (c !== socket) send(c, {t: "scene", scene: m.scene}); break; }
 		case "ping": { const room = rooms.get(socket._room); if (!room) break; for (const c of room.clients) if (c !== socket) send(c, {t: "ping", x: m.x, y: m.y}); break; }
+		case "handout": { const room = rooms.get(socket._room); if (!room) break; for (const c of room.clients) if (c !== socket) send(c, {t: "handout", handout: m.handout}); break; }
 	}
 }
 

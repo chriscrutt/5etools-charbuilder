@@ -100,6 +100,14 @@
 .vtt-statblock__body .render-roller, .vtt-statblock__body [data-packed-dice] { color: #58180d; font-weight: bold; text-decoration: underline dotted; }
 .vtt-statblock__body [data-packed-dice]:hover { background: rgba(88,24,13,.12); border-radius: 3px; }
 
+/* handouts */
+.vtt-handout-row { display: flex; align-items: center; gap: 5px; padding: 3px 0; }
+.vtt-handout-row__name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.vtt-handout { width: 380px; background: #26282c; color: #eee; border-color: #444; }
+.vtt-handout__body { overflow-y: auto; padding: 10px 12px; }
+.vtt-handout__img { width: 100%; border-radius: 4px; margin-bottom: 8px; display: block; }
+.vtt-handout__text { white-space: pre-wrap; line-height: 1.45; font-size: 13px; }
+
 /* map browser modal */
 .vtt-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 300; display: flex; align-items: center; justify-content: center; }
 .vtt-modal { width: min(1040px, 93vw); height: min(82vh, 780px); background: #26282c; color: #eee; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 10px 44px rgba(0,0,0,.6); overflow: hidden; }

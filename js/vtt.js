@@ -139,6 +139,7 @@ class VttBoard {
 			this._secFog(),
 			this._secDice(),
 			this._secMultiplayer(),
+			this._secHandouts(),
 			this._secLibrary(),
 			this._secScene(),
 		);
@@ -514,6 +515,57 @@ class VttBoard {
 			join.onclick = () => { if (code.value.trim()) net?.join(this, code.value.trim(), () => this._renderNetPanel()); };
 			sec.append(el("div", {class: "vtt-row"}, host), el("div", {class: "vtt-row"}, code, join), el("div", {class: "vtt-mini"}, "Host shares the room code/link; players join live. Needs the relay running: npm run vtt"));
 		}
+	}
+
+	/* ---------- sidebar: Handouts (share lore/clues/images with players) ---------- */
+	_handoutsLoad () { if (this._handouts) return this._handouts; try { this._handouts = JSON.parse(localStorage.getItem("vtt_handouts_v1")); } catch (e) {} if (!Array.isArray(this._handouts)) this._handouts = []; return this._handouts; }
+	_handoutsSave () { try { localStorage.setItem("vtt_handouts_v1", JSON.stringify(this._handouts)); } catch (e) {} }
+	_secHandouts () { const sec = el("div", {class: "vtt-sec", id: "vtt-handouts"}); this._els.handouts = sec; this._renderHandouts(); return sec; }
+	_renderHandouts () {
+		const sec = this._els.handouts; if (!sec) return; sec.innerHTML = "";
+		sec.appendChild(el("h4", {}, "Handouts"));
+		const list = this._handoutsLoad();
+		if (!list.length) sec.appendChild(el("div", {class: "vtt-mini"}, "Share lore, clues, or an image with your players — “👁” shows it to everyone in the game."));
+		list.forEach(h => {
+			const show = el("button", {class: "ve-btn ve-btn-xxs ve-btn-primary", title: "Show to players (and preview here)"}, "👁");
+			show.onclick = () => { this._showHandout(h); globalThis.VttNet?.sendHandout?.(h); if (globalThis.VttNet?.room) toast("Sent to players.", "success"); };
+			const edit = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default", title: "Edit"}, "✎"); edit.onclick = () => this._editHandout(h);
+			const del = el("button", {class: "ve-btn ve-btn-xxs ve-btn-danger", title: "Delete"}, "✕"); del.onclick = () => { this._handouts = list.filter(x => x !== h); this._handoutsSave(); this._renderHandouts(); };
+			sec.appendChild(el("div", {class: "vtt-handout-row"}, el("span", {class: "vtt-handout-row__name"}, h.title || "Untitled"), show, edit, del));
+		});
+		const add = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "＋ New handout");
+		add.onclick = () => this._editHandout();
+		sec.appendChild(el("div", {class: "vtt-row ve-mt-1"}, add));
+	}
+	_editHandout (h) {
+		const isNew = !h; h = h || {id: `h${Date.now().toString(36)}`, title: "", text: "", img: ""};
+		const backdrop = el("div", {class: "vtt-modal-backdrop"}); const close = () => backdrop.remove();
+		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
+		const title = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Title", value: h.title || ""});
+		const img = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Image URL or site path (optional)", value: h.img || ""});
+		const text = el("textarea", {class: "ve-form-control", rows: "9", placeholder: "Text shown to players…", style: "width:100%;resize:vertical"}); text.value = h.text || "";
+		const save = el("button", {class: "ve-btn ve-btn-sm ve-btn-primary"}, "Save"); save.onclick = () => { h.title = title.value.trim() || "Untitled"; h.img = img.value.trim(); h.text = text.value; if (isNew) this._handoutsLoad().push(h); this._handoutsSave(); this._renderHandouts(); close(); };
+		const cancel = el("button", {class: "ve-btn ve-btn-sm ve-btn-default"}, "Cancel"); cancel.onclick = close;
+		const modal = el("div", {class: "vtt-modal vtt-modal--enc"},
+			el("div", {class: "vtt-modal__head"}, el("h3", {}, isNew ? "New handout" : "Edit handout"), btnX),
+			el("div", {class: "vtt-enc-body"}, lbl("Title"), title, el("div", {class: "ve-mt-1"}, lbl("Image")), img, el("div", {class: "ve-mt-1"}, lbl("Text")), text),
+			el("div", {class: "vtt-enc-foot"}, cancel, save),
+		);
+		backdrop.appendChild(modal); document.body.appendChild(backdrop); title.focus();
+		backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+	}
+	_showHandout (h, remote) {
+		if (!h) return;
+		const close = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default", title: "Close"}, "✕");
+		const head = el("div", {class: "vtt-statblock__head"}, el("span", {class: "vtt-statblock__title"}, h.title || "Handout"), close);
+		const body = el("div", {class: "vtt-handout__body"});
+		if (h.img) { const im = el("img", {class: "vtt-handout__img", src: h.img}); im.onerror = () => im.remove(); body.appendChild(im); }
+		if (h.text) { const tx = el("div", {class: "vtt-handout__text"}); tx.textContent = h.text; body.appendChild(tx); }
+		const panel = el("div", {class: "vtt-statblock vtt-handout"}, head, body);
+		document.body.appendChild(panel);
+		panel.style.left = `${Math.max(16, (window.innerWidth - 380) / 2)}px`; panel.style.top = "64px";
+		close.onclick = () => panel.remove();
+		this._makeDraggable(panel, head);
 	}
 
 	/* ---------- sidebar: Library (saved encounters + token presets) ---------- */

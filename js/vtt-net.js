@@ -29,6 +29,7 @@ globalThis.VttNet = {
 	// called by the board on local edits (board._netPush -> VttNet.pushScene)
 	pushScene (scene) { if (this.connected() && this.room && !this._suppress) this._send({t: "scene", scene}); },
 	ping (x, y) { if (this.connected() && this.room) this._send({t: "ping", x, y}); },
+	sendHandout (h) { if (this.connected() && this.room) this._send({t: "handout", handout: h}); },
 
 	_onMessage (data) {
 		let m; try { m = JSON.parse(data); } catch (e) { return; }
@@ -42,6 +43,7 @@ globalThis.VttNet = {
 			}
 			case "scene": this._suppress = true; board.applyRemoteScene(m.scene); this._suppress = false; break;
 			case "ping": board._ping(m.x, m.y, true); break;
+			case "handout": board._showHandout?.(m.handout, true); break;
 			case "peers": this.peers = m.n; board._netStatus?.(); break;
 			case "err": this._fail(m.msg); break;
 		}
