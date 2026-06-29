@@ -272,14 +272,27 @@ class VttBoard {
 		const rollHp = el("input", {type: "checkbox"});
 		const btnAdd = el("button", {class: "ve-btn ve-btn-sm ve-btn-primary"}, "Add to Tabletop");
 		const btnClear = el("button", {class: "ve-btn ve-btn-sm ve-btn-default"}, "Clear");
+		const genBar = el("div", {class: "vtt-enc-gen"});
 		const modal = el("div", {class: "vtt-modal vtt-modal--enc"},
 			el("div", {class: "vtt-modal__head"}, el("h3", {}, "Encounter Builder"), btnX),
 			el("div", {class: "vtt-modal__controls"}, lbl("Party levels"), partyInp, totals),
-			el("div", {class: "vtt-enc-body"}, el("div", {class: "vtt-enc-add"}, search, results), listWrap),
+			el("div", {class: "vtt-enc-body"}, genBar, el("div", {class: "vtt-enc-add"}, search, results), listWrap),
 			el("div", {class: "vtt-enc-foot"}, wrapCb(rollHp, "Roll each monster's HP"), btnClear, btnAdd),
 		);
 		backdrop.appendChild(modal); document.body.appendChild(backdrop); search.focus();
 		const mons = await this._loadBestiary();
+
+		// random generator bar: pick a difficulty (+ environment) and it fills creatures to match
+		const diffSel = el("select", {class: "ve-form-control ve-input-xs", style: "width:auto"});
+		[["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"], ["deadly", "Deadly"]].forEach(([v, t]) => diffSel.appendChild(el("option", {value: v}, t)));
+		diffSel.value = "medium";
+		const envCounts = {}; mons.forEach(m => (m.environment || []).forEach(e => { if (!e.startsWith("planar")) envCounts[e] = (envCounts[e] || 0) + 1; }));
+		const envSel = el("select", {class: "ve-form-control ve-input-xs", style: "width:auto"});
+		envSel.appendChild(el("option", {value: "any"}, "Any environment"));
+		Object.keys(envCounts).filter(e => envCounts[e] >= 8).sort().forEach(e => envSel.appendChild(el("option", {value: e}, e.replace(/\b\w/g, c => c.toUpperCase()))));
+		const btnGen = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary", title: "Pick creatures that match this difficulty"}, "🎲 Generate");
+		btnGen.onclick = () => { const best = this._generateEncounter(enc, diffSel.value, envSel.value); renderList(); if (!best) toast("Couldn't find creatures for that — try a different environment.", "warning"); else if (!best.inBand) toast("Closest match shown — tweak quantities to taste.", "info"); };
+		genBar.append(el("span", {class: "vtt-mini"}, "Generate:"), diffSel, envSel, btnGen);
 
 		const recompute = () => {
 			enc.party = partyInp.value.split(/[,\s]+/).map(s => +s).filter(n => n >= 1 && n <= 20); if (!enc.party.length) enc.party = [1];
@@ -324,6 +337,52 @@ class VttBoard {
 		btnClear.onclick = () => { enc.list = []; renderList(); };
 		btnAdd.onclick = () => { this._addEncounterToBoard(enc, rollHp.checked); close(); };
 		renderList();
+	}
+
+	// Pick creatures (optionally themed by environment) whose adjusted XP lands in the target difficulty band — like the bestiary's random encounter generator.
+	_generateEncounter (enc, difficulty, environment) {
+		const mons = this._bestiaryCache || [];
+		const levels = enc.party && enc.party.length ? enc.party : [1];
+		const players = levels.length;
+		const th = VttBoard._partyThresholds(levels);
+		const bands = {easy: [th.easy, th.medium], medium: [th.medium, th.hard], hard: [th.hard, th.deadly], deadly: [th.deadly, Math.round(th.deadly * 1.5)]};
+		const [lo, hi] = bands[difficulty] || bands.medium;
+		let pool = mons.map(m => ({m, xp: Parser.crToXpNumber(m.cr) || 0})).filter(o => o.xp > 0 && !o.m.isNamedCreature); // skip unique named NPCs (Dzaan, etc.) — generic monsters only for random fills
+		if (environment && environment !== "any") { const f = pool.filter(o => (o.m.environment || []).includes(environment)); if (f.length >= 6) pool = f; }
+		if (!pool.length) return null;
+		const pickNear = (targetXp) => {
+			if (targetXp <= 0) return null;
+			let arr = pool.filter(o => o.xp >= targetXp * 0.4 && o.xp <= targetXp * 1.85);
+			if (!arr.length) arr = pool;
+			arr = arr.slice().sort((a, b) => Math.abs(a.xp - targetXp) - Math.abs(b.xp - targetXp)).slice(0, Math.max(8, Math.ceil(arr.length * 0.2)));
+			return arr[Math.floor(Math.random() * arr.length)].m;
+		};
+		const counts = [1, 2, 3, 4, 5, 6, 8, 10, 12];
+		const target = lo + (hi - lo) * (0.25 + Math.random() * 0.5);
+		let best = null;
+		for (let attempt = 0; attempt < 500; attempt++) {
+			const n = counts[Math.floor(Math.random() * counts.length)];
+			const perXp = (target / VttBoard._encMultiplier(n, players)) / n;
+			const picks = new Map();
+			if (Math.random() < 0.5) { const c = pickNear(perXp); if (!c) continue; picks.set(`${c.name}|${c.source}`, {mon: c, qty: n}); }
+			else { // a few distinct types (a leader + minions / mixed warband), not n unrelated creatures
+				const types = []; const nTypes = Math.min(n, 1 + Math.floor(Math.random() * 3)); // 1–3 kinds
+				for (let t = 0; t < nTypes; t++) { const c = pickNear(perXp * (0.7 + Math.random() * 0.9)); if (c) types.push(c); }
+				if (!types.length) continue;
+				for (let i = 0; i < n; i++) { const c = types[Math.floor(Math.random() * types.length)]; const k = `${c.name}|${c.source}`; const e = picks.get(k) || {mon: c, qty: 0}; e.qty++; picks.set(k, e); }
+			}
+			const group = [...picks.values()]; if (!group.length) continue;
+			const totalQty = group.reduce((s, g) => s + g.qty, 0);
+			const base = group.reduce((s, g) => s + (Parser.crToXpNumber(g.mon.cr) || 0) * g.qty, 0);
+			const adj = base * VttBoard._encMultiplier(totalQty, players);
+			const inBand = adj >= lo && adj < hi;
+			const score = (inBand ? 0 : 1e9) + Math.abs(adj - target);
+			if (!best || score < best.score) best = {group, adj, score, inBand};
+			if (best.inBand && Math.abs(best.adj - target) < (hi - lo) * 0.12) break;
+		}
+		if (!best) return null;
+		enc.list = best.group.map(g => ({uid: `${g.mon.name}|${g.mon.source}`, name: g.mon.name, source: g.mon.source, crStr: this._crStr(g.mon.cr), xp: Parser.crToXpNumber(g.mon.cr) || 0, qty: g.qty}));
+		return best;
 	}
 
 	_addEncounterToBoard (enc, rollHp) {

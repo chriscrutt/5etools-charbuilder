@@ -125,6 +125,7 @@
 /* encounter builder */
 .vtt-modal--enc { width: min(620px, 94vw); height: min(78vh, 720px); }
 .vtt-enc-body { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; }
+.vtt-enc-gen { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 9px; margin-bottom: 9px; background: rgba(76,175,80,.08); border: 1px solid rgba(76,175,80,.3); border-radius: 6px; }
 .vtt-enc-add { position: relative; margin-bottom: 8px; }
 .vtt-enc-totals { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 .vtt-enc-diff { font-weight: bold; font-size: 12px; letter-spacing: 1px; color: #111; padding: 2px 9px; border-radius: 4px; }
