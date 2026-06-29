@@ -8,6 +8,16 @@ class VttBoard {
 	static _STORE_KEY = "vtt_scene_v1";
 	static _SWATCHES = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#f1c40f", "#7f8c8d", "#e84393", "#2c3e50"];
 	static _SIZE_FEET = {T: 2.5, S: 5, M: 5, L: 10, H: 15, G: 20}; // 5e creature size → footprint side in FEET (cells derive from the grid's ft-per-square)
+	// DMG 2014 XP thresholds per character by level [easy, medium, hard, deadly]
+	static _XP_THRESH = {1: [25, 50, 75, 100], 2: [50, 100, 150, 200], 3: [75, 150, 225, 400], 4: [125, 250, 375, 500], 5: [250, 500, 750, 1100], 6: [300, 600, 900, 1400], 7: [350, 700, 1100, 1700], 8: [450, 900, 1400, 2100], 9: [550, 1100, 1600, 2400], 10: [600, 1200, 1900, 2900], 11: [800, 1600, 2400, 3600], 12: [1000, 2000, 3000, 4500], 13: [1100, 2200, 3400, 5100], 14: [1250, 2500, 3800, 5700], 15: [1400, 2800, 4300, 6400], 16: [1600, 3200, 4800, 7200], 17: [2000, 3900, 5900, 8800], 18: [2100, 4200, 6300, 9500], 19: [2400, 4900, 7300, 10900], 20: [2800, 5700, 8500, 12700]};
+	static _ENC_MULTS = [1, 1.5, 2, 2.5, 3, 4]; // encounter XP multiplier by # of monsters (DMG)
+	static _partyThresholds (levels) { const out = {easy: 0, medium: 0, hard: 0, deadly: 0}; (levels || []).forEach(lv => { const t = VttBoard._XP_THRESH[Math.max(1, Math.min(20, lv))]; if (t) { out.easy += t[0]; out.medium += t[1]; out.hard += t[2]; out.deadly += t[3]; } }); return out; }
+	static _encMultiplier (nMonsters, nPlayers) {
+		let idx = nMonsters <= 1 ? 0 : nMonsters === 2 ? 1 : nMonsters <= 6 ? 2 : nMonsters <= 10 ? 3 : nMonsters <= 14 ? 4 : 5;
+		if (nPlayers < 3) idx++; else if (nPlayers >= 6) idx--; // small party → harder, large party → easier
+		return VttBoard._ENC_MULTS[Math.max(0, Math.min(VttBoard._ENC_MULTS.length - 1, idx))];
+	}
+	static _encDifficulty (adjXp, th) { return adjXp <= 0 ? "trivial" : adjXp < th.easy ? "trivial" : adjXp < th.medium ? "easy" : adjXp < th.hard ? "medium" : adjXp < th.deadly ? "hard" : "deadly"; }
 	static _UNDO_MAX = 50;
 	// 5e conditions + a few common buffs, for token status markers
 	static _CONDITIONS = [
@@ -198,7 +208,7 @@ class VttBoard {
 			results.style.display = matches.length ? "block" : "none";
 			matches.forEach(m => {
 				const row = el("div", {class: "vtt-mon-row"});
-				row.append(el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${Parser.monCrToFull ? Parser.monCrToFull(m.cr) : (m.cr?.cr ?? m.cr ?? "?")} · ${m.source}`));
+				row.append(el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${Parser.monCrToFull ? this._crStr(m.cr) : (m.cr?.cr ?? m.cr ?? "?")} · ${m.source}`));
 				row.onclick = () => { this._addMonsterToken(m, {rollHp: rollHp.checked, rollInit: rollInit.checked}); };
 				results.appendChild(row);
 			});
@@ -209,16 +219,21 @@ class VttBoard {
 			this._monLoading = false; renderResults();
 		};
 		search.onfocus = doLoad; search.oninput = () => { doLoad(); renderResults(); };
-		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results);
+		const btnEnc = el("button", {class: "ve-btn ve-btn-xs ve-btn-default", title: "Build a balanced encounter (XP budget & difficulty), then drop it on the board"}, "⚔ Encounter Builder");
+		btnEnc.onclick = () => this._openEncounterBuilder();
+		sec.append(el("div", {class: "vtt-row"}, search), status, el("div", {class: "vtt-row"}, wrapCb(rollHp, "Roll HP"), wrapCb(rollInit, "Roll initiative")), results, el("div", {class: "vtt-row ve-mt-1"}, btnEnc));
 		return sec;
 	}
 
 	async _loadBestiary () {
+		if (this._bestiaryCache) return this._bestiaryCache;
 		await ExcludeUtil.pInitialise().catch(() => {});
 		const all = await DataLoader.pCacheAndGetAllSite(UrlUtil.PG_BESTIARY);
 		const hb = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BESTIARY];
-		return all.filter(m => !m._isCopy && !ExcludeUtil.isExcluded(hb(m), "monster", m.source)).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
+		return this._bestiaryCache = all.filter(m => !m._isCopy && !ExcludeUtil.isExcluded(hb(m), "monster", m.source)).sort((a, b) => SortUtil.ascSortLower(a.name, b.name));
 	}
+	_monByUid (uid) { return (this._bestiaryCache || []).find(m => `${m.name}|${m.source}` === uid); }
+	_crStr (cr) { return cr == null ? "—" : `${cr.cr ?? cr}`; }
 
 	_avgFromFormula (f) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return null; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; return Math.max(1, Math.floor(+m[1] * (+m[2] + 1) / 2 + mod)); }
 	_rollFormula (f, fallback) { const m = /(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?/i.exec(`${f || ""}`); if (!m) return fallback; const mod = m[3] ? +m[3].replace(/\s/g, "") : 0; let t = mod; for (let i = 0; i < +m[1]; i++) t += 1 + Math.floor(Math.random() * +m[2]); return Math.max(1, t); }
@@ -231,7 +246,97 @@ class VttBoard {
 		const dexMod = Math.floor((((mon.dex ?? 10)) - 10) / 2);
 		const init = opts.rollInit ? 1 + Math.floor(Math.random() * 20) + dexMod : null;
 		let img = null; try { if (Renderer.monster.hasToken(mon)) img = Renderer.monster.getTokenUrl(mon); } catch (e) { /* no token */ }
-		this._addToken({name: mon.name, ft, hp, maxHp: hp, init, img, color: "#8a4b3b", square: ft >= 15});
+		return this._addToken({name: mon.name, ft, hp, maxHp: hp, init, img, color: "#8a4b3b", square: ft >= 15, monUid: `${mon.name}|${mon.source}`});
+	}
+
+	/* ---------- Encounter Builder (XP budget + difficulty, like D&D Beyond) ---------- */
+	_encLoad () { if (this._enc) return this._enc; try { this._enc = JSON.parse(localStorage.getItem("vtt_encbuilder_v1")); } catch (e) {} if (!this._enc || !Array.isArray(this._enc.party)) this._enc = {party: [3, 3, 3, 3], list: []}; return this._enc; }
+	_encSave () { try { localStorage.setItem("vtt_encbuilder_v1", JSON.stringify(this._enc)); } catch (e) {} }
+
+	async _openEncounterBuilder () {
+		const enc = this._encLoad();
+		const backdrop = el("div", {class: "vtt-modal-backdrop"});
+		const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
+		const onKey = (e) => { if (e.key === "Escape") close(); };
+		backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+		document.addEventListener("keydown", onKey);
+		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
+		const partyInp = el("input", {type: "text", class: "ve-form-control ve-input-xs", style: "max-width:150px", value: enc.party.join(", "), title: "Character levels, comma-separated"});
+		const totals = el("div", {class: "vtt-enc-totals"});
+		const search = el("input", {type: "text", class: "ve-form-control ve-input-xs", placeholder: "Add a monster…", style: "max-width:240px"});
+		const results = el("div", {class: "vtt-mon-results", style: "max-height:210px;overflow:auto;display:none"});
+		const listWrap = el("div", {class: "vtt-enc-list"});
+		const rollHp = el("input", {type: "checkbox"});
+		const btnAdd = el("button", {class: "ve-btn ve-btn-sm ve-btn-primary"}, "Add to Tabletop");
+		const btnClear = el("button", {class: "ve-btn ve-btn-sm ve-btn-default"}, "Clear");
+		const modal = el("div", {class: "vtt-modal vtt-modal--enc"},
+			el("div", {class: "vtt-modal__head"}, el("h3", {}, "Encounter Builder"), btnX),
+			el("div", {class: "vtt-modal__controls"}, lbl("Party levels"), partyInp, totals),
+			el("div", {class: "vtt-enc-body"}, el("div", {class: "vtt-enc-add"}, search, results), listWrap),
+			el("div", {class: "vtt-enc-foot"}, wrapCb(rollHp, "Roll each monster's HP"), btnClear, btnAdd),
+		);
+		backdrop.appendChild(modal); document.body.appendChild(backdrop); search.focus();
+		const mons = await this._loadBestiary();
+
+		const recompute = () => {
+			enc.party = partyInp.value.split(/[,\s]+/).map(s => +s).filter(n => n >= 1 && n <= 20); if (!enc.party.length) enc.party = [1];
+			const th = VttBoard._partyThresholds(enc.party);
+			const n = enc.list.reduce((s, it) => s + it.qty, 0);
+			const base = enc.list.reduce((s, it) => s + (it.xp || 0) * it.qty, 0);
+			const mult = VttBoard._encMultiplier(n, enc.party.length); const adj = Math.round(base * mult);
+			const diff = VttBoard._encDifficulty(adj, th);
+			const COL = {trivial: "#9e9e9e", easy: "#4caf50", medium: "#ffb300", hard: "#fb8c00", deadly: "#e53935"};
+			totals.innerHTML = "";
+			totals.append(
+				el("span", {class: "vtt-enc-diff", style: `background:${COL[diff]}`}, diff.toUpperCase()),
+				el("span", {class: "vtt-mini"}, `${n} monster${n === 1 ? "" : "s"} · ${base.toLocaleString()} XP ×${mult} = ${adj.toLocaleString()} adj`),
+				el("span", {class: "vtt-mini", style: "opacity:.7"}, `Party of ${enc.party.length}: easy ${th.easy.toLocaleString()} / med ${th.medium.toLocaleString()} / hard ${th.hard.toLocaleString()} / deadly ${th.deadly.toLocaleString()}`),
+			);
+			btnAdd.textContent = n ? `Add ${n} to Tabletop` : "Add to Tabletop";
+			this._encSave();
+		};
+		const renderList = () => {
+			listWrap.innerHTML = "";
+			if (!enc.list.length) { listWrap.appendChild(el("div", {class: "vtt-mini"}, "Search above to add monsters — XP & difficulty update live.")); recompute(); return; }
+			enc.list.forEach((it, ix) => {
+				const dec = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default"}, "−"); dec.onclick = () => { if (--it.qty <= 0) enc.list.splice(ix, 1); renderList(); };
+				const inc = el("button", {class: "ve-btn ve-btn-xxs ve-btn-default"}, "+"); inc.onclick = () => { it.qty++; renderList(); };
+				const rm = el("button", {class: "ve-btn ve-btn-xxs ve-btn-danger"}, "✕"); rm.onclick = () => { enc.list.splice(ix, 1); renderList(); };
+				listWrap.appendChild(el("div", {class: "vtt-enc-row"}, el("span", {class: "vtt-enc-row__name"}, it.name), el("span", {class: "vtt-enc-row__cr"}, `CR ${it.crStr} · ${(it.xp || 0).toLocaleString()} XP`), el("span", {class: "vtt-enc-row__qty"}, dec, el("b", {}, `${it.qty}`), inc), rm));
+			});
+			recompute();
+		};
+		const renderResults = () => {
+			const q = search.value.toLowerCase().trim(); results.innerHTML = "";
+			if (q.length < 2) { results.style.display = "none"; return; }
+			const matches = mons.filter(m => m.name.toLowerCase().includes(q)).slice(0, 30);
+			results.style.display = matches.length ? "block" : "none";
+			matches.forEach(m => {
+				const r = el("div", {class: "vtt-mon-row"}, el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${this._crStr(m.cr)} · ${Parser.crToXpNumber(m.cr) ?? "?"} XP`));
+				r.onclick = () => { const uid = `${m.name}|${m.source}`; const ex = enc.list.find(x => x.uid === uid); if (ex) ex.qty++; else enc.list.push({uid, name: m.name, source: m.source, crStr: this._crStr(m.cr), xp: Parser.crToXpNumber(m.cr) || 0, qty: 1}); search.value = ""; results.style.display = "none"; renderList(); };
+				results.appendChild(r);
+			});
+		};
+		partyInp.oninput = recompute; search.oninput = renderResults;
+		btnClear.onclick = () => { enc.list = []; renderList(); };
+		btnAdd.onclick = () => { this._addEncounterToBoard(enc, rollHp.checked); close(); };
+		renderList();
+	}
+
+	_addEncounterToBoard (enc, rollHp) {
+		const expanded = []; enc.list.forEach(it => { const mon = this._monByUid(it.uid); if (mon) for (let i = 0; i < it.qty; i++) expanded.push(mon); });
+		if (!expanded.length) return;
+		this._pushUndo();
+		const r = this._els.board.getBoundingClientRect(); const c = this._scene.grid.cell;
+		const center = this._screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
+		const cols = Math.max(1, Math.ceil(Math.sqrt(expanded.length)));
+		expanded.forEach((mon, i) => {
+			const t = this._addMonsterToken(mon, {rollHp, rollInit: true});
+			const gx = (i % cols) - Math.floor(cols / 2), gy = Math.floor(i / cols) - Math.floor(cols / 2);
+			t.x = Math.round((center.x + gx * c) / c) * c; t.y = Math.round((center.y + gy * c) / c) * c; this._renderToken(t);
+		});
+		this._save(); this._netPush();
+		toast(`Added ${expanded.length} monster${expanded.length === 1 ? "" : "s"} to the tabletop.`, "success");
 	}
 
 	/* ---------- sidebar: Selected token ---------- */
