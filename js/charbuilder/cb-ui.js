@@ -69,7 +69,21 @@ export class CharBuilderUi {
 		});
 	}
 
-	_save () { this._fnSave?.(); }
+	_save () { this._fnSave?.(); this._pUpdateCurrentSnapshot(); }
+
+	// keep a lightweight snapshot of the CURRENT character in shared storage so the Tabletop's
+	// "Import Character" works even before you explicitly save to the roster
+	_pUpdateCurrentSnapshot () {
+		clearTimeout(this._snapT);
+		this._snapT = setTimeout(async () => {
+			try {
+				const st = this._state;
+				const hasContent = (st.classList?.().length > 0) || !!(st.name && st.name.trim());
+				if (!hasContent) { await StorageUtil.pRemove(CharBuilderUi._CURRENT_KEY); return; }
+				await StorageUtil.pSet(CharBuilderUi._CURRENT_KEY, {summary: this._rosterSummary(), rosterId: this._rosterId || null, savedAt: Date.now()});
+			} catch (e) { /* storage unavailable */ }
+		}, 350);
+	}
 
 	/* ---------- My Characters: a roster of saved characters shared with the Tabletop (VTT) ---------- */
 	async _pGetRoster () { try { return (await StorageUtil.pGet(CharBuilderUi._ROSTER_KEY)) || []; } catch (e) { return []; } }
@@ -138,6 +152,7 @@ export class CharBuilderUi {
 	}
 
 	render () {
+		this._pUpdateCurrentSnapshot(); // refresh the VTT-importable snapshot (debounced) on load + every change
 		const scrollTop = this._eleRoot.scrollTop || 0;
 		this._eleRoot.empty();
 		const steps = this._steps();
@@ -246,6 +261,7 @@ export class CharBuilderUi {
 
 	// non-FR campaign settings excluded by the "Forgotten Realms + neutral" preset
 	static _ROSTER_KEY = "charbuilder_roster"; // shared (non-page-scoped) StorageUtil key — read by the Tabletop (VTT) too
+	static _CURRENT_KEY = "charbuilder_current"; // snapshot of the live character so the VTT can import it without an explicit save
 
 	static _NON_FR_SOURCES = new Set([
 		"GGR", "GRR", // Ravnica

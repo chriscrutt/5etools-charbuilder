@@ -509,6 +509,13 @@ class VttBoard {
 	/* ---------- Import a player character (from the Character Builder roster) ---------- */
 	async _openCharacterImport () {
 		let roster = []; try { roster = (await StorageUtil.pGet("charbuilder_roster")) || []; } catch (e) {}
+		let current = null; try { current = await StorageUtil.pGet("charbuilder_current"); } catch (e) {}
+		// build the displayed list: the live build first, then saved characters (minus the one the live build is editing)
+		const items = [];
+		const curHasContent = current?.summary && (current.summary.name || (current.summary.classLabel && current.summary.classLabel !== "—"));
+		if (curHasContent) items.push({id: "__current", summary: current.summary, isCurrent: true});
+		roster.slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).forEach(e => { if (!(current && current.rosterId && e.id === current.rosterId)) items.push(e); });
+
 		const backdrop = el("div", {class: "vtt-modal-backdrop"});
 		const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
 		const onKey = (e) => { if (e.key === "Escape") close(); };
@@ -516,15 +523,16 @@ class VttBoard {
 		backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
 		const btnX = el("button", {class: "ve-btn ve-btn-xs ve-btn-default"}, "✕"); btnX.onclick = close;
 		const body = el("div", {class: "vtt-enc-body"});
-		if (!roster.length) {
-			body.appendChild(el("div", {class: "vtt-mini"}, "No saved characters found. Open the Character Builder, build a character, then “My Characters → Save current character” — they’ll show up here. (Same browser.)"));
+		if (!items.length) {
+			body.appendChild(el("div", {class: "vtt-mini"}, "No characters found. Open the Character Builder and build a character — it shows up here automatically (same browser). Use “My Characters” in the builder to keep several."));
 			const open = el("button", {class: "ve-btn ve-btn-xs ve-btn-default ve-mt-1"}, "Open Character Builder"); open.onclick = () => window.open("charbuilder.html", "_blank"); body.appendChild(el("div", {class: "vtt-row"}, open));
 		} else {
-			roster.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-			roster.forEach(entry => {
+			items.forEach(entry => {
 				const s = entry.summary || {};
 				const add = el("button", {class: "ve-btn ve-btn-xs ve-btn-primary"}, "Add to board"); add.onclick = () => { this._addCharacterToken(entry); close(); };
-				body.appendChild(el("div", {class: "vtt-enc-row"}, el("span", {class: "vtt-enc-row__name"}, s.name || "Unnamed"), el("span", {class: "vtt-enc-row__cr"}, `${[s.race, s.classLabel].filter(Boolean).join(" ") || "—"} · HP ${s.maxHp ?? "?"} · AC ${s.ac ?? "?"}`), add));
+				const name = el("span", {class: "vtt-enc-row__name"}, s.name || "Unnamed");
+				if (entry.isCurrent) name.appendChild(el("span", {class: "vtt-mini", style: "margin-left:6px;opacity:.7"}, "• current build"));
+				body.appendChild(el("div", {class: "vtt-enc-row"}, name, el("span", {class: "vtt-enc-row__cr"}, `${[s.race, s.classLabel].filter(Boolean).join(" ") || "—"} · HP ${s.maxHp ?? "?"} · AC ${s.ac ?? "?"}`), add));
 			});
 		}
 		const modal = el("div", {class: "vtt-modal vtt-modal--enc"}, el("div", {class: "vtt-modal__head"}, el("h3", {}, "Import Character"), btnX), body);
