@@ -103,7 +103,7 @@ export class CharBuilderUi {
 		if (entry) { entry.json = json; entry.summary = summary; entry.savedAt = Date.now(); }
 		else { const id = `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`; list.push({id, json, summary, savedAt: Date.now()}); this._rosterId = id; }
 		await this._pSetRoster(list);
-		JqueryUtil.doToast({type: "success", content: "Saved to My Characters."});
+		JqueryUtil.doToast({type: "success", content: `“${`${this._state.name || "Character"}`.qq()}” saved to My Characters — import it from the Tabletop’s “Add Monster → Import Character”.`});
 	}
 	async _pDeleteFromRoster (id) { const list = (await this._pGetRoster()).filter(x => x.id !== id); await this._pSetRoster(list); if (this._rosterId === id) this._rosterId = null; }
 	async _pOpenRoster () {
@@ -220,8 +220,8 @@ export class CharBuilderUi {
 			.onn("click", () => { if (this._ixStep > 0) { this._ixStep--; this.render(); } });
 		if (this._ixStep === 0) btnBack.attr("disabled", "true");
 		const isLast = this._ixStep === steps.length - 1;
-		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`
-			.onn("click", () => { if (!isLast) { this._ixStep++; this.render(); } });
+		const btnNext = ee`<button class="ve-btn ve-btn-primary" title="${isLast ? "Save this character to My Characters — it's then ready to import into the Tabletop" : ""}">${isLast ? "✓ Save Character" : "Next ›"}</button>`
+			.onn("click", async () => { if (!isLast) { this._ixStep++; this.render(); } else { await this._pSaveToRoster(); this.render(); } });
 		ee(wrp)`<div class="cb__footer no-print">${btnBack}${btnNext}</div>`;
 
 		if (scrollTop) this._eleRoot.scrollTop = scrollTop;
@@ -729,7 +729,8 @@ export class CharBuilderUi {
 		const btnBack = ee`<button class="ve-btn ve-btn-default">‹ Back</button>`.onn("click", () => { if (this._skStep > 0) { this._skStep--; this.render(); } });
 		if (this._skStep === 0) btnBack.attr("disabled", "true");
 		const isLast = this._skStep === steps.length - 1;
-		const btnNext = ee`<button class="ve-btn ve-btn-primary">${isLast ? "Done" : "Next ›"}</button>`.onn("click", () => { if (!isLast) { this._skStep++; this.render(); } });
+		const btnNext = ee`<button class="ve-btn ve-btn-primary" title="${isLast ? "Save this character (with its sidekick) to My Characters" : ""}">${isLast ? "✓ Save Character" : "Next ›"}</button>`
+			.onn("click", async () => { if (!isLast) { this._skStep++; this.render(); } else { await this._pSaveToRoster(); this.render(); } });
 		ee(wrp)`<div class="cb__footer no-print">${btnBack}${btnNext}</div>`;
 	}
 
