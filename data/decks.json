@@ -1981,6 +1981,14 @@
 				{
 					"uid": "Talons|Deck of Many Things|XDMG",
 					"replacement": true
+				},
+				{
+					"uid": "Throne|Deck of Many Things|XDMG",
+					"replacement": true
+				},
+				{
+					"uid": "Void|Deck of Many Things|XDMG",
+					"replacement": true
 				}
 			],
 			"back": {
@@ -6747,7 +6755,7 @@
 				"height": 561
 			},
 			"entries": [
-				"This card creates an illusion of a the card drawer."
+				"This card creates an illusion of the card drawer."
 			]
 		},
 		{
@@ -8518,7 +8526,7 @@
 								{
 									"type": "item",
 									"name": "Treasure",
-									"entry": "An art object depicting walls, barriers. or a labyrinth; alternatively, a magic item that creates magical walls (such as a {@item Cube of Force})."
+									"entry": "An art object depicting walls, barriers, or a labyrinth; alternatively, a magic item that creates magical walls (such as a {@item Cube of Force})."
 								},
 								{
 									"type": "item",
@@ -8880,7 +8888,7 @@
 								{
 									"type": "item",
 									"name": "Creature or Trap",
-									"entry": "The destruction left in the wake ofa rampaging creature, or smaller creatures fleeing from a larger one."
+									"entry": "The destruction left in the wake of a rampaging creature, or smaller creatures fleeing from a larger one."
 								},
 								{
 									"type": "item",
@@ -9105,7 +9113,7 @@
 				"height": 1229
 			},
 			"entries": [
-				"{@i A signpost points in many directions at a crossroads. The Crossroads cards warns of a difficult but necessary decision.}",
+				"{@i A signpost points in many directions at a crossroads. The Crossroads card warns of a difficult but necessary decision.}",
 				{
 					"type": "entries",
 					"name": "Upright Meaning",
@@ -9169,7 +9177,7 @@
 								{
 									"type": "item",
 									"name": "Treasure",
-									"entry": "An art object featuring overlapping circular patterns, or a magic item that does only does one thing a limited number of times (such as a wand)."
+									"entry": "An art object featuring overlapping circular patterns, or a magic item that does only one thing a limited number of times (such as a wand)."
 								},
 								{
 									"type": "item",
@@ -9384,7 +9392,7 @@
 				"height": 1228
 			},
 			"entries": [
-				"{@i A menacing red dragon perches atop its treasure hoard inside a cave. This card can point to things connected to Dragons, but it also suggests hoarding, reed, and places rich in magical energy.}",
+				"{@i A menacing red dragon perches atop its treasure hoard inside a cave. This card can point to things connected to Dragons, but it also suggests hoarding, greed, and places rich in magical energy.}",
 				{
 					"type": "entries",
 					"name": "Upright Meaning",
@@ -9619,7 +9627,7 @@
 								{
 									"type": "item",
 									"name": "Person",
-									"entry": "A nosy person vho inserts themself into situations where they don't belong."
+									"entry": "A nosy person who inserts themselves into situations where they don't belong."
 								},
 								{
 									"type": "item",
@@ -10150,7 +10158,7 @@
 								{
 									"type": "item",
 									"name": "Place",
-									"entry": "A place connected with children, such as a nursery, an orphanage, or a school.s"
+									"entry": "A place connected with children, such as a nursery, an orphanage, or a school."
 								},
 								{
 									"type": "item",
@@ -10625,7 +10633,7 @@
 								{
 									"type": "item",
 									"name": "Situation",
-									"entry": "A situation that be resolved successfully only by taking a specific action."
+									"entry": "A situation that can be resolved successfully only by taking a specific action."
 								}
 							]
 						}
@@ -12398,7 +12406,7 @@
 								{
 									"type": "item",
 									"name": "Situation",
-									"entry": "An opportunity to provide valuable ad- vice on a familiar subject."
+									"entry": "An opportunity to provide valuable advice on a familiar subject."
 								}
 							]
 						}
@@ -12420,7 +12428,7 @@
 								{
 									"type": "item",
 									"name": "Creature or Trap",
-									"entry": "sA creature that tries to lead the way into danger or a trap."
+									"entry": "A creature that tries to lead the way into danger or a trap."
 								},
 								{
 									"type": "item",
@@ -12518,7 +12526,7 @@
 								{
 									"type": "item",
 									"name": "Place",
-									"entry": "sA hermitage or retreat meant to isolate one person from others."
+									"entry": "A hermitage or retreat meant to isolate one person from others."
 								},
 								{
 									"type": "item",
@@ -12645,7 +12653,7 @@
 				"height": 1229
 			},
 			"entries": [
-				"{@i A skeletal figure is shrouded in a swirling robe, though its skull is clearly visible. The Skull card is a reminder of the universality of death\u2014and the fact that everyone must confront death alone.s}",
+				"{@i A skeletal figure is shrouded in a swirling robe, though its skull is clearly visible. The Skull card is a reminder of the universality of death\u2014and the fact that everyone must confront death alone.}",
 				{
 					"type": "entries",
 					"name": "Upright Meaning",
@@ -13541,7 +13549,7 @@
 								{
 									"type": "item",
 									"name": "Place",
-									"entry": "A place at the edge of a ruler's authority or son the border between rival nations."
+									"entry": "A place at the edge of a ruler's authority or on the border between rival nations."
 								},
 								{
 									"type": "item",
@@ -13979,7 +13987,7 @@
 								{
 									"type": "item",
 									"name": "Situation",
-									"entry": "A situation that seems to have no good or even survivable\u2014outcome."
+									"entry": "A situation that seems to have no good or even survivable outcome."
 								}
 							]
 						}
@@ -14040,7 +14048,7 @@
 				"height": 1230
 			},
 			"entries": [
-				"{@i A barbarian holds a greataxe, The Warrior card embodies physical strength and fighting acumen.}",
+				"{@i A barbarian holds a greataxe. The Warrior card embodies physical strength and fighting acumen.}",
 				{
 					"type": "entries",
 					"name": "Upright Meaning",
@@ -18175,7 +18183,7 @@
 					"type": "entries",
 					"name": "Boon Effect:",
 					"entries": [
-						"The target is immune to the {@condition blinded}, {@condition charmed}, {@condition deafened}, {@condition frightened}, {@condition paralyzed}, {@condition petrified}, {@condition poisoned}, and {@condition stunned} conditions. In addition, the tar get stabilizes immediately when it drops to 0 hit points. This boon effect lasts for 24 hours."
+						"The target is immune to the {@condition blinded}, {@condition charmed}, {@condition deafened}, {@condition frightened}, {@condition paralyzed}, {@condition petrified}, {@condition poisoned}, and {@condition stunned} conditions. In addition, the target stabilizes immediately when it drops to 0 hit points. This boon effect lasts for 24 hours."
 					]
 				}
 			]
@@ -24522,6 +24530,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 4,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24540,6 +24549,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 6,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24576,6 +24586,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 1,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24612,6 +24623,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 6,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24630,6 +24642,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 6,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24648,6 +24661,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 8,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24684,6 +24698,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 7,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24702,6 +24717,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 9,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24738,6 +24754,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 8,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24756,6 +24773,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 2,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24792,6 +24810,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 5,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24810,6 +24829,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 5,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24828,6 +24848,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 3,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24846,6 +24867,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 6,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24900,6 +24922,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 5,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24918,6 +24941,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 3,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24936,6 +24960,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 7,
 			"face": {
 				"type": "image",
 				"href": {
@@ -24972,6 +24997,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 7,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25026,6 +25052,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 4,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25044,6 +25071,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 4,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25062,6 +25090,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 9,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25080,6 +25109,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 2,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25116,6 +25146,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 1,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25134,6 +25165,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 5,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25152,6 +25184,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 8,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25170,6 +25203,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 2,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25188,6 +25222,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 2,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25206,6 +25241,8 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 10,
+			"valueName": "master",
 			"face": {
 				"type": "image",
 				"href": {
@@ -25242,6 +25279,8 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 10,
+			"valueName": "master",
 			"face": {
 				"type": "image",
 				"href": {
@@ -25278,6 +25317,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 4,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25296,6 +25336,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 3,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25314,6 +25355,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 1,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25332,6 +25374,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 8,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25368,6 +25411,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 7,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25386,6 +25430,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 9,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25404,6 +25449,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Coins",
+			"value": 3,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25422,6 +25468,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Glyphs",
+			"value": 9,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25440,6 +25487,7 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 1,
 			"face": {
 				"type": "image",
 				"href": {
@@ -25458,6 +25506,8 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Swords",
+			"value": 10,
+			"valueName": "master",
 			"face": {
 				"type": "image",
 				"href": {
@@ -25476,6 +25526,8 @@
 			"source": "RHW",
 			"set": "Tarokka Deck",
 			"suit": "Stars",
+			"value": 10,
+			"valueName": "master",
 			"face": {
 				"type": "image",
 				"href": {

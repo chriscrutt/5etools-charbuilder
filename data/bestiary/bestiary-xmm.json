@@ -10331,6 +10331,7 @@
 			],
 			"passive": 15,
 			"languages": [
+				"Blink Dog",
 				"understands Elvish and Sylvan but can't speak them"
 			],
 			"cr": "1/4",
@@ -10367,6 +10368,7 @@
 			"languageTags": [
 				"CS",
 				"E",
+				"OTH",
 				"S"
 			],
 			"damageTags": [
@@ -36597,7 +36599,7 @@
 			},
 			"passive": 14,
 			"languages": [
-				"Common and any three languages"
+				"Common plus three other languages"
 			],
 			"cr": "6",
 			"gear": [
@@ -42722,7 +42724,7 @@
 			"cha": 7,
 			"skill": {
 				"perception": "+4",
-				"stealth": "+6"
+				"stealth": "+7"
 			},
 			"senses": [
 				"Darkvision 60 ft."

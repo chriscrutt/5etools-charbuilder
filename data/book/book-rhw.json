@@ -1945,7 +1945,7 @@
 																{
 																	"type": "item",
 																	"name": "First Entry",
-																	"entry": "Mirabel's sister Sorvina discovered a hollow hidden under the tavern. Strange ruins lie amid the dirt walls. Sorvina wants to excavate them, hoping to find a tomb filed with treasures."
+																	"entry": "Mirabel's sister Sorvina discovered a hollow hidden under the tavern. Strange ruins lie amid the dirt walls. Sorvina wants to excavate them, hoping to find a tomb filled with treasures."
 																},
 																{
 																	"type": "item",
@@ -7575,7 +7575,7 @@
 												],
 												[
 													"3",
-													"An jade amulet shaped like a sphinx."
+													"A jade amulet shaped like a sphinx."
 												],
 												[
 													"4",
@@ -8269,7 +8269,7 @@
 													"name": "Reeva",
 													"id": "1cd",
 													"entries": [
-														"Reeva's adoration of Ramya gave way to jealousy when Ramya eclipsed her in their family's esteem. Now an {@creature Arcanaloth|XMM}, Reeve uses insidious magic from beneath the Cerulean Citadel to summon fiends and manipulate foes from afar. Behind her back, many mockingly call Reeva \"Inajira,\" her charismatic Arijani's opposite."
+														"Reeva's adoration of Ramya gave way to jealousy when Ramya eclipsed her in their family's esteem. Now an {@creature Arcanaloth|XMM}, Reeva uses insidious magic from beneath the Cerulean Citadel to summon fiends and manipulate foes from afar. Behind her back, many mockingly call Reeva \"Inajira,\" her charismatic Arijani's opposite."
 													]
 												}
 											]
@@ -9327,7 +9327,7 @@
 										{
 											"type": "item",
 											"name": "Frigid Environs",
-											"entry": "Lamordia is a frigid land of bleak mountains, frozen swaps, and icy seas. Few voluntarily trek into its wilderness, fearing freak blizzards and starving beasts."
+											"entry": "Lamordia is a frigid land of bleak mountains, frozen swamps, and icy seas. Few voluntarily trek into its wilderness, fearing freak blizzards and starving beasts."
 										},
 										{
 											"type": "item",
@@ -13971,7 +13971,7 @@
 										}
 									]
 								},
-								"The toymaker Guiseppe had his wish for a family granted when his creation, the marionette Figlio, came to life. A proud father, the toymaker presented his son to all the people of his village, Odaire. The local children loved Figlio, but their skeptical parents said the marionette was nothing but a toy. Over time, this doubt enraged Figlio, and the marionette convinced Guiseppe to craft siblings for him. Then, when the time was right, Guiseppe's creations did away with all the adults in Odaire.",
+								"The toymaker Giuseppe had his wish for a family granted when his creation, the marionette Figlio, came to life. A proud father, the toymaker presented his son to all the people of his village, Odaire. The local children loved Figlio, but their skeptical parents said the marionette was nothing but a toy. Over time, this doubt enraged Figlio, and the marionette convinced Giuseppe to craft siblings for him. Then, when the time was right, Giuseppe's creations did away with all the adults in Odaire.",
 								"Claimed by the Mists, Odaire is a village populated only by children and ruled by Figlio the {@creature Carrionette|RHW} (see {@area chapter 5|39b|x}), who now calls himself Maligno.",
 								{
 									"type": "gallery",

@@ -2046,7 +2046,7 @@
 				{
 					"name": "Worthy Wielder",
 					"entries": [
-						"{@actSave cha} {@dc 17}, one willing Humanoid within 5 feet. {@actSaveFail} 36 ({@damage 8d8}) Force damage. If this damage reduces the target to 0 {@variantrule Hit Points|XPHB}, Ebonbane devourers its soul. A creature whose soul has been devoured by Ebonbane can be restored to life only by a {@spell Wish|XPHB} spell. {@actSaveSuccess} The target attunes to Ebonbane and can wield the sword."
+						"{@actSave cha} {@dc 17}, one willing Humanoid within 5 feet. {@actSaveFail} 36 ({@damage 8d8}) Force damage. If this damage reduces the target to 0 {@variantrule Hit Points|XPHB}, Ebonbane devours its soul. A creature whose soul has been devoured by Ebonbane can be restored to life only by a {@spell Wish|XPHB} spell. {@actSaveSuccess} The target attunes to Ebonbane and can wield the sword."
 					]
 				}
 			],
@@ -3211,7 +3211,7 @@
 				{
 					"name": "Regeneration",
 					"entries": [
-						"Harkon gains 10 {@variantrule Hit Points|XPHB} at the start of each of its turns if he has at least 1 {@variantrule Hit Points|XPHB|Hit Point}. If Harkon takes Radiant damage, this trait doesn't function at the start of its next turn."
+						"Harkon gains 10 {@variantrule Hit Points|XPHB} at the start of each of his turns if he has at least 1 {@variantrule Hit Points|XPHB|Hit Point}. If Harkon takes Radiant damage, this trait doesn't function at the start of his next turn."
 					]
 				}
 			],
@@ -7953,7 +7953,7 @@
 				{
 					"name": "Shield Bash",
 					"entries": [
-						"{@actSave str} {@dc 13}, one creature within 5 feet that the skeleton can see. {@actSaveFail} 10 ({@damage 2d6 + 3}) Bludgeoning damage. If the target is a Medium or smaller creature, it has the {@condition Prone|XPHB} condition"
+						"{@actSave str} {@dc 13}, one creature within 5 feet that the skeleton can see. {@actSaveFail} 10 ({@damage 2d6 + 3}) Bludgeoning damage. If the target is a Medium or smaller creature, it has the {@condition Prone|XPHB} condition."
 					]
 				}
 			],
