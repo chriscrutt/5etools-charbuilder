@@ -209,7 +209,7 @@ class VttBoard {
 			results.style.display = matches.length ? "block" : "none";
 			matches.forEach(m => {
 				const row = el("div", {class: "vtt-mon-row"});
-				row.append(el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${Parser.monCrToFull ? this._crStr(m.cr) : (m.cr?.cr ?? m.cr ?? "?")} · ${m.source}`));
+				row.append(el("span", {class: "vtt-mon-row__name"}, m.name), el("span", {class: "vtt-mon-row__meta"}, `CR ${this._crStr(m.cr)} · ${m.source}`));
 				row.onclick = () => { this._addMonsterToken(m, {rollHp: rollHp.checked, rollInit: rollInit.checked}); };
 				results.appendChild(row);
 			});
