@@ -924,7 +924,7 @@ class ClassesPage extends MixinComponentGlobalState(MixinBaseComponent(MixinProx
 			<span class="ve-col-4 ve-pl-0 ve-pr-1 ve-text-center ${Parser.sourceJsonToSourceClassname(cls.source)} ve-pr-0" title="${Parser.sourceJsonToFull(cls.source)}">${source}</span>
 		</a>`;
 
-		const ele = veT`<li class="ve-lst__row ve-flex-col ${isExcluded ? "row--blocklisted" : ""}">${lnk}</li>`;
+		const ele = veT`<li class="ve-lst__row ve-flex-col ${isExcluded ? "ve-lst__row--blocklisted" : ""}">${lnk}</li>`;
 
 		return new ListItem(
 			clsI,
@@ -936,6 +936,7 @@ class ClassesPage extends MixinComponentGlobalState(MixinBaseComponent(MixinProx
 			},
 			{
 				hash,
+				page: cls.page,
 				lnk,
 				hashCurr: hash,
 				entity: cls,
@@ -1231,7 +1232,7 @@ class ClassesPage extends MixinComponentGlobalState(MixinBaseComponent(MixinProx
 			});
 		};
 
-		veT`<table class="ve-cls-tbl shadow-big ve-w-100 ve-mb-2">
+		veT`<table class="ve-cls-tbl ve-shadow-big ve-w-100 ve-mb-2">
 			<tbody>
 			<tr><th class="ve-tbl-border" colspan="999"></th></tr>
 			<tr><th class="ve-text-left ve-cls-tbl__disp-name" colspan="999">${cls.name}</th></tr>
@@ -1879,6 +1880,7 @@ class ClassesPage extends MixinComponentGlobalState(MixinBaseComponent(MixinProx
 				displayType,
 			},
 			{
+				page: sc.page,
 				isExcluded,
 				entity: sc,
 			},

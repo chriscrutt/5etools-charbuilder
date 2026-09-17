@@ -98,6 +98,10 @@
 		background-color: vars.$rgb-bg;
 	}
 
+	.ve-shadow-big {
+		@include vars.mix-shadow-1;
+	}
+
 	.ve-highlight {
 		background-color: vars.$rgb-bg-highlight !important;
 	}
@@ -556,6 +560,10 @@
 
 	.ve-h-100 {
 		height: 100% !important;
+	}
+
+	.ve-h-50h {
+		height: 50vh !important;
 	}
 
 	.ve-h-100h {
