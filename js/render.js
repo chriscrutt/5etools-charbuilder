@@ -1224,11 +1224,11 @@ globalThis.Renderer = class {
 	}
 
 	_getPtExpandCollapse () {
-		return `<span class="ve-rd__h-toggle ve-ml-2 ve-clickable ve-no-select no-print ve-lst-is-exporting-image__hidden" data-rd-h-toggle-button="true" title="Toggle Visibility (SHIFT to Toggle All)">[\u2212]</span>`;
+		return `<span class="ve-rd__h-toggle ve-ml-2 ve-clickable ve-no-select ve-print__hidden ve-lst-is-exporting-image__hidden" data-rd-h-toggle-button="true" title="Toggle Visibility (SHIFT to Toggle All)">[\u2212]</span>`;
 	}
 
 	_getPtExpandCollapseSpecial () {
-		return `<span class="ve-rd__h-toggle ve-ml-2 ve-clickable ve-no-select no-print ve-lst-is-exporting-image__hidden" data-rd-h-special-toggle-button="true" title="Toggle Visibility (SHIFT to Toggle All)">[\u2212]</span>`;
+		return `<span class="ve-rd__h-toggle ve-ml-2 ve-clickable ve-no-select ve-print__hidden ve-lst-is-exporting-image__hidden" data-rd-h-special-toggle-button="true" title="Toggle Visibility (SHIFT to Toggle All)">[\u2212]</span>`;
 	}
 
 	/* -------------------------------------------- */
@@ -1605,7 +1605,8 @@ globalThis.Renderer = class {
 	_renderAbilityGeneric (entry, textStack, meta, options) {
 		textStack[0] += `<div class="ve-rd__wrp-centered-ability">`;
 		if (entry.name) this._recursiveRender(entry.name, textStack, meta, {prefix: "<b>", suffix: "</b> = "});
-		if (entry.text) this._recursiveRender(entry.text, textStack, meta);
+		// TODO(MIGRATION)
+		if (entry.entry ?? entry.text) this._recursiveRender(entry.entry ?? entry.text, textStack, meta);
 		textStack[0] += `${entry.attributes ? ` ${Parser.attrChooseToFull(entry.attributes)}` : ""}</div>`;
 	}
 
@@ -1787,40 +1788,44 @@ globalThis.Renderer = class {
 	};
 
 	_renderStatblockInline (entry, textStack, meta, options) {
-		const fnGetRenderCompact = Renderer.hover.getFnRenderCompact(entry.dataType);
+		// TODO(MIGRATION)
+		const statblockType = entry.statblockType ?? entry.dataType;
+		const statblockData = entry.statblockData ?? entry.data;
 
-		const headerName = entry.displayName || entry.data?.name;
+		const fnGetRenderCompact = Renderer.hover.getFnRenderCompact(statblockType);
+
+		const headerName = entry.displayName || statblockData?.name;
 		const headerStyle = entry.style;
 
-		const isFluff = entry.dataType?.includes("Fluff");
+		const isFluff = statblockType?.includes("Fluff");
 
 		if (!fnGetRenderCompact) {
 			this._renderDataHeader(textStack, headerName, headerStyle, {isStats: !isFluff});
 			textStack[0] += `<tr>
 				<td colspan="6">
-					<i class="text-danger">Cannot render &quot;${entry.type}&quot;&mdash;unknown data type &quot;${entry.dataType}&quot;!</i>
+					<i class="text-danger">Cannot render &quot;${entry.type}&quot;&mdash;unknown statblock type &quot;${statblockType}&quot;!</i>
 				</td>
 			</tr>`;
 			this._renderDataFooter(textStack);
 			return;
 		}
 
-		if (!entry.data) {
+		if (!statblockData) {
 			this._renderDataHeader(textStack, headerName, headerStyle, {isStats: !isFluff});
 			textStack[0] += `<tr>
 				<td colspan="6">
-					<i class="text-danger">Entry &quot;<i><code>${JSON.stringify(entry).qq()}</code></i> did not contain required &quot;data&quot; key!</i>
+					<i class="text-danger">Entry &quot;<i><code>${JSON.stringify(entry).qq()}</code></i> did not contain required &quot;statblockData&quot; key!</i>
 				</td>
 			</tr>`;
 			this._renderDataFooter(textStack);
 			return;
 		}
 
-		const strategy = this._INLINE_STATBLOCK_STRATEGIES[entry.dataType];
+		const strategy = this._INLINE_STATBLOCK_STRATEGIES[statblockType];
 
-		if (!strategy?.pFnPreProcess && !entry.data?._copy) {
+		if (!strategy?.pFnPreProcess && !statblockData?._copy) {
 			this._renderDataHeader(textStack, headerName, headerStyle, {isStats: !isFluff, isCollapsed: entry.collapsed});
-			textStack[0] += fnGetRenderCompact(entry.data, {isEmbeddedEntity: true});
+			textStack[0] += fnGetRenderCompact(statblockData, {isEmbeddedEntity: true});
 			this._renderDataFooter(textStack);
 			return;
 		}
@@ -1830,13 +1835,13 @@ globalThis.Renderer = class {
 		const id = CryptUtil.uid();
 		Renderer._cache.inlineStatblock[id] = {
 			pFn: async (ele) => {
-				const entLoaded = entry.data?._copy
+				const entLoaded = statblockData?._copy
 					? (await DataUtil.pDoMetaMergeSingle(
-						entry.dataType,
-						{dependencies: {[entry.dataType]: entry.dependencies}},
-						entry.data,
+						statblockType,
+						{dependencies: {[statblockType]: entry.dependencies}},
+						statblockData,
 					))
-					: entry.data;
+					: statblockData;
 
 				const ent = entLoaded && strategy?.pFnPreProcess ? await strategy.pFnPreProcess(entLoaded) : entLoaded;
 
@@ -2334,7 +2339,7 @@ globalThis.Renderer = class {
 
 				const fauxEntry = {
 					type: "link",
-					text: displayText,
+					entry: displayText,
 					href: {
 						type: "internal",
 						path: `${page}.html`,
@@ -2364,7 +2369,7 @@ globalThis.Renderer = class {
 						type: "external",
 						url: outUrl,
 					},
-					text: displayText,
+					entry: displayText,
 				};
 				this._recursiveRender(fauxEntry, textStack, meta);
 
@@ -2378,7 +2383,7 @@ globalThis.Renderer = class {
 						type: "internal",
 						path: page,
 					},
-					text: displayText,
+					entry: displayText,
 				};
 				if (hash) {
 					fauxEntry.hash = hash;
@@ -2396,7 +2401,7 @@ globalThis.Renderer = class {
 						type: "external",
 						url: UrlUtil.link(this.getMediaUrl("img", page)),
 					},
-					text: displayText,
+					entry: displayText,
 				};
 				this._recursiveRender(fauxEntry, textStack, meta);
 
@@ -2410,7 +2415,7 @@ globalThis.Renderer = class {
 						type: "external",
 						url: UrlUtil.link(this.getMediaUrl("audio", page)),
 					},
-					text: displayText,
+					entry: displayText,
 				};
 				this._recursiveRender(fauxEntry, textStack, meta);
 
@@ -2509,7 +2514,7 @@ globalThis.Renderer = class {
 						hash,
 						hashPreEncoded: true,
 					},
-					text: displayText,
+					entry: displayText,
 				};
 				this._recursiveRender(fauxEntry, textStack, meta);
 
@@ -2531,7 +2536,7 @@ globalThis.Renderer = class {
 							source,
 						},
 					},
-					text: (displayText || name),
+					entry: (displayText || name),
 				};
 
 				if (hashPreEncoded != null) fauxEntry.href.hashPreEncoded = hashPreEncoded;
@@ -2540,7 +2545,7 @@ globalThis.Renderer = class {
 				if (hashHover != null) fauxEntry.href.hover.hash = hashHover;
 				if (hashPreEncodedHover != null) fauxEntry.href.hover.hashPreEncoded = hashPreEncodedHover;
 				if (preloadId != null) fauxEntry.href.hover.preloadId = preloadId;
-				if (linkText) fauxEntry.text = linkText;
+				if (linkText) fauxEntry.entry = linkText;
 				if (subhashes) fauxEntry.href.subhashes = subhashes;
 				if (subhashesHover) fauxEntry.href.hover.subhashes = subhashesHover;
 				if (isAllowRedirect) fauxEntry.href.hover.isAllowRedirect = isAllowRedirect;
@@ -2599,11 +2604,14 @@ globalThis.Renderer = class {
 		const additionalAttributes = pluginData.map(it => it.attributes).filter(Boolean);
 
 		if (this._isInternalLinksDisabled && entry.href.type === "internal") {
-			textStack[0] += `<span class="ve-bold" ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.text)}</span>`;
+			// TODO(MIGRATION)
+			textStack[0] += `<span class="ve-bold" ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.entry ?? entry.text)}</span>`;
 		} else if (entry.href.hover?.isFauxPage) {
-			textStack[0] += `<span class="ve-help ve-help--hover" ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.text)}</span>`;
+			// TODO(MIGRATION)
+			textStack[0] += `<span class="ve-help ve-help--hover" ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.entry ?? entry.text)}</span>`;
 		} else {
-			textStack[0] += `<a href="${href.qq()}" ${entry.href.type === "internal" ? "" : `target="_blank" rel="noopener noreferrer"`} ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.text)}</a>`;
+			// TODO(MIGRATION)
+			textStack[0] += `<a href="${href.qq()}" ${entry.href.type === "internal" ? "" : `target="_blank" rel="noopener noreferrer"`} ${isDisableEvents ? "" : this._renderLink_getHoverString(entry)} ${additionalAttributes.join(" ")}>${this.render(entry.entry ?? entry.text)}</a>`;
 		}
 	}
 
@@ -2719,6 +2727,8 @@ Renderer.get = () => {
  *   but a property injector *is* valid inside a tag.
  */
 Renderer.applyProperties = function (entry, object) {
+	if (!entry.includes("{=")) return entry;
+
 	const propSplit = Renderer.splitByTags(entry);
 	const len = propSplit.length;
 
@@ -2787,16 +2797,25 @@ Renderer.applyProperties._OP_ORDER = [
 ];
 
 Renderer.applyAllProperties = function (entries, object = null) {
+	Renderer.applyAllProperties._WALKER ||= MiscUtil.getWalker();
+
+	if (object) {
+		return Renderer.applyAllProperties._WALKER.walk(
+			entries,
+			{string: str => Renderer.applyProperties(str, object)},
+		);
+	}
+
 	let lastObj = null;
-	const handlers = {
-		object: (obj) => {
-			lastObj = obj;
-			return obj;
+	return Renderer.applyAllProperties._WALKER.walk(
+		entries,
+		{
+			object: (obj) => lastObj = obj,
+			string: (str) => Renderer.applyProperties(str, lastObj),
 		},
-		string: (str) => Renderer.applyProperties(str, object || lastObj),
-	};
-	return MiscUtil.getWalker().walk(entries, handlers);
+	);
 };
+Renderer.applyAllProperties._WALKER = null;
 
 Renderer.attackTagToFull = function (tagStr, {isRoll = false} = {}) {
 	function renderTag (tags) {
@@ -3435,7 +3454,7 @@ Renderer.utils = class {
 	}
 
 	static getBtnSendToFoundryHtml ({isMb = true} = {}) {
-		return `<button title="Send to Foundry (SHIFT for Temporary Import)" class="no-print ve-btn ve-btn-xs ve-btn-default ve-stats__btn-stats-name ve-mx-2 ${isMb ? "ve-mb-2" : ""} ve-self-flex-end ve-lst-is-exporting-image__hidden" onclick="ExtensionUtil.pDoSendStats(event, this)" draggable="true" ondragstart="ExtensionUtil.doDragStart(event, this)"><span class="glyphicon glyphicon-send"></span></button>`;
+		return `<button title="Send to Foundry (SHIFT for Temporary Import)" class="ve-print__hidden ve-btn ve-btn-xs ve-btn-default ve-stats__btn-stats-name ve-mx-2 ${isMb ? "ve-mb-2" : ""} ve-self-flex-end ve-lst-is-exporting-image__hidden" onclick="ExtensionUtil.pDoSendStats(event, this)" draggable="true" ondragstart="ExtensionUtil.doDragStart(event, this)"><span class="glyphicon glyphicon-send"></span></button>`;
 	}
 
 	static isDisplayPage (page) { return page != null && ((!isNaN(page) && page > 0) || isNaN(page)); }
@@ -5023,6 +5042,21 @@ Renderer.utils = class {
 				};
 			}
 
+			case "@subclassFluff": {
+				const unpacked = DataUtil.subclassFluff.unpackUid(text);
+
+				return {
+					name: unpacked.name,
+					displayText: unpacked.displayText,
+
+					isFauxPage: true,
+					page: "subclassFluff",
+					source: unpacked.source,
+					hash: UrlUtil.URL_TO_HASH_BUILDER["subclassFluff"](unpacked),
+					hashPreEncoded: true,
+				};
+			}
+
 			case "@classFeature": {
 				const unpacked = DataUtil.class.unpackUidClassFeature(text);
 
@@ -5232,8 +5266,13 @@ Renderer.utils = class {
 			case "@cite": { out.isFauxPage = true; out.page = "citation"; break; }
 
 			// TODO(Future) revise/expand
+			case "@backgroundFluff": { out.isFauxPage = true; out.page = "backgroundFluff"; break; }
+			case "@classFluff": { out.isFauxPage = true; out.page = "classFluff"; break; }
 			case "@creatureFluff": { out.isFauxPage = true; out.page = "monsterFluff"; break; }
+			case "@itemFluff": { out.isFauxPage = true; out.page = "itemFluff"; break; }
 			case "@raceFluff": { out.isFauxPage = true; out.page = "raceFluff"; break; }
+			case "@recipeFluff": { out.isFauxPage = true; out.page = "recipeFluff"; break; }
+			case "@spellFluff": { out.isFauxPage = true; out.page = "spellFluff"; break; }
 			case "@crochetFluff": { out.isFauxPage = true; out.page = "crochetPatternFluff"; break; }
 
 			default: throw new Error(`Unhandled tag "${tag}"`);
@@ -6026,6 +6065,12 @@ Renderer.tag = class {
 		page = UrlUtil.PG_BACKGROUNDS;
 	};
 
+	static TagBackgroundFluff = class extends this._TagPipedDisplayTextThird {
+		tagName = "backgroundFluff";
+		defaultSource = Parser.SRC_PHB;
+		page = "backgroundFluff";
+	};
+
 	static TagBoon = class extends this._TagPipedDisplayTextThird {
 		tagName = "boon";
 		defaultSource = Parser.SRC_MTF;
@@ -6042,6 +6087,12 @@ Renderer.tag = class {
 		tagName = "class";
 		defaultSource = Parser.SRC_PHB;
 		page = UrlUtil.PG_CLASSES;
+	};
+
+	static TagClassFluff = class extends this._TagPipedDisplayTextThird {
+		tagName = "classFluff";
+		defaultSource = Parser.SRC_PHB;
+		page = "classFluff";
 	};
 
 	static TagCondition = class extends this._TagPipedDisplayTextThird {
@@ -6104,6 +6155,12 @@ Renderer.tag = class {
 		page = UrlUtil.PG_ITEMS;
 	};
 
+	static TagItemFluff = class extends this._TagPipedDisplayTextThird {
+		tagName = "itemFluff";
+		defaultSource = Parser.SRC_DMG;
+		page = "itemFluff";
+	};
+
 	static TagItemProperty = class extends this._TagPipedDisplayTextThird {
 		tagName = "itemProperty";
 		defaultSource = Parser.SRC_PHB;
@@ -6164,6 +6221,12 @@ Renderer.tag = class {
 		page = UrlUtil.PG_RECIPES;
 	};
 
+	static TagRecipeFluff = class extends this._TagPipedDisplayTextThird {
+		tagName = "recipeFluff";
+		defaultSource = Parser.SRC_HF;
+		page = "recipeFluff";
+	};
+
 	static TagCrochet = class extends this._TagPipedDisplayTextThird {
 		tagName = "crochet";
 		defaultSource = Parser.SRC_CaBoMP;
@@ -6173,7 +6236,7 @@ Renderer.tag = class {
 	static TagCrochetFluff = class extends this._TagPipedDisplayTextThird {
 		tagName = "crochetFluff";
 		defaultSource = Parser.SRC_CaBoMP;
-		page = "crochetFluff";
+		page = "crochetPatternFluff";
 	};
 
 	static TagReward = class extends this._TagPipedDisplayTextThird {
@@ -6210,6 +6273,12 @@ Renderer.tag = class {
 		tagName = "spell";
 		defaultSource = Parser.SRC_PHB;
 		page = UrlUtil.PG_SPELLS;
+	};
+
+	static TagSpellFluff = class extends this._TagPipedDisplayTextThird {
+		tagName = "spellFluff";
+		defaultSource = Parser.SRC_PHB;
+		page = "spellFluff";
 	};
 
 	static TagStatus = class extends this._TagPipedDisplayTextThird {
@@ -6273,6 +6342,12 @@ Renderer.tag = class {
 		defaultSource = Parser.SRC_PHB;
 		page = UrlUtil.PG_CLASSES;
 		pageHover = "subclass";
+	};
+
+	static TagSubclassFluff = class extends this._TagPipedDisplayTextFifth {
+		tagName = "subclassFluff";
+		defaultSource = Parser.SRC_PHB;
+		page = "subclassFluff";
 	};
 
 	static _TagPipedDisplayTextSixth = class extends this._TagBaseAt {
@@ -6453,9 +6528,11 @@ Renderer.tag = class {
 
 		new this.TagAction(),
 		new this.TagBackground(),
+		new this.TagBackgroundFluff(),
 		new this.TagBoon(),
 		new this.TagCharoption(),
 		new this.TagClass(),
+		new this.TagClassFluff(),
 		new this.TagCondition(),
 		new this.TagCreature(),
 		new this.TagCreatureFluff(),
@@ -6466,6 +6543,7 @@ Renderer.tag = class {
 		new this.TagFeat(),
 		new this.TagHazard(),
 		new this.TagItem(),
+		new this.TagItemFluff(),
 		new this.TagItemProperty(),
 		new this.TagItemMastery(),
 		new this.TagLanguage(),
@@ -6476,6 +6554,7 @@ Renderer.tag = class {
 		new this.TagRace(),
 		new this.TagRaceFluff(),
 		new this.TagRecipe(),
+		new this.TagRecipeFluff(),
 		new this.TagCrochet(),
 		new this.TagCrochetFluff(),
 		new this.TagReward(),
@@ -6484,6 +6563,7 @@ Renderer.tag = class {
 		new this.TagSense(),
 		new this.TagSkill(),
 		new this.TagSpell(),
+		new this.TagSpellFluff(),
 		new this.TagStatus(),
 		new this.TagTable(),
 		new this.TagTrap(),
@@ -6494,6 +6574,7 @@ Renderer.tag = class {
 		new this.TagDeity(),
 
 		new this.TagSubclass(),
+		new this.TagSubclassFluff(),
 
 		new this.TagClassFeature(),
 
@@ -6774,11 +6855,11 @@ Renderer.events = class {
 		return {
 			htmlNameCollapsed: Renderer.get().render({
 				...fauxEntryBase,
-				text: displayText || name,
+				entry: displayText || name,
 			}),
 			htmlNameExpanded: Renderer.get().render({
 				...fauxEntryBase,
-				text: `<button class="ve-btn ve-btn-default ve-btn-xxs" title="Go to Page">
+				entry: `<button class="ve-btn ve-btn-default ve-btn-xxs" title="Go to Page">
 					<span class="glyphicon glyphicon-modal-window"></span>
 				</button>`,
 			}),
@@ -7724,7 +7805,7 @@ Renderer.class = class {
 
 	static pGetFluff (cls) {
 		// Handle legacy/deprecated class fluff
-		// TODO(Future) remove this after ~July 2024
+		// TODO(Future) now explicitly removed from the schema; remove this after ~April 2027
 		if (cls.fluff instanceof Array) {
 			cls = {...cls};
 			cls.fluff = {entries: cls.fluff};
@@ -9814,15 +9895,15 @@ Renderer.cultboon = class {
 	/* -------------------------------------------- */
 
 	static getBoonRenderableEntriesMeta (ent) {
-		if (!ent.ability && !ent.signatureSpells) return null;
+		if (!ent.abilityEntry && !ent.signatureSpells) return null;
 
 		const benefits = {type: "list", style: "list-hang-notitle", items: []};
 
-		if (ent.ability) {
+		if (ent.abilityEntry) {
 			benefits.items.push({
 				type: "item",
 				name: "Ability Score Adjustment:",
-				entry: ent.ability ? ent.ability.entry : "None",
+				entry: ent.abilityEntry,
 			});
 		}
 
@@ -10065,12 +10146,12 @@ class _RenderCompactBestiaryImplBase {
 			return `<td colspan="2">
 				${Renderer.monster.getChallengeRatingPart(mon, {styleHint: this._style})}
 				${opts.isShowScalers && !opts.isScaledCr && Parser.isValidCr(mon.cr ? (mon.cr.cr || mon.cr) : null) ? `
-				<button title="Scale Creature By CR (Highly Experimental)" class="mon__btn-scale-cr ve-btn ve-btn-xs ve-btn-default no-print">
+				<button title="Scale Creature By CR (Highly Experimental; based on the &quot;Monster Statistics by Challenge Rating&quot; table in the Dungeon Master's Guide (2014), page 274)" class="mon__btn-scale-cr ve-btn ve-btn-xs ve-btn-default ve-print__hidden">
 					<span class="glyphicon glyphicon-signal"></span>
 				</button>
 				` : ""}
 				${opts.isScaledCr ? `
-				<button title="Reset CR Scaling" class="mon__btn-reset-cr ve-btn ve-btn-xs ve-btn-default no-print">
+				<button title="Reset CR Scaling" class="mon__btn-reset-cr ve-btn ve-btn-xs ve-btn-default ve-print__hidden">
 					<span class="glyphicon glyphicon-refresh"></span>
 				</button>
 				` : ""}
@@ -10964,7 +11045,7 @@ Renderer.monster = class {
 
 		return veE({
 			tag: "select",
-			clazz: "ve-input-xs ve-form-control form-control--minimal ve-w-initial ve-inline-block ve-popwindow__hidden no-print",
+			clazz: "ve-input-xs ve-form-control form-control--minimal ve-w-initial ve-inline-block ve-popwindow__hidden ve-print__hidden",
 			name: "mon__sel-summon-spell-level",
 			children: [
 				veE({tag: "option", val: "-1", txt: "\u2014"}),
@@ -10982,7 +11063,7 @@ Renderer.monster = class {
 
 		return veE({
 			tag: "select",
-			clazz: "ve-input-xs ve-form-control form-control--minimal ve-w-initial ve-inline-block ve-popwindow__hidden no-print",
+			clazz: "ve-input-xs ve-form-control form-control--minimal ve-w-initial ve-inline-block ve-popwindow__hidden ve-print__hidden",
 			name: "mon__sel-summon-class-level",
 			children: [
 				veE({tag: "option", val: "-1", txt: "\u2014"}),
@@ -12921,6 +13002,8 @@ Renderer.item = class {
 		Renderer.utils.initFullEntries_(item, {propEntries: "additionalEntries", propFullEntries: "_fullAdditionalEntries"});
 	}
 
+	/* -------------------------------------------- */
+
 	/**
 	 * @param baseItems
 	 * @param genericVariants
@@ -12950,6 +13033,8 @@ Renderer.item = class {
 		});
 		return genericAndSpecificVariants;
 	}
+
+	/* ----- */
 
 	/**
 	 * When creating specific variants, the application of "classic" and "one" editions
@@ -12985,35 +13070,62 @@ Renderer.item = class {
 		throw new Error(`Unhandled edition combination "${curBaseItem.edition}"/"${curGenericVariant.edition}" for base item "${curBaseItem.name}" and generic variant "${curGenericVariant.name}"!`);
 	}
 
+	/* ----- */
+
+	static _createSpecificVariants_isRequiresExcludesMatch_isMatching ({candidateVal, requirement, isEvery}) {
+		if (requirement instanceof Array) {
+			return candidateVal instanceof Array
+				? candidateVal.some(it => requirement.includes(it))
+				: requirement.includes(candidateVal);
+		}
+
+		// Recurse for e.g. `"customProperties": { ... }`
+		if (requirement != null && typeof requirement === "object") {
+			return this._createSpecificVariants_isRequiresExcludesMatch({
+				candidate: candidateVal,
+				requirements: requirement,
+				isEvery,
+			});
+		}
+
+		return candidateVal instanceof Array
+			? candidateVal.some(val => val === requirement)
+			: requirement === candidateVal;
+	}
+
+	static _createSpecificVariants_isRequiresExcludesMatch ({candidate, requirements, isEvery = false}) {
+		if (candidate == null || requirements == null) return false;
+
+		for (const reqKey in requirements) {
+			const isMatch = this._createSpecificVariants_isRequiresExcludesMatch_isMatching({
+				candidateVal: candidate[reqKey],
+				requirement: requirements[reqKey],
+				isEvery,
+			});
+
+			if (isEvery && !isMatch) return false;
+			if (!isEvery && isMatch) return true;
+		}
+
+		return isEvery;
+	}
+
 	static _createSpecificVariants_hasRequiredProperty (baseItem, genericVariant) {
-		return genericVariant.requires.some(req => Renderer.item._createSpecificVariants_isRequiresExcludesMatch(baseItem, req, "every"));
+		return genericVariant.requires.some(requirements => Renderer.item._createSpecificVariants_isRequiresExcludesMatch({
+			candidate: baseItem,
+			requirements,
+			isEvery: true,
+		}));
 	}
 
 	static _createSpecificVariants_hasExcludedProperty (baseItem, genericVariant) {
-		const curExcludes = genericVariant.excludes || {};
-		return Renderer.item._createSpecificVariants_isRequiresExcludesMatch(baseItem, genericVariant.excludes, "some");
-	}
-
-	static _createSpecificVariants_isRequiresExcludesMatch (candidate, requirements, method) {
-		if (candidate == null || requirements == null) return false;
-
-		return Object.entries(requirements)[method](([reqKey, reqVal]) => {
-			if (reqVal instanceof Array) {
-				return candidate[reqKey] instanceof Array
-					? candidate[reqKey].some(it => reqVal.includes(it))
-					: reqVal.includes(candidate[reqKey]);
-			}
-
-			// Recurse for e.g. `"customProperties": { ... }`
-			if (reqVal != null && typeof reqVal === "object") {
-				return Renderer.item._createSpecificVariants_isRequiresExcludesMatch(candidate[reqKey], reqVal, method);
-			}
-
-			return candidate[reqKey] instanceof Array
-				? candidate[reqKey].some(it => reqVal === it)
-				: reqVal === candidate[reqKey];
+		return Renderer.item._createSpecificVariants_isRequiresExcludesMatch({
+			candidate: baseItem,
+			requirements: genericVariant.excludes,
 		});
 	}
+
+	/* ----- */
 
 	/**
 	 * @param baseItem
@@ -15101,7 +15213,8 @@ Renderer.recipe = class {
 		if (ent.equipment) ent._fullEquipment = Renderer.applyAllProperties(MiscUtil.copyFast(ent.equipment));
 	}
 
-	static _RE_AMOUNT = /(?<tagAmount>{=amount\d+(?:\/[^}]+)?})/g;
+	static _RE_AMOUNT_SPLITTER = /(?<tagAmount>{=amount\d+(?:\/[^}]+)?})/g;
+	static _RE_AMOUNT = /(?<tagAmount>{=(?<propAmount>amount\d+)(?:\/[^}]+)?})/;
 	static _SCALED_PRECISION_LIMIT = 10 ** 6;
 	static getScaledRecipe (r, scaleFactor) {
 		const cpyR = MiscUtil.copyFast(r);
@@ -15133,28 +15246,26 @@ Renderer.recipe = class {
 								});
 
 							// region Attempt to singularize/pluralize units
-							const amountsOriginal = Object.keys(objOriginal).filter(k => /^amount\d+$/.test(k)).map(k => objOriginal[k]);
-							const amountsScaled = Object.keys(obj).filter(k => /^amount\d+$/.test(k)).map(k => obj[k]);
-
-							const entryParts = obj.entry.split(Renderer.recipe._RE_AMOUNT).filter(Boolean);
+							const entryParts = obj.entry.split(Renderer.recipe._RE_AMOUNT_SPLITTER).filter(Boolean);
 							const entryPartsOut = entryParts.slice(0, entryParts.findIndex(it => Renderer.recipe._RE_AMOUNT.test(it)) + 1);
-							let ixAmount = 0;
+							let propAmount = null;
 							for (let i = entryPartsOut.length; i < entryParts.length; ++i) {
 								let pt = entryParts[i];
 
-								if (Renderer.recipe._RE_AMOUNT.test(pt)) {
-									ixAmount++;
+								const mAmount = Renderer.recipe._RE_AMOUNT.exec(pt);
+								if (mAmount) {
+									propAmount = mAmount.groups.propAmount;
 									entryPartsOut.push(pt);
 									continue;
 								}
 
-								if (amountsOriginal[ixAmount] == null || amountsScaled[ixAmount] == null) {
+								if (objOriginal[propAmount] == null || obj[propAmount] == null) {
 									entryPartsOut.push(pt);
 									continue;
 								}
 
-								const isSingleToPlural = amountsOriginal[ixAmount] <= 1 && amountsScaled[ixAmount] > 1;
-								const isPluralToSingle = amountsOriginal[ixAmount] > 1 && amountsScaled[ixAmount] <= 1;
+								const isSingleToPlural = objOriginal[propAmount] <= 1 && obj[propAmount] > 1;
+								const isPluralToSingle = objOriginal[propAmount] > 1 && obj[propAmount] <= 1;
 
 								if (!isSingleToPlural && !isPluralToSingle) {
 									entryPartsOut.push(pt);
@@ -15193,6 +15304,7 @@ Renderer.recipe = class {
 
 	static _UNITS_SINGLE_TO_PLURAL_S = [
 		"bag",
+		"ball",
 		"bundle",
 		"can",
 		"cube",
@@ -15202,6 +15314,7 @@ Renderer.recipe = class {
 		"ounce",
 		"packet",
 		"piece",
+		"pint",
 		"pod",
 		"pound",
 		"sheet",
@@ -15280,8 +15393,10 @@ Renderer.recipe = class {
 		if (stack) parts.push(stack);
 		obj.entry = parts
 			.map(pt => pt.replace(Renderer.recipe._RE_AMOUNT, (...m) => {
-				const ixStart = m.slice(-3, -2)[0];
-				if (ixStart !== 0 || m[0].length !== pt.length) return m[0];
+				if (m[0].length !== pt.length) return m[0];
+
+				const propAmount = m.at(-1).propAmount;
+				if (obj[propAmount] === objOriginal[propAmount]) return m[0];
 
 				const originalValue = Renderer.applyProperties(m.last().tagAmount, objOriginal);
 				return `{@help ${m.last().tagAmount}|In the original recipe: ${originalValue}}`;

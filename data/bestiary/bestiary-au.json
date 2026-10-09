@@ -1,6 +1,6 @@
 {
 	"_meta": {
-		"referenceSources": {
+		"otherSources": {
 			"monster": {
 				"XMM": "AU"
 			}
@@ -204,6 +204,7 @@
 				"constitution",
 				"dexterity"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -287,6 +288,16 @@
 						"{@spell Mage Hand|XPHB}",
 						"{@spell Prestidigitation|XPHB}"
 					],
+					"daily": {
+						"2e": [
+							"{@spell Dimension Door|XPHB}",
+							"{@spell Scrying|XPHB}"
+						],
+						"1e": [
+							"{@spell Clone|XPHB}",
+							"{@spell Guards and Wards|XPHB}"
+						]
+					},
 					"ability": "int",
 					"displayAs": "action"
 				},
@@ -395,7 +406,8 @@
 				"R"
 			],
 			"damageTagsSpell": [
-				"L"
+				"L",
+				"O"
 			],
 			"spellcastingTags": [
 				"O"
@@ -419,6 +431,7 @@
 				"dexterity",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -521,6 +534,7 @@
 			"miscTags": [
 				"MA"
 			],
+			"hasToken": true,
 			"_versions": [
 				{
 					"name": "Battle Familiar (Brute)",
@@ -802,6 +816,7 @@
 				"constitution",
 				"dexterity"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -809,6 +824,9 @@
 			"name": "Darkenbeast",
 			"source": "AU",
 			"page": 142,
+			"referenceSources": [
+				"RWG"
+			],
 			"size": [
 				"M"
 			],
@@ -899,6 +917,7 @@
 			"miscTags": [
 				"MA"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -982,6 +1001,8 @@
 					]
 				}
 			],
+			"tokenCredit": "FluffyDragon101",
+			"tokenCustom": true,
 			"traitTags": [
 				"Siege Monster"
 			],
@@ -1001,6 +1022,7 @@
 				"prone",
 				"restrained"
 			],
+			"hasToken": true,
 			"_versions": [
 				{
 					"name": "Dinosaur Spirit (Ankylosaur)",
@@ -1269,6 +1291,7 @@
 				"constitution",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -1465,6 +1488,7 @@
 				"dexterity",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -1638,6 +1662,7 @@
 				"constitution",
 				"dexterity"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -1730,6 +1755,7 @@
 			"conditionInflict": [
 				"grappled"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -1839,6 +1865,7 @@
 			"conditionInflict": [
 				"grappled"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -1846,6 +1873,9 @@
 			"name": "Groundling Stalker",
 			"source": "AU",
 			"page": 144,
+			"referenceSources": [
+				"RWG"
+			],
 			"size": [
 				"M"
 			],
@@ -1934,6 +1964,7 @@
 			"conditionInflict": [
 				"grappled"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -2119,6 +2150,7 @@
 				"constitution",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -2202,6 +2234,8 @@
 			"environment": [
 				"any"
 			],
+			"tokenCredit": "scorpion0rk",
+			"tokenCustom": true,
 			"traitTags": [
 				"Amorphous",
 				"Magic Resistance"
@@ -2219,12 +2253,16 @@
 			"savingThrowForced": [
 				"constitution"
 			],
+			"hasToken": true,
 			"hasFluff": true
 		},
 		{
 			"name": "Living Thunderwave",
 			"source": "AU",
 			"page": 146,
+			"referenceSources": [
+				"RWG"
+			],
 			"size": [
 				"M"
 			],
@@ -2308,6 +2346,7 @@
 			"savingThrowForced": [
 				"constitution"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -2315,6 +2354,9 @@
 			"name": "Living Vitriolic Sphere",
 			"source": "AU",
 			"page": 146,
+			"referenceSources": [
+				"RWG"
+			],
 			"size": [
 				"L"
 			],
@@ -2391,6 +2433,8 @@
 			"environment": [
 				"any"
 			],
+			"tokenCredit": "Joe Hustak",
+			"tokenCustom": true,
 			"traitTags": [
 				"Amorphous",
 				"Magic Resistance"
@@ -2409,6 +2453,7 @@
 			"savingThrowForced": [
 				"dexterity"
 			],
+			"hasToken": true,
 			"hasFluff": true
 		},
 		{
@@ -2566,6 +2611,7 @@
 			"savingThrowForcedSpell": [
 				"constitution"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -2660,6 +2706,8 @@
 					]
 				}
 			],
+			"tokenCredit": "merillizaART",
+			"tokenCustom": true,
 			"traitTags": [
 				"Siege Monster"
 			],
@@ -2677,6 +2725,7 @@
 			"conditionInflict": [
 				"poisoned"
 			],
+			"hasToken": true,
 			"_versions": [
 				{
 					"name": "Plant Spirit (Fungus)",
@@ -2822,6 +2871,9 @@
 			"name": "Spellguard",
 			"source": "AU",
 			"page": 147,
+			"referenceSources": [
+				"RWG"
+			],
 			"size": [
 				"M"
 			],
@@ -2927,6 +2979,7 @@
 				"RA",
 				"THW"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -3125,6 +3178,7 @@
 				"intelligence",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -3301,6 +3355,7 @@
 				"dexterity",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
@@ -3542,12 +3597,14 @@
 				"strength",
 				"wisdom"
 			],
+			"hasToken": true,
 			"hasFluff": true,
 			"hasFluffImages": true
 		},
 		{
 			"name": "Vestige Companion",
 			"source": "AU",
+			"page": 14,
 			"summonedByClass": "Warlock|XPHB",
 			"size": [
 				"S"
@@ -3673,6 +3730,7 @@
 				"MA",
 				"RA"
 			],
+			"hasToken": true,
 			"_versions": [
 				{
 					"name": "Vestige Companion (Celestial)",
