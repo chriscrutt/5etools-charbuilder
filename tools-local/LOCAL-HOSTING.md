@@ -7,12 +7,12 @@ stock 5etools data — only the **serving and caching layer** is tuned here. Not
 ## TL;DR — start the site
 
 ```powershell
-# from c:\Users\Chris\Code\5etools-src
+# from the repo root
 npm run serve:dev            # stock dev server, http://localhost:5050/index.html
 ```
 
 For the tuned "fast" server (compression + long cache headers), see
-[Fast serving](#fast-serving) below.
+[Fast serving](#fast-serving-recommended) below.
 
 ## Why the live site felt slow (and why local is faster)
 
@@ -40,12 +40,9 @@ git clone --depth 1 --single-branch --branch main `
 ```
 
 `img/` maps 1:1 onto the paths the site requests (`img/book/PHB/1.webp`, etc.), so once
-present they load straight from disk. You can delete `img/.git` afterward to reclaim
-several GB of git metadata you don't need:
-
-```powershell
-Remove-Item -Recurse -Force img\.git
-```
+present they load straight from disk. **Keep `img/.git`**: `npm run local:sync` uses it to
+fast-forward the images when upstream publishes new ones (see `docs/UPKEEP.md`). Only
+delete it if you never want image updates.
 
 ## Fast serving (recommended)
 
@@ -92,18 +89,18 @@ cached on first access. To update content later, rebuild and hard-refresh
 
 ## Benchmark harness
 
-`../5etools-bench/bench.mjs` drives headless Edge over CDP and reports real page-load
-timings (DOMContentLoaded, content-rendered, network-idle, request count, wire vs raw
-bytes). Run:
+`tests/tools/bench.mjs` drives a headless Chrome/Edge over CDP (same harness as the tests,
+see `docs/TESTING.md`) and reports real page-load timings (DOMContentLoaded,
+content-rendered, network-idle, request count, wire vs raw bytes). Run:
 
 ```powershell
-node ../5etools-bench/bench.mjs http://localhost:5050 cold 3 "label"   # first-visit
-node ../5etools-bench/bench.mjs http://localhost:5050 warm 3 "label"   # repeat-visit
+node tools-local/tests/tools/bench.mjs http://localhost:5050 cold 3 "label"   # first-visit
+node tools-local/tests/tools/bench.mjs http://localhost:5050 warm 3 "label"   # repeat-visit
 ```
 
 ## Measured results
 
-Headless MS Edge, median of 3 runs, this machine. The metric is **time until the list
+Headless MS Edge, median of 3 runs, on the original author's Windows machine (mid-2026). The metric is **time until the list
 of entries is rendered** — what you actually wait for. Every config renders the *full*
 data set (bestiary 2268 rows, items 1822, spells 550); nothing is trimmed.
 

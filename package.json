@@ -49,6 +49,8 @@
 		"vtt": "node tools-local/vtt-server.mjs",
 		"local:precompress": "node tools-local/precompress.mjs",
 		"local:precompress:clean": "node tools-local/precompress.mjs --clean",
+		"local:sync": "node tools-local/sync.mjs",
+		"local:test": "node tools-local/tests/run.mjs",
 		"spellcheck:check-data": "node node/spellcheck.js",
 		"spellcheck:check-data:fast": "node node/spellcheck.js --fast",
 		"spellcheck:trust-data": "node node/spellcheck.js --trust",
