@@ -56,7 +56,7 @@ textual conflict can occur. Each is marked with a `fork:` comment where the form
 | `js/utils-config/utils-config-registry.js` | style switcher `default: SITE_STYLE__CLASSIC` | Take upstream's, re-apply the default. |
 | `js/omnisearch/omnisearch-backing.js` | non-classic results filter in `pGetFilteredResults` | Take upstream's, re-add the 3-line filter next to the `isShowUa`/`isShowLegacy` filters. |
 | `js/navigation.js` | two `_addElement_li` lines: Character Builder (Player menu), Tabletop (VTT) (DM menu) | Keep both. |
-| `package.json` | scripts `vtt`, `local:precompress`, `local:precompress:clean`, `local:sync`, `local:test` | Take upstream's version bump/deps, keep the fork scripts. Never hand-merge `package-lock.json`: take upstream's (`git checkout --theirs package-lock.json`) and run `npm install`. |
+| `package.json` | scripts `serve:fast`, `vtt`, `local:precompress`, `local:precompress:clean`, `local:sync`, `local:test` | Take upstream's version bump/deps, keep the fork scripts. Never hand-merge `package-lock.json`: take upstream's (`git checkout --theirs package-lock.json`) and run `npm install`. |
 | `.gitignore` | `.claude/` | Keep both. |
 
 So far (six syncs, v2.30 → v2.38) none of these has actually conflicted.
@@ -71,9 +71,9 @@ has happened twice:
   `e_`→`veE`, plus a new `veEm`). The fluent element methods also moved from the element itself
   (`ele.empty()`, `ele.onn()`, `ele.appendTo()`, `ele.val()`, `ele.find()`) into a namespace
   (`ele.vee.empty()`, …). The fork's UI calls the old flat form hundreds of times.
-- **v2.37 (Oct 2026)**: `ele.vee` became a lazily created class instance
-  (`ElementUtil._ElementUtilVee`) whose methods are non-enumerable prototype getters, so the
-  shim's way of discovering method names found nothing.
+- **v2.36 (Sept 2026; reached this fork in the Oct 2026 sync to v2.37.0)**: `ele.vee` became a
+  lazily created class instance (`ElementUtil._ElementUtilVee`) whose methods are non-enumerable
+  prototype getters, so the shim's way of discovering method names found nothing.
 
 **Fix pattern: adapt in `js/fork-compat.js`, never at the call sites.** That file is loaded right
 after `js/utils.js` on `charbuilder.html` and `vtt.html`. It aliases the old global names and
@@ -93,7 +93,8 @@ new shape.
 ## Images
 
 `img/` is a plain clone of `5etools-img`. Never commit to it; the sync only fast-forwards it. A
-shallow clone (`--depth 1`) is fine and saves several GB. It's about 6 GB either way, because
+shallow clone (`--depth 1`) is fine and skips the history, but it still takes **about 13 GB**:
+~6.5 GB of image files plus ~6.5 GB of git objects in `img/.git` (images don't compress), because
 5etools ships every book's art, tokens and maps. Without `img/` the site still works, but images
 404 (`site-media` fails and says so).
 
@@ -119,7 +120,9 @@ History is shared, so syncing continues normally.
   are currently commented out upstream. Keep **Actions disabled** in your repo settings unless
   you mean to use them. GitHub doesn't run workflows on forks until you enable them.
 - **Don't use upstream's `npm test` as your gate.** Its lint step flags the fork's files (about
-  900 style errors, never cleaned up), and its data tests are upstream's concern.
+  2,400 errors, never cleaned up: ~1,600 in `tools-local/`, mostly style, and ~850 in `js/`,
+  mostly `no-undef` for the old `ee`/`es` globals that `js/fork-compat.js` defines at runtime),
+  and its data tests are upstream's concern.
   `npm run local:test` is the fork's gate.
 - **Don't edit files in `img/`, or rewrite upstream history** (no rebasing the fork onto
   upstream). Merges keep future syncs simple.
@@ -129,7 +132,7 @@ History is shared, so syncing continues normally.
 ```bash
 git fetch upstream
 git log --oneline HEAD..upstream/main
-git diff HEAD...upstream/main -- js/utils.js | grep -E "_getOrModify_bindMethods|_ElementUtilVee|globalThis\.(ee|es|veT|veEs)"
+git diff HEAD...upstream/main -- js/utils.js | grep -E '^[-+].*(_getOrModify_bindMethods|_ElementUtilVee|defineProperty\(ele, "vee"|(window|globalThis)\.(ee|es|e_|veT|veEs|veE|veEm)\b)'
 git merge --no-edit upstream/main
 npm install                       # if package-lock.json changed
 git -C img pull --ff-only
@@ -141,7 +144,7 @@ npm run local:test
 | Date | Versions | Notes |
 | --- | --- | --- |
 | 2026-06-19 | v2.30.1 → v2.31.0 | Clean. |
-| 2026-06-29 | v2.31.0 → v2.32.1 | Clean, 139 files. |
+| 2026-07-22 | v2.31.0 → v2.32.1 | Clean, 139 files. |
 | 2026-08-03 | v2.32.1 → v2.33.3 | Textually clean; **broke the builder at runtime** (element-API rename). `js/fork-compat.js` created. |
 | 2026-09-17 | v2.33.3 → v2.35.1 | Clean; big content release (416 files, new books/adventures). |
 | 2026-10-08 | v2.35.1 → v2.37.0 | Clean; `vee` became a lazy class, so fork-compat updated. |

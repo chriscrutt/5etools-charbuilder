@@ -85,6 +85,10 @@ const pWaitUp = async (url, ms = 30_000) => {
 	return false;
 };
 
+// Browsers (and Node's fetch) refuse some ports outright, e.g. 5060/5061 (SIP), 6000, 6665-6669.
+try { await fetch(`${BASE}/`, {signal: AbortSignal.timeout(3000)}); } catch (e) {
+	if (/bad port/i.test(`${e.cause?.message || e.message}`)) { console.error(`Port ${new URL(BASE).port} is on the browsers' blocked-port list; use another (e.g. 5050, 5051, 5070).`); process.exit(1); }
+}
 if (!(await pIsUp(`${BASE}/index.html`))) {
 	const u = new URL(BASE);
 	if (!["localhost", "127.0.0.1"].includes(u.hostname)) { console.error(`Site not reachable at ${BASE}`); process.exit(1); }

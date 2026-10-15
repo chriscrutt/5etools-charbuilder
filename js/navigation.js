@@ -92,7 +92,7 @@ class NavBar {
 		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charcreationoptions.html", aText: "Other Character Creation Options"});
 		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "optionalfeatures.html", aText: "Other Options & Features"});
 		this._addElement_divider({keyPath: [NavBar._CAT_PLAYER]});
-		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charbuilder.html", aText: "Character Builder"});
+		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "charbuilder.html", aText: "Character Builder"}); // fork: Character Builder
 		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "statgen.html", aText: "Stat Generator"});
 		this._addElement_divider({keyPath: [NavBar._CAT_PLAYER]});
 		this._addElement_li({keyPath: [NavBar._CAT_PLAYER], page: "lifegen.html", aText: "This Is Your Life"});
@@ -100,7 +100,7 @@ class NavBar {
 
 		this._addElement_dropdown({category: NavBar._CAT_DUNGEON_MASTER});
 		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "dmscreen.html", aText: "DM Screen"});
-		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "vtt.html", aText: "Tabletop (VTT)"});
+		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER], page: "vtt.html", aText: "Tabletop (VTT)"}); // fork: Tabletop (VTT)
 		this._addElement_divider({keyPath: [NavBar._CAT_DUNGEON_MASTER]});
 		this._addElement_dropdown({keyPath: [NavBar._CAT_DUNGEON_MASTER], category: NavBar._CAT_ADVENTURES, isSide: true, page: "adventures.html"});
 		this._addElement_li({keyPath: [NavBar._CAT_DUNGEON_MASTER, NavBar._CAT_ADVENTURES], page: "adventures.html", aText: "View All/Homebrew"});

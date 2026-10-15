@@ -3,7 +3,9 @@
 ## Requirements
 
 - **Node.js 24+** (upstream's `package.json` requires it) and **Git**.
-- **About 7 GB of disk**: about 6 GB for the images, about 1 GB for the site and `node_modules`.
+- **About 14 GB of disk**: about 13 GB for the images (even a `--depth 1` clone holds ~6.5 GB of
+  image files plus a ~6.5 GB packed copy in `img/.git`; images don't compress), and about 1 GB for
+  the site, its git history and `node_modules`.
 - **Chrome, Edge, Chromium or Brave** for the tests (any OS). Set `CHROME_PATH` if it's
   installed somewhere unusual.
 

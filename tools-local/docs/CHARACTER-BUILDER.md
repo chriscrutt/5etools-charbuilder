@@ -29,38 +29,55 @@ CharState(data)                  rules engine: plain state fields + derived-stat
         │                        No DOM, no storage, no rendering. Pure logic over `data`.
         ▼
 CharBuilderUi({data, state, eleRoot, fnSave})
-                                 renders everything; on any change: mutate state → render() → _save()
+                                 renders everything; most changes: mutate state → render() → _save()
 ```
 
 - **Boot** (`CharBuilderPage.pInit`, bottom of `js/charbuilder.js`): initialises prerelease/
   homebrew and the blocklist, loads all data in parallel, builds indexes, restores the autosave,
   constructs the UI, then dispatches the `toolsLoaded` event.
-- **Rendering** is immediate-mode: `CharBuilderUi.render()` empties the root and rebuilds the
-  current view (the step, review sheet, play mode, sidekick builder, or Sources panel). There's no
-  virtual DOM and no partial updates. Event handlers mutate `this._state`, then call `render()`
-  and `_save()`.
+- **Rendering** is mostly immediate-mode: `CharBuilderUi.render()` empties the root and rebuilds
+  the current view (the step, review sheet, play mode, sidekick builder, or Sources panel), with no
+  virtual DOM. Most handlers mutate `this._state`, then call `render()` and `_save()`. The
+  exceptions update their own bit of DOM in place and call only `_save()`:
+  - the chip pickers (`_renderChipPicker`): skill, expertise, tool, language and weapon picks,
+    racial ability "choose N", feat choices, granted-spell picks and fighting styles;
+  - the list choosers without an `onAfterSelect` (race, background, sidekick creature);
+  - the class spell picker (`_renderSpellPicker`) and the inventory list (`_renderInvList`);
+  - the starting-equipment radios and the name field.
+
+  Anything else that depends on those choices refreshes only on the next full `render()`. For
+  example, the Expertise picker doesn't update after a class-skill pick.
 - **Persistence**: `_save()` calls `fnSave` (page-scoped autosave) and debounces a shared
   snapshot for the VTT (`_pUpdateCurrentSnapshot`).
 
 ### The `data` object
 
-Built once in `pInit`. Everything is already filtered through `ExcludeUtil.isExcluded`, so the
-site blocklist **and the 2014-only mode** ([EDITION-2014.md](EDITION-2014.md)) apply before the
-builder sees anything.
+Built once in `pInit`. Races, backgrounds, feats, classes, spells, items, optional features and
+the bestiary are filtered through `ExcludeUtil.isExcluded`, so the site blocklist **and the
+2014-only mode** ([EDITION-2014.md](EDITION-2014.md)) apply before the builder sees them.
+**Subclasses are the exception.** `classData.subclasses` is unfiltered, so blocklisted subclasses
+still appear in the subclass picker, and the 2024+ subclasses (XPHB, FRHoF, …) are present in
+2014-only mode. They stay out of the pickers only because `subclassesForClass()` needs their
+(filtered) parent class, but `allSources()` still lists their sources in the Sources panel.
 
 | Key | Contents / how it's loaded |
 | --- | --- |
 | `races`, `backgrounds`, `feats` | `DataLoader.pCacheAndGetAllSite/Prerelease/Brew`. Races and backgrounds are migrated for the current style via `UtilsEntityRace/UtilsEntityBackground.mutMigrateForVersion`. |
-| `classData` | `DataUtil.class.loadJSON()` → `{classes, sidekickClasses, subclasses, classFeature, subclassFeature}`. Class/subclass features arrive **already dereferenced and grouped by level** (`cls.classFeatures[level-1]`). Spell slots are in `classTableGroups[*].rowsSpellProgression`. The three `isSidekick` TCE classes are split out into `sidekickClasses`. |
-| `spells` | **Must** come from `DataUtil.spell.loadJSON()`. Only that path merges class membership from `data/generated/gendata-spell-source-lookup.json`, and supplement spells (e.g. XGE's Chaos Bolt for Sorcerer) live there as *variant* entries on `spell.classes.fromClassListVariant`, not `fromClassList`. If this regresses, a Wild Magic Sorcerer's list drops from about 383 spells to about 157 PHB-only ones (test: `builder-spell-lists`). |
+| `classData` | `DataUtil.class.loadJSON()` (returns `{class, subclass}`), reshaped by `_pLoadClasses()` into `{classes, sidekickClasses, subclasses}`. Its `classFeature`/`subclassFeature` keys are always empty arrays; features live inside each class and subclass, **already dereferenced and grouped by level**. `cls.classFeatures[level-1]` is the level-N group, but `sc.subclassFeatures` is compact (one group per level that has features), so use each feature's `.level` there. Spell slots are in `classTableGroups[*].rowsSpellProgression`. The three `isSidekick` TCE classes are split out into `sidekickClasses`. |
+| `spells` | `DataUtil.spell.loadJSON()` (plus prerelease/homebrew via `DataLoader`). The spell files carry no class lists; the loader merges them in from `data/generated/gendata-spell-source-lookup.json` (`DataLoader`'s site path uses the same loader). Supplement spells (e.g. XGE's Chaos Bolt for Sorcerer) arrive as *variant* entries on `spell.classes.fromClassListVariant`, not `fromClassList`, so **every class-list check must read both** (`CharState._spellClassNames` / `_spellInClass`). If that regresses, a Wild Magic Sorcerer's list (Classic mode) drops from about 224 spells to about 142 and loses Chaos Bolt (test: `builder-spell-lists`). |
 | `items`, `armors`, `itemIndex`, `itemIndexByName` | `DataUtil.item.loadJSON()`. `armors` = all armor and shields, including magic ones, with no name de-duplication so worn gear resolves by exact uid. |
 | `spellIndexByName` | First spell per lower-cased name. |
 | `optionalFeatures`, `fightingStyles` | `data/optionalfeatures.json`; fighting styles are the `FS:*` feature types. |
 | `bestiary` | Creatures eligible to be sidekicks: CR ≤ ½ **or unknown CR** (unknown shows as "CR ?"). |
 | `styleHint` | The site style at load (`"classic"` or `"one"`). |
 
-**UIDs**: every entity reference in state is `"<name>|<source>"` (`CW.uid(ent)`), for example
-`"Wizard|PHB"` or `"Elf (High)|PHB"`.
+**UIDs**: most entity references in state are `"<name>|<source>"` (`CW.uid(ent)`), for example
+`"Wizard|PHB"` or `"Elf (High)|PHB"`. That covers race, background, classes and subclasses, feats,
+class spell picks (`spellChoices`), `mysticArcanum`, fighting styles, armor, shield, attuned and
+inventory items, and the sidekick's creature, class and spells. **Exceptions**: `raceSpellChoices`,
+`subclassSpellChoices`, `bgSpellChoices` and a feat choice's `featSpellChoose` store bare spell
+names, resolved with `_spellByName()` (the first spell of that name). `profChoices` and the feat
+proficiency picks (`featToolChoose`, `featLangChoose`, `featWeaponChoose`) store plain option names.
 
 ## CharState: the rules engine
 
@@ -70,19 +87,21 @@ grouped roughly as follows:
 
 - **Build identity**: `raceEnt`, `backgroundEnt`, `classList()`, `primaryClass`, `classEnt`, `subclassEnt`, `totalLevel`, `isMulticlassed()`, `subclassesForClass()`, `canMulticlassInto()`, `multiclassRequirement()`.
 - **Abilities**: `finalAbility(abv)`, `abilityMod(abv)`, `pointBuySpent()`, `racialBonuses()`, `backgroundBonuses()`, `asiBonuses()`, `asiSlots()`; item set/bonus effects such as the Amulet of Health are folded in.
-- **Proficiencies**: `saveProfs()`, `skillProfs()`, `skillProfType()` (none/half/prof/expertise), `skillMod()`, `saveMod()`, `armorProficiencies()`, `weaponProficiencies()`, `fixedTools()`/`chosenTools()`, `languages()`, `proficiencyChoiceGroups()` (drives every "choose N" picker).
+- **Proficiencies**: `saveProfs()`, `skillProfs()`, `skillProfType()` (`"none"`/`"half"`/`"full"`/`"expertise"`), `skillMod()`, `saveMod()`, `armorProficiencies()`, `weaponProficiencies()`, `fixedTools()`/`chosenTools()`, `languages()`, `proficiencyChoiceGroups()` (race/background language, skill and weapon "choose N" groups, tool choices and a secondary class's `proficienciesGained`, stored in `profChoices`; class skill picks use `classSkillChoiceMeta()` → `classSkillChoices`, and feat proficiency picks live on the feat's choice object as `featSkillChoose`/`featToolChoose`/…).
 - **Combat**: `maxHp()`, `hitDiceString()`, `ac()` / `acBreakdown()`, `initiative()`, `speedString()`, `numAttacks()`, `weaponAttack(item)` (to-hit, damage, magic and fighting-style breakdown), `weaponExtraDamage()` (riders such as Flame Tongue, parsed from `{@damage}` tags in item text), `defenses()`, `senses()`, `passivePerception()`.
 - **Items**: `addToInventory()`, `equippedItems()`, `equippedItemEffects()`, attunement (`attuneMax()`, `setAttuned()`). All magic effects are gated by attunement, so an unattuned item gives only its nonmagical benefits.
 - **Feats**: `featsTaken()` (ASI, racial and background feats together), `meetsFeatPrereq()`, and per-grant aggregators (`featArmorProfs`, `featSkillProfs`, `featResist`, …).
-- **Spells**: `spellSources()` (each caster class, or caster subclass such as Eldritch Knight), `spellSlots()` (single class uses its own table; 2+ casters use the multiclass table `_MC_SLOTS`), `pactSlots()`, `spellListForSource()`, `spellSaveDcFor()`, `spellAtkBonusFor()`, plus every granted-spell source. The shared parser `_parseAdditionalSpellGroup` handles `additionalSpells` from race, subclass, background, feat and item.
+- **Spells**: `spellSources()` (each caster class, or caster subclass such as Eldritch Knight), `spellSlots()` (single class uses its own table; 2+ casters use the multiclass table `_MC_SLOTS`), `pactSlots()`, `spellListForSource()`, `spellSaveDcFor()`, `spellAtkBonusFor()`, plus every granted-spell source. The shared parser `_parseAdditionalSpellGroup` handles `additionalSpells` from race, subclass, background and feat. Item-granted spells come from the item's `attachedSpells` (`_flattenAttachedSpells()`, surfaced via `equippedItemEffects()`).
 - **Validation**: `validationIssues()` → `[{step, severity, title, message}]`. It re-checks feat prerequisites, multiclass requirements and the level cap after edits that don't auto-clear choices.
 - **Play mode** (runtime state in `this.play`): `playMaxHp()`, `applyDamage()` (temp HP first), `applyHealing()`, `setTempHp()`, slot and pact expend/restore, `shortRest()`, `longRest()`, `spendHitDie()`, `addCondition()`, `castSpell()`, `playSpellbook()`, `spellRollInfo()`, `turnOptions()`, and the effects engine (`activeEffects()`, `playAc()`, `playWalkSpeed()`, `playDamageRiders()`, `effectAdv()`, … driven by `EFFECT_DEFS`).
 - **Sidekick mode** (`this.mode === "sidekick"`, state in `this.sidekick`): parallel `sidekick*` derivations and `sk*` play methods.
 
-Its only outside dependencies are `CW` and a handful of read-only 5etools helpers:
+Its only outside dependencies are `CW`, the module constants `EFFECT_DEFS`, `SIDEKICK_META` and the
+non-exported `SIDEKICK_SIZE_DIE` (all in `js/charbuilder.js`), and a handful of read-only 5etools helpers:
 `SortUtil.ascSortLower`, `Parser.sourceJsonToFull`, `Parser.sizeAbvToFull`, `Parser.LANGUAGES_*`,
 `Parser.SKILL_TO_ATB_ABV` (via `CW`), `SourceUtil.isClassicSource`, `SourceUtil.getFilterGroup`, and
-`String.prototype.toTitleCase` (a 5etools extension). This matters if you want to reuse the engine
+`String.prototype.toTitleCase` (a 5etools extension). `SourceUtil.getFilterGroup` also expects the
+`FilterItem` class (from `js/filter.js`) to exist. This matters if you want to reuse the engine
 elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
 
 ### Rules worth knowing (implemented, tested)
@@ -91,7 +110,8 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   mod per level and feature/feat bonuses (Tough, Dwarven Toughness, Draconic Resilience).
 - **Multiclassing**: saves and class skill choices come from the first class only. Each later
   class adds `multiclassing.proficienciesGained` (skills, tools, armor). ASI slots are keyed
-  `"<classUid>@<classLevel>"`. Spells are chosen per class in `spellChoices[classUid]`. Warlock
+  `"<classUid>@<classLevel>"`. Spells are chosen per spell source in `spellChoices[sourceUid]`: the class uid, or the subclass
+  uid for a subclass caster (an Eldritch Knight's picks are under `"Eldritch Knight|PHB"`). Warlock
   Pact Magic is separate (`pactSlots()`, parsed from the class table columns).
 - **AC**: armor-aware, covering unarmored defense (Barbarian/Monk/Draconic), shields, natural
   armor, magic `bonusAc`, Bracers only when unarmored, Defense fighting style, and proficiency
@@ -101,13 +121,15 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   engine parses them heuristically. Subclass sub-features are often **nested inside a wrapper
   feature** (for example "Knowledge Domain" wraps "Blessings of Knowledge"), so match them by
   scanning `JSON.stringify(feature.entries)`, not `feature.name`.
-- **`additionalSpells` keys**: `"_"` means "always, no level gate"; numeric keys gate by
-  character level. Multiple groups in a race's `additionalSpells` are *alternatives* (pick one,
+- **`additionalSpells` keys**: `"_"` means "always, no level gate"; numeric keys gate by level:
+  character level for race, background and feat grants, and that class's level for subclass grants
+  (e.g. domain spells by Cleric level). Multiple groups in a race's `additionalSpells` are *alternatives* (pick one,
   `raceSpellGroup`), not cumulative.
 - **Sidekicks (TCE)**: built from a creature stat block. HP = stat-block average + (hit-die
   average + Con) per level after 1st, with the die taken from the stat block's formula. Proficiency
-  bonus rises with level, so every `{@hit}`/`{@dc}` in the stat block is bumped by
-  `sidekickPbDelta()` via `sidekickAdjustEntries()`. Warrior/Expert/Spellcaster class features
+  bonus rises with level, so `sidekickAdjustEntries()` bumps every `{@dc}` in the stat block by
+  `sidekickPbDelta()` and every `{@hit}` by `sidekickAttackBonus()` (the PB increase, plus +2 for the
+  Warrior's Attacker role). Warrior/Expert/Spellcaster class features
   (Martial Role, Improved Critical, Extra Attack, Second Wind, Indomitable, spell roles) are
   modeled. The full rules text is in `data/variantrules.json` (`Sidekicks|TCE`).
 
@@ -115,8 +137,9 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
 
 - Optional-feature pickers that don't change sheet numbers are not modeled (Eldritch
   Invocations, Metamagic, Artificer Infusions, Pact Boon).
-- Most conditional subclass resistances aren't applied. The text-based advantage parser misses
-  combined sentences (e.g. Sentinel's Perception advantage).
+- Most conditional subclass resistances aren't applied. The text-based advantage parser skips any
+  sentence that mentions advantage on initiative, so it misses other advantages in the same sentence
+  (e.g. the Sentinel Shield's Perception advantage).
 - Sidekick buffs/debuffs are tracked by name only; the effects engine applies to the PC.
 - "On Your Turn" action-economy is a heuristic scan of feature text (bonus action / reaction
   wording), and the UI says to double-check it.
@@ -133,7 +156,7 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   Export, Import, Print, My Characters (roster).
 - **Play mode** (`_renderPlayMode`): HP bar with damage/heal/temp, death saves, hit dice, short and
   long rests, spell-slot pips, a spellbook with cast/attack/damage buttons (cantrips scale by
-  caster level, and Chaos Bolt gets a damage-type roll), concentration with a Con-save prompt,
+  character level, `totalLevel`, or a sidekick's level; Chaos Bolt gets a damage-type roll), concentration with a Con-save prompt,
   conditions, exhaustion (2014 cumulative rules), buff/debuff chips (Bless, Rage, Haste, … with
   real mechanical effects from `EFFECT_DEFS`), click-to-roll abilities/saves/skills/initiative,
   attacks with riders, and an "On Your Turn" reference.
@@ -165,10 +188,12 @@ so other pages can show a character without loading the rules engine.
 
 **`toJson()` (version `_v: 2`)** is the complete character: `name, classes[{uid, level, subclassUid}],
 raceUid, backgroundUid, abilityMethod, abilitiesBase, race/background ability choices,
-classSkillChoices, expertiseChoices, profChoices, equipmentChoices, spellChoices{classUid:{cantrips,leveled}},
-race/subclass/background spell choices, asiChoices{"classUid@level": …}, raceFeat, bgFeat,
-fightingStyles, armorUid, shieldUid, attunedUids, inventory[{uid,name,qty,equipped}], play{…},
-mode ("pc"|"sidekick"), sidekick{…}, hiddenSources, hideLegacy`. `fromJson()` migrates v1 saves
+raceResistChoice, sizeChoice, classSkillChoices, expertiseChoices, profChoices, equipmentChoices,
+spellChoices{sourceUid:{cantrips,leveled}}, race/subclass/background spell choices,
+raceSpellAbility, raceSpellGroup, mysticArcanum{spellLevel:"name|source"},
+asiChoices{"classUid@level": …}, raceFeat, bgFeat, fightingStyles, armorUid, shieldUid,
+attunedUids, inventory[{uid,name,qty,equipped,choiceCategory?}], play{…}, mode ("pc"|"sidekick"),
+sidekick{…}, hiddenSources, hideLegacy`. `fromJson()` migrates v1 saves
 (single class, numeric ASI keys, flat spell choices, boolean shield, old sidekick spell ability).
 **It stores choices, not results.** Derived numbers (AC, HP, modifiers) are recomputed from the
 data on load. That keeps saves small, but anything reading a save needs the rules engine and the

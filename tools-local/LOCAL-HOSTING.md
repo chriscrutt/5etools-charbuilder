@@ -1,8 +1,9 @@
 # 5etools — Local Hosting & Performance Notes
 
-A personal, offline, fast-hosted copy of 5etools. All content and formatting are the
-stock 5etools data — only the **serving and caching layer** is tuned here. Nothing in
-`data/` is modified.
+A personal, offline, fast-hosted copy of 5etools. Nothing in `data/` is modified, and this
+note covers only the **serving and caching layer**. (The fork does change what the site
+shows: Classic style is the default and hides 2024+ content site-wide; see
+`docs/EDITION-2014.md`.)
 
 ## TL;DR — start the site
 
@@ -39,10 +40,11 @@ git clone --depth 1 --single-branch --branch main `
   https://github.com/5etools-mirror-3/5etools-img.git img
 ```
 
-`img/` maps 1:1 onto the paths the site requests (`img/book/PHB/1.webp`, etc.), so once
-present they load straight from disk. **Keep `img/.git`**: `npm run local:sync` uses it to
-fast-forward the images when upstream publishes new ones (see `docs/UPKEEP.md`). Only
-delete it if you never want image updates.
+`img/` maps 1:1 onto the paths the site requests (`img/bestiary/tokens/MM/Goblin.webp`,
+`img/book/PHB/c101.webp`, etc.), so once present they load straight from disk. **Keep
+`img/.git`**: `npm run local:sync` uses it to fast-forward the images when upstream publishes
+new ones (see `docs/UPKEEP.md`), and the test suite's `site-media` check fails without it.
+Budget about 13 GB: even a `--depth 1` clone keeps a packed copy of every image in `.git`.
 
 ## Fast serving (recommended)
 
@@ -54,8 +56,12 @@ The only meaningful difference from `serve:dev` is **cache headers**: `serve:dev
 `-c-1` (re-download everything every visit), whereas `serve:fast` lets the browser cache
 files, so repeat visits transfer **0 bytes**. See [measured results](#measured-results).
 
-> If you edit data files, the 1-year cache can serve stale copies — hard-refresh with
-> **Ctrl+Shift+R** to bypass it.
+> If you edit files, the 1-year cache can serve stale copies — hard-refresh with
+> **Ctrl+Shift+R** to bypass it. If you've run `npm run local:precompress`, also re-run it
+> after editing and after every `npm run local:sync` (which reminds you), or remove the
+> outputs with `npm run local:precompress:clean`. `serve:fast` serves an existing `.br`/`.gz`
+> in place of the file without checking which is newer, so a hard refresh alone still gets
+> the old content.
 
 ### Optional: compression (only if serving to other devices)
 

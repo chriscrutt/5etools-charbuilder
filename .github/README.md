@@ -7,12 +7,12 @@ sync with upstream and adds:
   1-20, multiclassing, feats, spells from every source, gear, and magic items with attunement.
   It has a **play mode** for running the character at the table (HP, slots, rests, conditions,
   buffs, one-click rolls), **Tasha's sidekicks**, and a **My Characters** roster.
-- **Tabletop (VTT)** (`vtt.html`): maps (including every map from the books), grid, tokens with
+- **Tabletop (VTT)** (`vtt.html`): maps (including the 2014-era books' own maps), grid, tokens with
   monster art and stat blocks, initiative, fog of war, AoE templates, an encounter builder and
   generator, handouts, and LAN multiplayer through a zero-dependency relay. Characters from the
   builder import as tokens.
-- **2014-only mode**: Classic style by default, with all 2024+ content hidden site-wide.
-  Switch Settings → Style to Modern to bring it back.
+- **2014-only mode**: Classic style by default, which hides everything released from the 2024 PHB
+  onward, site-wide. Switch Settings → Preferences → Style to Modern to bring it back.
 - **Upkeep tooling**: `npm run local:sync` pulls new 5etools releases (site and images), and
   `npm run local:test` runs a browser test suite over the builder, VTT and edition mode.
 
@@ -21,7 +21,7 @@ sync with upstream and adds:
 ```bash
 git clone <this repo or your fork> 5etools && cd 5etools
 git remote add upstream https://github.com/5etools-mirror-3/5etools-src.git
-git clone --depth 1 https://github.com/5etools-mirror-3/5etools-img.git img   # images, ~6 GB
+git clone --depth 1 https://github.com/5etools-mirror-3/5etools-img.git img   # images, ~13 GB on disk
 npm install
 npm run serve:fast          # http://localhost:5050/charbuilder.html
 npm run local:test          # check everything works

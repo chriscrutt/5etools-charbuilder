@@ -5,7 +5,7 @@ This repo is a **personal fork of 5etools** (the client-side D&D 5e reference si
 
 - **Character Builder** (`charbuilder.html`): creation, leveling 1-20, multiclassing, play mode, sidekicks, saved roster.
 - **Tabletop / VTT** (`vtt.html`): maps, tokens, initiative, fog, encounters, LAN multiplayer via a tiny relay.
-- **2014-only mode**: Classic style is the default and hides all 2024+ content site-wide.
+- **2014-only mode**: Classic style is the default and hides everything released from the 2024 PHB onward, site-wide.
 - **Upkeep tooling**: one-command upstream sync and a browser test suite.
 
 Everything else is stock 5etools. Upstream owns `data/`, most of `js/`, `css/`, `node/` and
@@ -58,16 +58,19 @@ node tools-local/tests/tools/diag.mjs charbuilder.html   # page errors / failed 
 `CLAUDE.md`, `.github/README.md`, `charbuilder.html`, `js/charbuilder.js`, `js/charbuilder/`,
 `css/charbuilder.css`, `vtt.html`, `js/vtt.js`, `js/vtt-net.js`, `css/vtt.css`,
 `js/fork-compat.js`, `tools-local/` (sync script, VTT relay, precompress, tests, docs).
-Small marked edits in upstream files: `js/utils.js`, `js/parser.js`,
-`js/utils-config/utils-config-registry.js`, `js/omnisearch/omnisearch-backing.js`,
-`js/navigation.js`, `package.json` (scripts), `.gitignore`.
+Small edits in upstream files, each marked `fork:` where the format allows: `js/utils.js`,
+`js/parser.js`, `js/utils-config/utils-config-registry.js`, `js/omnisearch/omnisearch-backing.js`,
+`js/navigation.js`, `.gitignore`, and `package.json` (scripts `serve:fast`, `vtt`, `local:*`; JSON
+can't hold the marker).
 
 ## Gotchas that have bitten before
 
-- Builder spells **must** load via `DataUtil.spell.loadJSON()`, not `DataLoader`, or supplement
-  spells silently vanish from class lists (they're `fromClassListVariant`).
-- Entity references are `"name|source"` uids (`CW.uid`). Saves store choices, not computed
-  stats.
+- Builder spell lists **must** check both `spell.classes.fromClassList` and `fromClassListVariant`
+  (use `CharState._spellClassNames`/`_spellInClass`), or supplement spells such as XGE's Chaos Bolt
+  silently vanish from class lists. The loader merges both lists in from
+  `gendata-spell-source-lookup.json`; the raw spell files carry none.
+- Entity references are mostly `"name|source"` uids (`CW.uid`), but granted-spell picks store bare
+  spell names and `profChoices` stores plain option names. Saves store choices, not computed stats.
 - Subclass sub-features are often nested in a wrapper feature: match on
   `JSON.stringify(f.entries)`, not `f.name`.
 - In tests, always `page.setCacheEnabled(false)`, set the style with

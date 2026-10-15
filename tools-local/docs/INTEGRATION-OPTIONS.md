@@ -12,7 +12,7 @@ were measured on v2.38.0.
 | Layer | Size | Coupling to 5etools |
 | --- | --- | --- |
 | **Data loading** (`CharBuilderPage` in `js/charbuilder.js`) | ~150 lines | **Heavy.** Uses 5etools loaders that do real work: class/subclass features dereferenced and grouped by level, spell↔class lists merged from a generated lookup, races/backgrounds migrated per edition, homebrew/prerelease merged, blocklist and 2014 filtering. Produces one `data` object, about **20 MB of JSON** in 2014 mode (items 13.6 MB, classes 2 MB, monsters 1.5 MB, spells 1.4 MB). |
-| **Rules engine** (`CharState` in `js/charbuilder.js`) | ~2,250 lines, ~300 public methods | **Light.** No DOM, storage, network or rendering; pure logic over `data`. Needs `CW` (same file) and a few read-only helpers: `SortUtil.ascSortLower`, `Parser.sourceJsonToFull`, `Parser.sizeAbvToFull`, `Parser.LANGUAGES_*`, `Parser.SKILL_TO_ATB_ABV`, `SourceUtil.isClassicSource`, `SourceUtil.getFilterGroup`, `String#toTitleCase`. Covered by the test suite. |
+| **Rules engine** (`CharState` in `js/charbuilder.js`) | ~2,250 lines, ~300 public methods | **Light.** No DOM, storage, network or rendering; pure logic over `data`. Needs `CW`, `EFFECT_DEFS`, `SIDEKICK_META` and `SIDEKICK_SIZE_DIE` (same file) and a few read-only helpers: `SortUtil.ascSortLower`, `Parser.sourceJsonToFull`, `Parser.sizeAbvToFull`, `Parser.LANGUAGES_*`, `Parser.SKILL_TO_ATB_ABV`, `SourceUtil.isClassicSource`, `SourceUtil.getFilterGroup` (which expects a `FilterItem` class), `String#toTitleCase`. Covered by the test suite. |
 | **UI** (`CharBuilderUi` in `js/charbuilder/cb-ui.js`, `css/charbuilder.css`) | ~2,800 lines JS + ~100 lines CSS | **Heavy.** Built on the 5etools UI kit: tagged-template element builder, ~1,100 uses of `ve-*` utility classes, 46 `cb__*` classes, ~180 inline `style=` attributes, **no CSS custom properties**, plus 5etools modals, toasts, hover links (`Renderer`), the dice roller and `StorageUtil`. It looks like 5etools because it *is* 5etools UI. |
 
 Two more facts that matter:
@@ -50,8 +50,11 @@ Your sheet is its own app (any stack). People build characters here, then your a
 
 - **Transport**: the export file (`{"fileType": "charbuilder", "siteVersion": …, ...toJson()}`).
   Or, if both apps are served from the **same origin**, shared IndexedDB: localforage database
-  `localforage`, store `keyvaluepairs`, keys `charbuilder_roster` and `charbuilder_current`.
-  Different origins can't share storage; you'd need files, `postMessage`, or a small backend.
+  `localforage`, store `keyvaluepairs`, key `charbuilder_roster` (an array of
+  `{id, json, summary, savedAt}`, where `json` is `toJson()`). `charbuilder_current` holds only
+  `{summary, rosterId, savedAt}` for the character being edited; its full `toJson()` is under
+  `charbuilder_state_charbuilder.html`. Export files carry `toJson()` but no `summary`. Different
+  origins can't share storage; you'd need files, `postMessage`, or a small backend.
 - **The catch**: because saves hold choices, not results, your app can't show AC, spell DCs,
   attacks or feature text from an export without the engine. The practical fix is a **computed
   export**. For example, add a `CharState.toSheetJson()` that writes out what the review sheet and
@@ -69,10 +72,13 @@ Your sheet is its own app (any stack). People build characters here, then your a
 
 Use `CharState` as the brains of your app with your own UI.
 
-- **Engine**: move `CharState`, `CW`, `SIDEKICK_META` and `EFFECT_DEFS` into their own module.
-  Today `js/charbuilder.js` also runs the page boot code when imported, so it needs to be split.
-  Then provide the helpers listed above, either with a small shim or by loading 5etools'
-  `js/parser.js` + `js/utils.js`.
+- **Engine**: move `CharState`, `CW`, `SIDEKICK_META`, `SIDEKICK_SIZE_DIE` and `EFFECT_DEFS`
+  (everything in `js/charbuilder.js` before `CharBuilderPage`) into their own module. Today
+  `js/charbuilder.js` also runs the page boot code when imported, so it needs to be split. Then
+  provide the helpers listed above, either with a small shim or by loading 5etools'
+  `js/parser.js` + `js/utils.js` and defining `globalThis.FilterItem = class {}` (or loading
+  `js/filter.js`). `SourceUtil.getFilterGroup` checks `instanceof FilterItem`, so without it
+  `allSources()` throws.
 - **Data**, the hard part: the engine expects the loader-produced `data` object, not raw `data/`
   files. The realistic route is a **build-time bundle**: a script like the tests
   (`tools-local/tests/lib/harness.mjs`) loads `charbuilder.html`, then serializes

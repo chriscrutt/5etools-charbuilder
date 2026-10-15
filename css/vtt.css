@@ -23,7 +23,7 @@
 .vtt-board.vtt-board--drawing { cursor: crosshair; }
 .vtt-board.vtt-board--fog { cursor: cell; }
 .vtt-board.vtt-board--align { cursor: crosshair; }
-.vtt-tokens { position: absolute; top: 0; left: 0; }
+.vtt-tokens { position: absolute; top: 0; left: 0; z-index: 0; } /* own stacking context: tokens' inline z-index (10+) orders them among themselves only, so the fog and overlay after this layer paint above them */
 
 /* tokens */
 .vtt-token { position: absolute; box-sizing: border-box; border-radius: 50%; border: 2px solid rgba(0,0,0,.6); cursor: grab; display: flex; align-items: center; justify-content: center; overflow: visible; box-shadow: 0 1px 4px rgba(0,0,0,.5); user-select: none; }

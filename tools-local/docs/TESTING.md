@@ -29,7 +29,11 @@ JSON output is for reading.
 **Environment.** `CHROME_PATH` picks the browser (otherwise the first installed one is used),
 and `FORK_TEST_BASE` points at another server. On Linux, profiles go under
 `tools-local/tests/.out/profiles` (snap Chromium can't see the host's `/tmp`). Any test can run
-alone with `node tools-local/tests/suite/<name>.mjs` while the server is running.
+alone with `node tools-local/tests/suite/<name>.mjs` while the site server is running, once
+`tools-local/tests/node_modules` exists (the runner installs it on first use, or run `npm install`
+there). `vtt-multiplayer` and `vtt-handouts` also need the VTT relay (`npm run vtt`). Pick a
+normal port for `FORK_TEST_BASE`: browsers refuse some ports outright (5060, 5061, 6000, …), and
+the runner says so.
 
 ## Layout
 
@@ -39,7 +43,7 @@ tools-local/tests/
   lib/harness.mjs    launchBrowser(), BASE, paths; finds the browser, connects over CDP, cleans up
   suite/             pass/fail tests (the gate)
   probes/            feature probes: build a scenario, print the derived values as JSON
-  audits/            sweep ALL content of a kind and list what the builder can't parse
+  audits/            content checks: races/backgrounds sweep every entry; feats/gear/broad-scan spot-check
   tools/             diag.mjs (why is this page broken?), screens.mjs (screenshot sweep), bench.mjs (load timing)
 ```
 
@@ -47,25 +51,28 @@ tools-local/tests/
 
 | Test | Checks |
 | --- | --- |
-| `builder-regression` | The big one. Every class at L1/5/11/20, every subclass, race, background and feat, multiclass combos, sidekicks, and serialization round-trips: builds each and renders every step plus play mode, and fails on NaN, `undefined`, `[object Object]`, raw `{@tags}` or exceptions. About 800 builds and 2,300 renders. |
+| `builder-regression` | The big one. Every class at L1/5/11/20, every subclass, race, background and feat, multiclass combos, sidekicks, and serialization round-trips: builds each, checks the derived stats are numbers, renders the steps relevant to it (plus play mode for the per-class builds, and every step for an empty character), and fails on NaN, `undefined` or `[object Object]` in the rendered text, or on exceptions. About 800 builds and 2,300 renders. (Raw `{@tags}` are only reported by `audits/broad-scan`, which doesn't fail the run.) |
 | `builder-rules-values` | Exact derived numbers: proficiency, slots, spell DC/attack, unarmored AC variants, attacks, multiclass caster slots, pact magic. |
 | `builder-spell-lists` | Class spell lists include supplement spells (the `DataUtil.spell` loading rule). |
 | `builder-weapon-damage` | Magic weapon bonuses and extra-damage riders. |
 | `builder-attunement-cleanup` | Attunement follows the inventory; stale ids don't block attuning. |
-| `builder-save-button`, `builder-roster` | Saving to My Characters: no duplicates, ids, summaries with numeric AC/HP. |
+| `builder-save-button`, `builder-roster` | Saving to My Characters: no duplicates, ids, summaries with a numeric AC, and VTT import of a saved character (the token HP bar is checked with a synthetic summary). |
 | `play-flow` | Click-through of play mode: HP, death saves, hit dice, rests, conditions, casting. |
 | `play-effects`, `play-exhaustion` | Buff/debuff engine (Rage, Mage Armor, Bless, Haste…) and exhaustion levels. |
 | `play-spell-rolls`, `play-turn-options` | Spell attack/save/damage buttons with scaling; the "On Your Turn" reference. |
 | `sidekick-*` | Creature pool (CR ≤ ½ + unknown CR), class features, equipment, play mode. |
 | `site-edition-2014` | 2014-only mode ([EDITION-2014.md](EDITION-2014.md)). |
 | `site-media` | `img/` exists and images are served locally. |
-| `vtt-*` | Stat-block window, encounter builder/generator/tables, character import, handouts, multiplayer (relay). |
+| `vtt-*` | Stat-block window, encounter builder (incl. the DMG XP thresholds and ×0.5/×5 multiplier extremes), generator and tables, character import, handouts, multiplayer (relay), and `vtt-fog`: a player's fog really hides tokens (checks screenshot pixels). |
 
 Probes (21) cover attunement, background bonuses, class change, class features, defenses, feats,
 fighting styles, height/weight, magic items, multiclass, play mode, race proficiencies, sidekick
 feats, granted spells, the Sources filter, subclass spells, validation, weapon attacks and worn
-items. Audits sweep races, backgrounds, feats and gear for data shapes the engine doesn't handle.
-Run the audits after a big content release.
+items. The races, race-ability-formats and backgrounds audits sweep **every** entry for data shapes
+the engine may not handle. The feats and gear audits only spot-check a few named feats and items,
+and broad-scan checks the rendered text of 9 sample builds, including for raw `{@tags}`. (Every
+feat is also built by `builder-regression`; nothing sweeps all items.) Run the audits after a big
+content release and read their output.
 
 ## Writing a test
 

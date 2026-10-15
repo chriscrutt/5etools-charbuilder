@@ -9,12 +9,12 @@ class VttBoard {
 	static _SWATCHES = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085", "#f1c40f", "#7f8c8d", "#e84393", "#2c3e50"];
 	static _SIZE_FEET = {T: 2.5, S: 5, M: 5, L: 10, H: 15, G: 20}; // 5e creature size → footprint side in FEET (cells derive from the grid's ft-per-square)
 	// DMG 2014 XP thresholds per character by level [easy, medium, hard, deadly]
-	static _XP_THRESH = {1: [25, 50, 75, 100], 2: [50, 100, 150, 200], 3: [75, 150, 225, 400], 4: [125, 250, 375, 500], 5: [250, 500, 750, 1100], 6: [300, 600, 900, 1400], 7: [350, 700, 1100, 1700], 8: [450, 900, 1400, 2100], 9: [550, 1100, 1600, 2400], 10: [600, 1200, 1900, 2900], 11: [800, 1600, 2400, 3600], 12: [1000, 2000, 3000, 4500], 13: [1100, 2200, 3400, 5100], 14: [1250, 2500, 3800, 5700], 15: [1400, 2800, 4300, 6400], 16: [1600, 3200, 4800, 7200], 17: [2000, 3900, 5900, 8800], 18: [2100, 4200, 6300, 9500], 19: [2400, 4900, 7300, 10900], 20: [2800, 5700, 8500, 12700]};
-	static _ENC_MULTS = [1, 1.5, 2, 2.5, 3, 4]; // encounter XP multiplier by # of monsters (DMG)
+	static _XP_THRESH = {1: [25, 50, 75, 100], 2: [50, 100, 150, 200], 3: [75, 150, 225, 400], 4: [125, 250, 375, 500], 5: [250, 500, 750, 1100], 6: [300, 600, 900, 1400], 7: [350, 750, 1100, 1700], 8: [450, 900, 1400, 2100], 9: [550, 1100, 1600, 2400], 10: [600, 1200, 1900, 2800], 11: [800, 1600, 2400, 3600], 12: [1000, 2000, 3000, 4500], 13: [1100, 2200, 3400, 5100], 14: [1250, 2500, 3800, 5700], 15: [1400, 2800, 4300, 6400], 16: [1600, 3200, 4800, 7200], 17: [2000, 3900, 5900, 8800], 18: [2100, 4200, 6300, 9500], 19: [2400, 4900, 7300, 10900], 20: [2800, 5700, 8500, 12700]};
+	static _ENC_MULTS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5]; // encounter XP multiplier by # of monsters (DMG); the ends are only reachable via the party-size shift
 	static _partyThresholds (levels) { const out = {easy: 0, medium: 0, hard: 0, deadly: 0}; (levels || []).forEach(lv => { const t = VttBoard._XP_THRESH[Math.max(1, Math.min(20, lv))]; if (t) { out.easy += t[0]; out.medium += t[1]; out.hard += t[2]; out.deadly += t[3]; } }); return out; }
 	static _encMultiplier (nMonsters, nPlayers) {
-		let idx = nMonsters <= 1 ? 0 : nMonsters === 2 ? 1 : nMonsters <= 6 ? 2 : nMonsters <= 10 ? 3 : nMonsters <= 14 ? 4 : 5;
-		if (nPlayers < 3) idx++; else if (nPlayers >= 6) idx--; // small party → harder, large party → easier
+		let idx = nMonsters <= 1 ? 1 : nMonsters === 2 ? 2 : nMonsters <= 6 ? 3 : nMonsters <= 10 ? 4 : nMonsters <= 14 ? 5 : 6;
+		if (nPlayers < 3) idx++; else if (nPlayers >= 6) idx--; // small party → next multiplier up (15+ monsters → ×5), large party → next down (1 monster → ×0.5)
 		return VttBoard._ENC_MULTS[Math.max(0, Math.min(VttBoard._ENC_MULTS.length - 1, idx))];
 	}
 	static _encDifficulty (adjXp, th) { return adjXp <= 0 ? "trivial" : adjXp < th.easy ? "trivial" : adjXp < th.medium ? "easy" : adjXp < th.hard ? "medium" : adjXp < th.deadly ? "hard" : "deadly"; }

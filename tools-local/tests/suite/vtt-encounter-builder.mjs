@@ -11,6 +11,8 @@ const math = await p.evaluate(() => {
 	return {
 		th, mult4: V._encMultiplier(4, 4), mult1: V._encMultiplier(1, 4), mult8: V._encMultiplier(8, 4),
 		smallParty: V._encMultiplier(4, 2), bigParty: V._encMultiplier(4, 6),
+		soloVsBigParty: V._encMultiplier(1, 6), soloVsSmallParty: V._encMultiplier(1, 2), hordeVsSmallParty: V._encMultiplier(15, 2), hordeVsBigParty: V._encMultiplier(15, 6),
+		th7: V._partyThresholds([7]), th10: V._partyThresholds([10]),
 		diffGoblins: V._encDifficulty(400, th), diffBoss: V._encDifficulty(1800, th), diffTrivial: V._encDifficulty(100, th),
 	};
 });
@@ -46,6 +48,12 @@ chk("1 monster → ×1", math.mult1 === 1);
 chk("8 monsters → ×2.5", math.mult8 === 2.5);
 chk("small party (2) bumps mult up (×2.5)", math.smallParty === 2.5);
 chk("big party (6) bumps mult down (×1.5)", math.bigParty === 1.5);
+chk("DMG: 1 monster vs 6+ PCs → ×0.5", math.soloVsBigParty === 0.5);
+chk("DMG: 1 monster vs <3 PCs → ×1.5", math.soloVsSmallParty === 1.5);
+chk("DMG: 15+ monsters vs <3 PCs → ×5", math.hordeVsSmallParty === 5);
+chk("DMG: 15+ monsters vs 6+ PCs → ×3", math.hordeVsBigParty === 3);
+chk("DMG: L7 medium threshold 750", math.th7.medium === 750);
+chk("DMG: L10 deadly threshold 2800", math.th10.deadly === 2800);
 chk("400 adj XP = easy", math.diffGoblins === "easy");
 chk("1800 adj XP = deadly", math.diffBoss === "deadly");
 chk("100 adj XP = trivial", math.diffTrivial === "trivial");

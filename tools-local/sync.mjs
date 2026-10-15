@@ -76,7 +76,7 @@ if (mergeNeeded) {
 	// The fork's custom pages call the old flat element API; js/fork-compat.js adapts it. If upstream
 	// touched that API again, the merge can be clean and the builder/VTT still break at runtime.
 	const apiHits = git(["diff", `HEAD...${up}`, "--", "js/utils.js"]).out.split("\n")
-		.filter(l => /^[-+]/.test(l) && /_getOrModify_bindMethods|_ElementUtilVee|globalThis\.(ee|es|e_|veT|veEs|veE|veEm)\b|defineProperty\(ele, "vee"/.test(l));
+		.filter(l => /^[-+]/.test(l) && /_getOrModify_bindMethods|_ElementUtilVee|(window|globalThis)\.(ee|es|e_|veT|veEs|veE|veEm)\b|defineProperty\(ele, "vee"/.test(l));
 	if (apiHits.length) {
 		say(`\n⚠ Upstream changed the DOM element-helper API that js/fork-compat.js adapts (${apiHits.length} changed lines in js/utils.js).`);
 		say("  Merge, then run the tests; if the Character Builder or VTT break, update js/fork-compat.js (UPKEEP.md).");
@@ -114,8 +114,8 @@ if (!isNoImg) {
 	const imgDir = path.join(ROOT, "img");
 	const imgUrl = upstream.url.replace(/5etools-src(\.git)?\/?$/i, "5etools-img.git");
 	if (!fs.existsSync(path.join(imgDir, ".git"))) {
-		say(`\nImages: img/ is not a git clone. To get them (about 6 GB):
-    git clone --depth 1 ${imgUrl} img`);
+		say(`\nImages: img/ is not a git clone. To get them:
+    git clone --depth 1 ${imgUrl} img      (about 13 GB on disk: ~6.5 GB of images + the same again in img/.git)`);
 	} else {
 		say("\nFetching images (img/)...");
 		git(["fetch"], {cwd: imgDir});
