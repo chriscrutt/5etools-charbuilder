@@ -433,7 +433,7 @@ class VttBoard {
 		let raw = []; try { const [a, b] = await Promise.all([DataUtil.loadJSON(`${base}data/tables.json`), DataUtil.loadJSON(`${base}data/generated/gendata-tables.json`)]); raw = [...((a && a.table) || []), ...((b && b.table) || [])]; } catch (e) {}
 		const all = raw;
 		const tables = all
-			.filter(t => /encounter/i.test(`${t.caption || t.name || ""}`) && t.source && SourceUtil.isClassicSource(t.source) && (t.rows || []).some(r => (r || []).some(c => /\{@creature /i.test(this._cellText(c)))))
+			.filter(t => /encounter/i.test(`${t.caption || t.name || ""}`) && t.source && SourceUtil.isClassicSource(t.source) && !ExcludeUtil._isEditionHidden(t.source) && (t.rows || []).some(r => (r || []).some(c => /\{@creature /i.test(this._cellText(c)))))
 			.sort((a, b) => SortUtil.ascSortLower(`${a.caption || a.name}`, `${b.caption || b.name}`));
 		const bySource = new Map(); tables.forEach(t => { if (!bySource.has(t.source)) bySource.set(t.source, []); bySource.get(t.source).push(t); });
 		const sources = [...bySource.keys()].sort((a, b) => SortUtil.ascSortLower(Parser.sourceJsonToFull(a), Parser.sourceJsonToFull(b)));
@@ -1466,7 +1466,7 @@ class VttBoard {
 	_flattenMaps (data) {
 		const out = [];
 		for (const key of Object.keys(data || {})) {
-			const adv = data[key]; if (!adv || (adv.source && !SourceUtil.isClassicSource(adv.source))) continue; // 2014-only
+			const adv = data[key]; if (!adv || (adv.source && (!SourceUtil.isClassicSource(adv.source) || ExcludeUtil._isEditionHidden(adv.source)))) continue; // 2014-only
 			(adv.chapters || []).forEach(ch => (ch.images || []).forEach(im => {
 				if (!["map", "mapPlayer"].includes(im.imageType)) return; const path = im.href?.path; if (!path) return;
 				out.push({advName: adv.name || key, source: adv.source, title: im.title || ch.name || "Map", path, width: im.width, height: im.height, grid: im.grid, player: im.imageType === "mapPlayer"});

@@ -175,10 +175,8 @@ export class OmnisearchBacking {
 			results = results.filter(res => !res.doc.s || !SourceUtil.isLegacySourceWotc(res.doc.s));
 		}
 
-		// fork: in Classic (2014) style, hide all non-classic (2024+) content from search too
-		if (VetoolsConfig.get("styleSwitcher", "style") === SITE_STYLE__CLASSIC) {
-			results = results.filter(res => !res.doc.s || SourceUtil.isClassicSource(res.doc.s));
-		}
+		// fork: hide what the 2014-only / "Forgotten Realms canon only" modes hide from search too
+		results = results.filter(res => !res.doc.s || !ExcludeUtil._isEditionHidden(res.doc.s));
 
 		if (!OmnisearchState.isShowBlocklisted && ExcludeUtil.getList().length) {
 			const resultsNxt = [];

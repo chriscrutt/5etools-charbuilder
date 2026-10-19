@@ -30,6 +30,14 @@ const settingsGroupStyleSwitcher = new ConfigSettingsGroup({
 			],
 			fnDisplay: it => SITE_STYLE_DISPLAY[it] || it,
 		}),
+		new ConfigSettingBoolean({ // fork: one-switch content filter (also toggled from the navbar's Settings menu)
+			configId: "isFrCanonOnly",
+			name: "Forgotten Realms Canon Only",
+			help: "Only show official Wizards of the Coast 5e (2014) books that are setting-neutral or set in the Forgotten Realms. Hides other settings (Eberron, Ravnica, Theros, Exandria, Spelljammer, Ravenloft, Dragonlance, Planescape, …), Unearthed Arcana, partnered and third-party content, and homebrew.",
+			isRowLabel: true,
+			isReloadRequired: true,
+			default: false,
+		}),
 		new (
 			class extends ConfigSettingExternal {
 				_configId = "styleRollbox";

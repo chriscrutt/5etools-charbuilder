@@ -62,6 +62,7 @@ tools-local/tests/
 | `play-spell-rolls`, `play-turn-options` | Spell attack/save/damage buttons with scaling; the "On Your Turn" reference. |
 | `sidekick-*` | Creature pool (CR ≤ ½ + unknown CR), class features, equipment, play mode. |
 | `site-edition-2014` | 2014-only mode ([EDITION-2014.md](EDITION-2014.md)). |
+| `site-fr-canon` | The "Forgotten Realms Canon Only" toggle: what's hidden and kept, the races list, the builder's data, the navbar label. |
 | `site-media` | `img/` exists and images are served locally. |
 | `vtt-*` | Stat-block window, encounter builder (incl. the DMG XP thresholds and ×0.5/×5 multiplier extremes), generator and tables, character import, handouts, multiplayer (relay), and `vtt-fog`: a player's fog really hides tokens (checks screenshot pixels). |
 

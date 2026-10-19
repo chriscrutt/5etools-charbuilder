@@ -6,6 +6,7 @@ This repo is a **personal fork of 5etools** (the client-side D&D 5e reference si
 - **Character Builder** (`charbuilder.html`): creation, leveling 1-20, multiclassing, play mode, sidekicks, saved roster.
 - **Tabletop / VTT** (`vtt.html`): maps, tokens, initiative, fog, encounters, LAN multiplayer via a tiny relay.
 - **2014-only mode**: Classic style is the default and hides everything released from the 2024 PHB onward, site-wide.
+  Plus a **Forgotten Realms Canon Only** toggle (navbar Settings menu) for official WotC 2014 FR/setting-neutral books only.
 - **Upkeep tooling**: one-command upstream sync and a browser test suite.
 
 Everything else is stock 5etools. Upstream owns `data/`, most of `js/`, `css/`, `node/` and

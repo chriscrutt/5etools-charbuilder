@@ -59,7 +59,8 @@ care about.
   templates (circle, cone, line, cube) with real-foot geometry.
 - **Site maps**: "🗺 Site Maps" browses `data/generated/gendata-maps.json` and loads the images
   from local `img/`. It's **always** 2014-only, because `_flattenMaps` filters with
-  `SourceUtil.isClassicSource` directly, even in Modern style. Maps with a printed square grid
+  `SourceUtil.isClassicSource` directly, even in Modern style (it also honors the Forgotten Realms
+  Canon Only toggle). Maps with a printed square grid
   auto-match the VTT grid to it.
 - **Combat**: initiative tracker (roll all, prev/next, rounds), quick damage/heal (temp HP first),
   bloodied and dead states, 18 conditions as token markers, duplicate/lock/z-order, and a
@@ -81,7 +82,8 @@ care about.
 - **Encounter tables**: a separate "📋 Encounter Tables" picker rolls on published
   random-encounter tables (about 100 tables from about 15 books). They come from
   `data/generated/gendata-tables.json`; `data/tables.json` is also loaded but contributes
-  essentially nothing. The picker is always 2014-only (`SourceUtil.isClassicSource` directly), and
+  essentially nothing. The picker is always 2014-only (`SourceUtil.isClassicSource` directly; it also honors the Forgotten
+  Realms Canon Only toggle), and
   a rolled row's creatures can be sent to the Encounter Builder.
 - **Import Character**: reads the Character Builder's shared storage (`charbuilder_current` first,
   then the `charbuilder_roster` entries) and makes a PC token from the entry's `summary` (name,

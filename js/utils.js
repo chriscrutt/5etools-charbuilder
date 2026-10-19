@@ -639,6 +639,15 @@ globalThis.SourceUtil = class {
 		return SourceUtil._cache_isStyleClassic;
 	}
 
+	// fork: a mainline official WotC book (not partnered/third-party, "other", UA/prerelease or homebrew) that isn't set in another world. Used by the "Forgotten Realms canon only" setting.
+	static isFrCanonSource (source) {
+		if (!source) return false;
+		if (typeof PrereleaseUtil !== "undefined" && PrereleaseUtil.hasSourceJson(source)) return false;
+		if (typeof BrewUtil2 !== "undefined" && BrewUtil2.hasSourceJson(source)) return false;
+		if (SourceUtil.isPartneredSourceWotc(source) || SourceUtil.isNonstandardSourceWotc(source)) return false;
+		return !Parser.SOURCES_NON_FR.has(source) && !Parser.SOURCES_NON_FR_FORK.has(source);
+	}
+
 	// TODO(Future) remove this in favor of simply checking existence in `PrereleaseUtil`
 	// TODO(Future) cleanup uses of `PrereleaseUtil.hasSourceJson` to match
 	static isPrereleaseSource (source) {
@@ -9369,15 +9378,22 @@ globalThis.ExcludeUtil = class {
 	static _isEditionHidden (source) {
 		if (!source) return false;
 		if (ExcludeUtil._cache_isClassicOnly === undefined) {
-			let style; try { style = VetoolsConfig.get("styleSwitcher", "style"); } catch (e) { return false; } // config not ready yet — don't cache, re-check next call
+			let style, isFrOnly; try { style = VetoolsConfig.get("styleSwitcher", "style"); isFrOnly = VetoolsConfig.get("styleSwitcher", "isFrCanonOnly"); } catch (e) { return false; } // config not ready yet — don't cache, re-check next call
 			ExcludeUtil._cache_isClassicOnly = style === "classic";
+			ExcludeUtil._cache_isFrCanonOnly = !!isFrOnly; // fork: "Forgotten Realms canon only" (implies 2014-only, whatever the style)
 		}
-		if (!ExcludeUtil._cache_isClassicOnly) return false;
+		if (!ExcludeUtil._cache_isClassicOnly && !ExcludeUtil._cache_isFrCanonOnly) return false;
 		const src = `${source.source || source}`;
 		let classic = ExcludeUtil._cache_classicBySource[src];
 		if (classic === undefined) { try { classic = SourceUtil.isClassicSource(src); } catch (e) { classic = true; } ExcludeUtil._cache_classicBySource[src] = classic; }
-		return !classic;
+		if (!classic) return true;
+		if (!ExcludeUtil._cache_isFrCanonOnly) return false;
+		let fr = ExcludeUtil._cache_frBySource[src];
+		if (fr === undefined) { try { fr = SourceUtil.isFrCanonSource(src); } catch (e) { fr = true; } ExcludeUtil._cache_frBySource[src] = fr; }
+		return !fr;
 	}
+	static _cache_isFrCanonOnly;
+	static _cache_frBySource = {};
 
 	static isExcluded (hash, category, source, opts) {
 		if (ExcludeUtil._isEditionHidden(source)) return true; // fork: 2014-only — hide non-classic (2024+) content when in Classic style

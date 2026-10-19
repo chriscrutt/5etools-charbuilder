@@ -12,7 +12,9 @@ sync with upstream and adds:
   generator, handouts, and LAN multiplayer through a zero-dependency relay. Characters from the
   builder import as tokens.
 - **2014-only mode**: Classic style by default, which hides everything released from the 2024 PHB
-  onward, site-wide. Switch Settings → Preferences → Style to Modern to bring it back.
+  onward, site-wide. Switch Settings → Preferences → Style to Modern to bring it back. A
+  **Forgotten Realms Canon Only** toggle in the Settings menu narrows it further to official
+  WotC books that are setting-neutral or set in the Realms.
 - **Upkeep tooling**: `npm run local:sync` pulls new 5etools releases (site and images), and
   `npm run local:test` runs a browser test suite over the builder, VTT and edition mode.
 

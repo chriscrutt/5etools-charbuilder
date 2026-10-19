@@ -4160,6 +4160,14 @@ Parser.SOURCES_LEGACY_SUPERSEDED_BY_ODND = new Set([
 	Parser.SRC_DMG, // → XDMG
 	Parser.SRC_MM, // → XMM
 ]);
+// fork: extra sources hidden by the "Forgotten Realms canon only" setting, on top of upstream's opinionated Parser.SOURCES_NON_FR (Ravenloft, Witchlight/Feywild, Acquisitions Inc, MTG planes, …). Mirrors the Character Builder's "Forgotten Realms + neutral" preset; edit to taste.
+Parser.SOURCES_NON_FR_FORK = new Set([
+	"GRR", "WGE", "STRX", "TDCSR", "CRcotn", "WBtW", "VRGR", "RHW", "CoS",
+	"PSA", "PSD", "PSI", "PSK", "PSX", "PSZ", "MGELF", "OoW",
+	"HftT", "AitFR", "AitFR-ISF", "AitFR-THP", "AitFR-AVT", "AitFR-DN", "AitFR-FCD", "RMBRE",
+	"AI", "OGA", "TTP", "LR", "ABH",
+	"RMR", "ScreenSpelljammer", "JttRC", // Rick and Morty (now "official" upstream), Spelljammer screen, Radiant Citadel's other worlds
+]);
 
 // An opinionated set of source that could be considered "core-core"
 Parser.SOURCES_VANILLA = new Set([

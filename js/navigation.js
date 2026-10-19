@@ -192,6 +192,17 @@ class NavBar {
 				},
 			},
 		);
+		this._addElement_button( // fork: one-click "Forgotten Realms canon only" content filter
+			{
+				keyPath: [NavBar._CAT_SETTINGS],
+				html: `${NavBar._fork_isFrCanonOnly() ? "✓ " : ""}Forgotten Realms Canon Only`,
+				title: "Only show official WotC 5e (2014) books that are setting-neutral or set in the Forgotten Realms. Click to toggle (reloads the page).",
+				click: () => {
+					VetoolsConfig.set("styleSwitcher", "isFrCanonOnly", !NavBar._fork_isFrCanonOnly());
+					window.location.reload();
+				},
+			},
+		);
 		this._addElement_divider({keyPath: [NavBar._CAT_SETTINGS]});
 		this._addElement_button(
 			{
@@ -625,6 +636,10 @@ class NavBar {
 	 * @param title Button title.
 	 * @param className Additional button classes.
 	 */
+	static _fork_isFrCanonOnly () { // fork
+		try { return !!VetoolsConfig.get("styleSwitcher", "isFrCanonOnly"); } catch (e) { return false; }
+	}
+
 	static _addElement_button (
 		{
 			keyPath = null,

@@ -51,11 +51,11 @@ textual conflict can occur. Each is marked with a `fork:` comment where the form
 
 | File | Fork edit | If it conflicts |
 | --- | --- | --- |
-| `js/utils.js` | `ExcludeUtil._isEditionHidden()` + caches, and the first line of `ExcludeUtil.isExcluded()`; `SourceUtil.isLegacySourceWotc()` body + `SourceUtil._isStyleClassic()` | Take upstream's version of the surrounding code, then re-add the hook lines ([EDITION-2014.md](EDITION-2014.md)). |
-| `js/parser.js` | `Parser.SOURCES_LEGACY_SUPERSEDED_BY_ODND = new Set([PHB, DMG, MM])` after `SOURCES_LEGACY_WOTC` | Keep both. |
-| `js/utils-config/utils-config-registry.js` | style switcher `default: SITE_STYLE__CLASSIC` | Take upstream's, re-apply the default. |
-| `js/omnisearch/omnisearch-backing.js` | non-classic results filter in `pGetFilteredResults` | Take upstream's, re-add the 3-line filter next to the `isShowUa`/`isShowLegacy` filters. |
-| `js/navigation.js` | two `_addElement_li` lines: Character Builder (Player menu), Tabletop (VTT) (DM menu) | Keep both. |
+| `js/utils.js` | `ExcludeUtil._isEditionHidden()` + caches (2014-only and FR-canon), and the first line of `ExcludeUtil.isExcluded()`; `SourceUtil.isLegacySourceWotc()` body + `SourceUtil._isStyleClassic()`; `SourceUtil.isFrCanonSource()` | Take upstream's version of the surrounding code, then re-add the hook lines ([EDITION-2014.md](EDITION-2014.md)). |
+| `js/parser.js` | `Parser.SOURCES_LEGACY_SUPERSEDED_BY_ODND = new Set([PHB, DMG, MM])` and `Parser.SOURCES_NON_FR_FORK` (extra non-FR sources) after `SOURCES_LEGACY_WOTC` | Keep both. |
+| `js/utils-config/utils-config-registry.js` | style switcher `default: SITE_STYLE__CLASSIC`; the `isFrCanonOnly` boolean setting right after it | Take upstream's, re-apply the default and re-add the setting. |
+| `js/omnisearch/omnisearch-backing.js` | one-line results filter (`!ExcludeUtil._isEditionHidden(res.doc.s)`) in `pGetFilteredResults` | Take upstream's, re-add it next to the `isShowUa`/`isShowLegacy` filters. |
+| `js/navigation.js` | two `_addElement_li` lines: Character Builder (Player menu), Tabletop (VTT) (DM menu); the "Forgotten Realms Canon Only" Settings-menu button + `NavBar._fork_isFrCanonOnly()` | Keep both. |
 | `package.json` | scripts `serve:fast`, `vtt`, `local:precompress`, `local:precompress:clean`, `local:sync`, `local:test` | Take upstream's version bump/deps, keep the fork scripts. Never hand-merge `package-lock.json`: take upstream's (`git checkout --theirs package-lock.json`) and run `npm install`. |
 | `.gitignore` | `.claude/` | Keep both. |
 

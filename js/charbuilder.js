@@ -2472,7 +2472,7 @@ class CharBuilderPage {
 		});
 		const classes = all.filter(cls => !cls.isSidekick); // sidekicks build from a bestiary creature (CR ≤ 1/2) — handled in Sidekick mode
 		const sidekickClasses = all.filter(cls => cls.isSidekick);
-		return {classes, sidekickClasses, subclasses: raw.subclass || [], classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
+		return {classes, sidekickClasses, subclasses: (raw.subclass || []).filter(sc => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER["subclass"](sc), "subclass", sc.source)), classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
 	}
 
 	// bestiary creatures eligible to become a sidekick (challenge rating 1/2 or lower)

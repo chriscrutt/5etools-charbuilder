@@ -52,13 +52,10 @@ CharBuilderUi({data, state, eleRoot, fnSave})
 
 ### The `data` object
 
-Built once in `pInit`. Races, backgrounds, feats, classes, spells, items, optional features and
-the bestiary are filtered through `ExcludeUtil.isExcluded`, so the site blocklist **and the
-2014-only mode** ([EDITION-2014.md](EDITION-2014.md)) apply before the builder sees them.
-**Subclasses are the exception.** `classData.subclasses` is unfiltered, so blocklisted subclasses
-still appear in the subclass picker, and the 2024+ subclasses (XPHB, FRHoF, …) are present in
-2014-only mode. They stay out of the pickers only because `subclassesForClass()` needs their
-(filtered) parent class, but `allSources()` still lists their sources in the Sources panel.
+Built once in `pInit`. Races, backgrounds, feats, classes, subclasses, spells, items, optional
+features and the bestiary are all filtered through `ExcludeUtil.isExcluded`, so the site
+blocklist, **the 2014-only mode and the "Forgotten Realms Canon Only" toggle**
+([EDITION-2014.md](EDITION-2014.md)) apply before the builder sees them.
 
 | Key | Contents / how it's loaded |
 | --- | --- |

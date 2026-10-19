@@ -4,8 +4,9 @@ This fork behaves like `2014.5e.tools`: by default only 5e (2014-era) content is
 2014 core books aren't marked "legacy". 2024 (5.5e / One D&D) content is still in `data/`.
 It's hidden at runtime, so **switching Settings → Preferences → Style (Appearance group) to "Modern" brings it back**. The one
 exception is two VTT pickers, the 🗺 Site Maps browser (`_flattenMaps`) and 📋 Encounter Tables
-(`_openEncounterTables`) in `js/vtt.js`. They call `SourceUtil.isClassicSource` directly, so
-they stay 2014-only in Modern style too.
+(`_openEncounterTables`) in `js/vtt.js`. They also call `SourceUtil.isClassicSource` directly, so
+they stay 2014-only in Modern style too. There's also a separate **Forgotten Realms Canon Only**
+toggle ([below](#forgotten-realms-canon-only-toggle)).
 
 ## How it works
 
@@ -50,9 +51,36 @@ hardcode a source list; new upstream sources classify themselves by date.
   the two VTT filters mentioned at the top (`_flattenMaps`, `_openEncounterTables`) if those
   should show 2024 content too.
 
+## "Forgotten Realms Canon Only" toggle
+
+A one-click content filter on top of the above: **Settings → Forgotten Realms Canon Only** in
+the navbar (✓ when on; clicking toggles it and reloads), also under Settings → Preferences →
+Appearance. Stored as config `styleSwitcher.isFrCanonOnly`, off by default. When on, a source
+must be:
+
+1. **2014-era**: `isClassicSource`, regardless of the Style setting;
+2. **mainline official WotC**: not partnered/third-party, not "other" (UA, Plane Shift,
+   magazine and freebie content: `SourceUtil.isNonstandardSourceWotc`), not prerelease, not
+   homebrew;
+3. **not another setting**: not in upstream's opinionated `Parser.SOURCES_NON_FR` (Eberron,
+   Ravnica, Theros, Exandria, Strixhaven, Spelljammer, Dragonlance, Planescape, …) and not in the
+   fork's `Parser.SOURCES_NON_FR_FORK` (`js/parser.js`: Ravenloft/Curse of Strahd, Witchlight,
+   Acquisitions Inc, Rick and Morty, Radiant Citadel, the Spelljammer screen, …).
+
+That's `SourceUtil.isFrCanonSource()` in `js/utils.js`, applied through the same
+`ExcludeUtil._isEditionHidden` hook as 2014-only mode, so it covers every list page, search, the
+Character Builder (including subclasses) and the VTT's monster, map and encounter-table
+pickers. Kept as setting-neutral: the core books and supplements (XGE, TCE, MPMM, FTD, BGG, BMT, …),
+SCAG and the Forgotten Realms adventures, plus a few Greyhawk-origin or multiverse adventures
+that are written to drop into any world (Ghosts of Saltmarsh, Tales from the Yawning Portal,
+Lost Caverns of Tsojcanth, Golden Vault, the Vecna books, Infinite Staircase). Add a source code
+to `SOURCES_NON_FR_FORK` to hide it too.
+
 ## Verifying
 
 `npm run local:test -- site-edition` checks that a fresh visitor gets Classic, and that Classic
 hides every non-classic source while six spot-checked 2014-era books (PHB, DMG, MM, XGE, TCE,
 MPMM) stay visible. It also checks that the PHB isn't legacy, VGM still is, and Modern un-hides
-the 2024 sources and makes the PHB legacy again.
+the 2024 sources and makes the PHB legacy again. `npm run local:test -- site-fr-canon` checks the
+FR toggle: canon books visible, other settings / Rick and Morty / 2024 hidden (even in Modern
+style), the races list and the builder's data follow it, and the navbar label shows its state.
