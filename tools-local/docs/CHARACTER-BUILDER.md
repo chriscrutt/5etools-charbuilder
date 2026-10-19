@@ -149,6 +149,12 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   Abilities (with ASI/feats merged in) → Skills & Gear → Spells (casters, or races that grant
   spells) → Review. Steps with `validationIssues()` show an amber ⚠ and an issues banner. The step
   index is `ui._ixStep`.
+- **Race list** (`_renderStepRace` → `_renderChooser` with a `group` config): the ~300 race entries collapse into
+  base-race groups. Subraces sit under a header, and 5etools' generated *versions* (a choice baked in:
+  Dragonborn colors, half-elf variant features, Aasimar revelations; `_versionBase_*`) fold behind a
+  "▸ N" toggle on their parent. Search auto-expands matches, the selection's group opens by itself,
+  and a "Hide older printings" checkbox there flips `st.hideLegacy`. Other choosers (backgrounds,
+  sidekick creatures) stay flat unless given a `group`.
 - **Toolbar**: Character/Sidekick toggle, Sources panel, Play/Edit Build, autosave status,
   Export, Import, Print, My Characters (roster).
 - **Play mode** (`_renderPlayMode`): HP bar with damage/heal/temp, death saves, hit dice, short and

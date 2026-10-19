@@ -36,6 +36,18 @@
 .cb__pick:hover { background: rgba(0,107,196,.08); }
 .cb__pick--sel { background: rgba(0,107,196,.16); font-weight: bold; }
 .cb__pick-src { font-size: 10px; opacity: .65; white-space: nowrap; }
+/* grouped chooser (races): collapsible base-race headers, indented subraces, folded versions */
+.cb__pick-group {
+	padding: 5px 8px; cursor: pointer; border-bottom: 1px solid rgba(127,127,127,.15); user-select: none;
+	display: flex; justify-content: space-between; align-items: center; gap: 6px; font-weight: bold;
+}
+.cb__pick-group:hover { background: rgba(0,107,196,.08); }
+.cb__pick-group--has-sel { color: rgb(0,107,196); }
+.cb__pick-count { font-size: 10px; font-weight: normal; opacity: .65; }
+.cb__pick--d1 { padding-left: 24px; }
+.cb__pick--d2 { padding-left: 42px; font-size: 92%; }
+.cb__pick-ver { font-size: 10px; padding: 0 6px; border-radius: 8px; background: rgba(127,127,127,.18); white-space: nowrap; }
+.cb__pick-ver:hover { background: rgba(0,107,196,.25); }
 
 /* Footer nav */
 .cb__footer { display: flex; justify-content: space-between; margin-top: 12px; gap: 8px; }

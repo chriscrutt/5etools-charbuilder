@@ -1276,9 +1276,16 @@ export class CharBuilderUi {
 	}
 
 	/* ----- generic chooser (list + preview) ----- */
-	_renderChooser (eleBody, {entities, getSel, setSel, renderDetail, subtitle, onAfterSelect = null}) {
+	/**
+	 * @param [opts.group] optional collapsible grouping: {id, key(ent), label(ent), parentUid(ent), isBase(ent)}.
+	 * Entities sharing `key` collapse under one header; entities whose `parentUid` is in the same group
+	 * (e.g. generated race "versions") fold behind a "▸ N" toggle on that parent's row.
+	 * @param [opts.fnHeaderExtra] (wrp) => void, renders extra controls under the subtitle.
+	 */
+	_renderChooser (eleBody, {entities, getSel, setSel, renderDetail, subtitle, onAfterSelect = null, group = null, fnHeaderExtra = null}) {
 		const wrp = ee`<div></div>`.appendTo(eleBody);
 		if (subtitle) ee(wrp)`<p class="ve-muted ve-mb-1">${subtitle}</p>`;
+		if (fnHeaderExtra) fnHeaderExtra(wrp);
 		const body = ee`<div class="cb__body"></div>`.appendTo(wrp);
 		const colList = ee`<div class="cb__col-list"></div>`.appendTo(body);
 		const colDetail = ee`<div class="cb__col-detail"></div>`.appendTo(body);
@@ -1294,24 +1301,83 @@ export class CharBuilderUi {
 			renderDetail(colDetail, ent);
 		};
 
+		const renderRow = (ent, {label = ent.name, depth = 0, cntVersions = 0, isVersionsOpen = false, onToggleVersions = null} = {}) => {
+			const uid = CW.uid(ent);
+			const verToggle = cntVersions ? `<span class="cb__pick-ver" title="${isVersionsOpen ? "Hide" : "Show"} ${cntVersions} version${cntVersions === 1 ? "" : "s"} with a choice already made (e.g. a dragon color)">${isVersionsOpen ? "▾" : "▸"} ${cntVersions}</span>` : "";
+			const row = ee`<div class="cb__pick ${depth ? `cb__pick--d${depth}` : ""} ${getSel() === uid ? "cb__pick--sel" : ""}"><span>${label}</span><span class="ve-flex-v-center" style="gap:6px">${verToggle}<span class="cb__pick-src" title="${Parser.sourceJsonToFull(ent.source).qq()}">${ent.source}</span></span></div>`
+				.onn("click", (evt) => {
+					if (onToggleVersions && evt.target.closest(".cb__pick-ver")) { onToggleVersions(); return; }
+					setSel(uid);
+					this._save();
+					if (onAfterSelect) { onAfterSelect(); return; }
+					[...listWrp.children].forEach(c => c.classList.remove("cb__pick--sel"));
+					row.classList.add("cb__pick--sel");
+					renderDetailFor(uid);
+				});
+			row.appendTo(listWrp);
+		};
+
+		const matches = (e, t) => e.name.toLowerCase().includes(t) || `${e.source}`.toLowerCase().includes(t) || (group ? group.label(e).toLowerCase().includes(t) : false);
+
+		// expand/collapse state survives re-renders; first time, open wherever the current selection is
+		const openState = group ? ((this._chooserOpen ||= {})[group.id] ||= {groups: new Set(), parents: new Set(), isInit: false}) : null;
+		if (openState && !openState.isInit) {
+			const sel = entities.find(e => CW.uid(e) === getSel());
+			if (sel) { openState.groups.add(group.key(sel)); const p = group.parentUid(sel); if (p) openState.parents.add(p); }
+			openState.isInit = true;
+		}
+		const toggle = (set, k) => { set.has(k) ? set.delete(k) : set.add(k); renderList(inpSearch.val()); };
+
+		const renderGrouped = (t) => {
+			const byKey = new Map();
+			entities.forEach(e => { const k = group.key(e); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(e); });
+			const selUid = getSel();
+			[...byKey.keys()].sort(SortUtil.ascSortLower).forEach(key => {
+				const members = byKey.get(key);
+				if (members.length === 1) { if (!t || key.toLowerCase().includes(t) || matches(members[0], t)) renderRow(members[0]); return; }
+
+				const uids = new Set(members.map(e => CW.uid(e)));
+				const parentOf = (e) => { const p = group.parentUid(e); return p && uids.has(p) ? p : null; };
+				const children = new Map();
+				members.forEach(e => { const p = parentOf(e); if (p) { if (!children.has(p)) children.set(p, []); children.get(p).push(e); } });
+				const tops = members.filter(e => !parentOf(e))
+					.sort((a, b) => (group.isBase(b) - group.isBase(a)) || SortUtil.ascSortLower(group.label(a), group.label(b)) || SortUtil.ascSortLower(a.source, b.source));
+
+				const isGroupHit = !!t && key.toLowerCase().includes(t);
+				const isHit = (e) => !t || isGroupHit || matches(e, t);
+				const visTops = tops.filter(e => isHit(e) || (children.get(CW.uid(e)) || []).some(isHit));
+				if (!visTops.length) return;
+
+				const renderTop = (e, {depth, label}) => {
+					const uid = CW.uid(e);
+					const kids = (children.get(uid) || []).sort((a, b) => SortUtil.ascSortLower(group.label(a), group.label(b)));
+					const isKidHit = !!t && !isGroupHit && kids.some(k => matches(k, t));
+					const isVersionsOpen = openState.parents.has(uid) || isKidHit;
+					renderRow(e, {label, depth, cntVersions: kids.length, isVersionsOpen, onToggleVersions: () => toggle(openState.parents, uid)});
+					if (isVersionsOpen) kids.filter(k => !isKidHit || matches(k, t)).forEach(k => renderRow(k, {label: group.label(k), depth: depth + 1}));
+				};
+
+				// one race plus its versions: no header, just the row and its "▸ N" toggle
+				if (tops.length === 1) return renderTop(tops[0], {depth: 0, label: tops[0].name});
+
+				const isOpen = !!t || openState.groups.has(key);
+				const hasSel = members.some(e => CW.uid(e) === selUid);
+				ee`<div class="cb__pick-group ${hasSel ? "cb__pick-group--has-sel" : ""}" title="${isOpen ? "Collapse" : "Expand"} ${key.qq()}"><span>${isOpen ? "▾" : "▸"} ${key}</span><span class="cb__pick-count">${tops.length}</span></div>`
+					.onn("click", () => toggle(openState.groups, key))
+					.appendTo(listWrp);
+				if (!isOpen) return;
+
+				visTops.forEach(e => renderTop(e, {depth: 1, label: group.label(e)}));
+			});
+		};
+
 		const renderList = (term) => {
 			listWrp.empty();
 			const t = (term || "").toLowerCase().trim();
+			if (group) return renderGrouped(t);
 			entities
-				.filter(e => !t || e.name.toLowerCase().includes(t) || `${e.source}`.toLowerCase().includes(t))
-				.forEach(ent => {
-					const uid = CW.uid(ent);
-					const row = ee`<div class="cb__pick ${getSel() === uid ? "cb__pick--sel" : ""}"><span>${ent.name}</span><span class="cb__pick-src" title="${Parser.sourceJsonToFull(ent.source).qq()}">${ent.source}</span></div>`
-						.onn("click", () => {
-							setSel(uid);
-							this._save();
-							if (onAfterSelect) { onAfterSelect(); return; }
-							[...listWrp.children].forEach(c => c.classList.remove("cb__pick--sel"));
-							row.classList.add("cb__pick--sel");
-							renderDetailFor(uid);
-						});
-					row.appendTo(listWrp);
-				});
+				.filter(e => !t || matches(e, t))
+				.forEach(ent => renderRow(ent));
 		};
 		inpSearch.onn("input", () => renderList(inpSearch.val()));
 		renderList("");
@@ -1350,8 +1416,26 @@ export class CharBuilderUi {
 
 	/* ----- Step: Race ----- */
 	_renderStepRace (el) {
+		const st = this._state;
 		this._renderChooser(el, {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
+			fnHeaderExtra: (wrp) => {
+				const cb = ee`<input type="checkbox" ${st.hideLegacy ? "checked" : ""}>`.onn("change", () => { st.hideLegacy = cb.checked; this._save(); this.render(); });
+				ee(wrp)`<label class="ve-small ve-flex-v-center ve-mb-1" style="gap:6px;font-weight:normal" title="Hides options superseded by a later 2014-era printing, e.g. Volo's and Mordenkainen's races reprinted in Monsters of the Multiverse. Applies to every list in the builder (same as Sources → Hide legacy).">${cb} Hide older printings (reprinted in a later 2014 book)</label>`;
+			},
+			group: {
+				id: "race",
+				// "Dragonborn (Gem)|FTD" is a top-level race, not a subrace; strip the parenthetical so it groups with the other dragonborn
+				key: (e) => (e._baseName || (e._versionBase_isVersion && e._versionBase_name) || e.name).replace(/\s*\(.*\)\s*$/, ""),
+				// 5etools generates "versions" with a choice baked in (Dragonborn (Black), Half-Elf variant feature picks); fold them under their base
+				parentUid: (e) => e._versionBase_isVersion && e._versionBase_name ? `${e._versionBase_name}|${e._versionBase_source || e.source}` : null,
+				label: (e) => {
+					if (e._isBaseRace) return "Base race";
+					if (e._versionBase_isVersion) return ((e.name.match(/\(([^)]*)\)\s*$/) || [])[1] ?? e.name).split(";").pop().trim();
+					return e._subraceName || ((e.name.match(/\(([^)]*)\)\s*$/) || [])[1] ?? e.name);
+				},
+				isBase: (e) => !!e._isBaseRace,
+			},
 			entities: this._state.filterVisible(this._data.races),
 			getSel: () => this._state.raceUid,
 			setSel: (uid) => { this._state.raceUid = uid; this._state.raceAbilOption = 0; this._state.raceAbilChoices = []; this._state.raceAbilWeighted = []; this._state.raceResistChoice = null; this._state.sizeChoice = null; this._state.raceFeat = {featUid: null, featAbilChoose: []}; this._state.raceSpellChoices = {}; this._state.raceSpellAbility = null; this._state.raceSpellGroup = 0; this._state.clearProfChoicesForSource("race"); },
