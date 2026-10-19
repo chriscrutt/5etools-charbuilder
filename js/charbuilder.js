@@ -447,7 +447,15 @@ export class CharState {
 		if (CharState._LEGACY_CLASSIC_SOURCES.has(ent.source)) return true;
 		if (!ent.reprintedAs) return false;
 		const isClassic = (s) => { try { return SourceUtil.isClassicSource(s); } catch (e) { return false; } };
-		return ent.reprintedAs.some(rep => { const s = (typeof rep === "string" ? rep : rep.uid || "").split("|")[1] || ""; return s && s !== ent.source && isClassic(s); });
+		return ent.reprintedAs.some(rep => { const s = CharState._reprintSource(rep); return s && s !== ent.source && isClassic(s); });
+	}
+	// a `reprintedAs` uid's source: `name|source` for most entities, but `shortName|className|classSource|source` for
+	// subclasses. Reading field [1] of a subclass uid gave the class name ("Barbarian"); an unknown source has no date,
+	// counts as 1970, so "classic", and PHB subclasses reprinted in the (hidden) 2024 PHB vanished as "legacy".
+	static _reprintSource (rep) {
+		const parts = `${typeof rep === "string" ? rep : rep?.uid || ""}`.split("|");
+		const src = parts.length >= 4 ? parts[3] : parts[1];
+		return src && Parser.SOURCE_JSON_TO_FULL[src] != null ? src : null;
 	}
 	isVisible (ent) { return !!ent && this._sourceAllowed(ent.source) && !this._isLegacyEntity(ent); }
 	filterVisible (arr) { return (arr || []).filter(e => this.isVisible(e)); }

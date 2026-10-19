@@ -211,7 +211,7 @@ same data to get numbers (or it can use `summary`).
 A builder-level filter (toolbar → Sources), separate from the site-wide blocklist:
 `hiddenSources[]` and `hideLegacy` in state, applied to every chooser via `isVisible()` /
 `filterVisible()`. There are presets for Show all, Official only, and "Forgotten Realms +
-neutral", which hides other settings (`_NON_FR_SOURCES`). "Hide legacy" is edition-aware: it hides
+neutral", which hides other settings (`_NON_FR_SOURCES`). "Hide legacy" (also the "Hide older printings" checkbox on the race step) is edition-aware. It reads each reprint's source with `CharState._reprintSource()`, which knows subclass uids are `shortName|className|classSource|source`, not `name|source`: it hides
 things reprinted into another 2014-era book (VGM → MPMM) and the wholly superseded VGM/MTF/EEPC,
 but keeps PHB content. `allSources()` must include `data.bestiary` or monster-only sources never
 reach the sidekick picker's filter.
