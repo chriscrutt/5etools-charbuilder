@@ -2472,7 +2472,17 @@ class CharBuilderPage {
 		});
 		const classes = all.filter(cls => !cls.isSidekick); // sidekicks build from a bestiary creature (CR ≤ 1/2) — handled in Sidekick mode
 		const sidekickClasses = all.filter(cls => cls.isSidekick);
-		return {classes, sidekickClasses, subclasses: (raw.subclass || []).filter(sc => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER["subclass"](sc), "subclass", sc.source)), classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
+		// 5etools wraps every subclass feature after the first in an unnamed {type: "entries", level, entries: [feature]}
+		// (so the site can nest it under the class's "Path Feature"). Unwrap, so each level group holds the named
+		// features themselves: everything here (feature lists, play mode, turn options, text parsing) keys on `f.name`.
+		const unwrapSubclassFeatures = (sc) => ({
+			...sc,
+			subclassFeatures: (sc.subclassFeatures || []).map(grp => (grp || []).flatMap(f => f?.name ? [f] : (f?.entries || []).filter(e => e?.name))),
+		});
+		const subclasses = (raw.subclass || [])
+			.filter(sc => !ExcludeUtil.isExcluded(UrlUtil.URL_TO_HASH_BUILDER["subclass"](sc), "subclass", sc.source))
+			.map(unwrapSubclassFeatures);
+		return {classes, sidekickClasses, subclasses, classFeature: raw.classFeature || [], subclassFeature: raw.subclassFeature || []};
 	}
 
 	// bestiary creatures eligible to become a sidekick (challenge rating 1/2 or lower)

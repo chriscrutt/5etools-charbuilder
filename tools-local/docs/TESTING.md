@@ -56,6 +56,7 @@ tools-local/tests/
 | `builder-spell-lists` | Class spell lists include supplement spells (the `DataUtil.spell` loading rule). |
 | `builder-weapon-damage` | Magic weapon bonuses and extra-damage riders. |
 | `builder-attunement-cleanup` | Attunement follows the inventory; stale ids don't block attuning. |
+| `builder-subclass-features` | Every subclass's higher-level features load (no unnamed wrappers left), show on the Class step, and the class's "Path Feature" lines name what they grant; they reach the review/play list and turn options. |
 | `builder-race-list` | The grouped race list: collapsed groups, Dragonborn lineages and folded colors, search, auto-open on the selection, the "Hide older printings" checkbox. |
 | `builder-save-button`, `builder-roster` | Saving to My Characters: no duplicates, ids, summaries with a numeric AC, and VTT import of a saved character (the token HP bar is checked with a synthetic summary). |
 | `play-flow` | Click-through of play mode: HP, death saves, hit dice, rests, conditions, casting. |

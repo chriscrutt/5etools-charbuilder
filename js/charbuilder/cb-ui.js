@@ -1642,7 +1642,7 @@ export class CharBuilderUi {
 		}
 
 		ee(col)`<h4 class="ve-mt-2">Class Features</h4>`;
-		this._renderFeaturesFull(col, cls.classFeatures || [], level);
+		this._renderFeaturesFull(col, cls.classFeatures || [], level, {subclassFeatures: subEnt?.subclassFeatures});
 
 		const subs = st.subclassesForClass(cls);
 		if (subEnt) {
@@ -1655,15 +1655,23 @@ export class CharBuilderUi {
 
 	// Collapsible full-text features, keyed by each feature's own level (works for class + subclass).
 	// Features <= curLevel shown; higher levels behind a button.
-	_renderFeaturesFull (col, featuresByLevel, curLevel) {
-		const all = [];
-		(featuresByLevel || []).forEach((lvArr, ix) => {
-			(lvArr || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant) all.push({...f, _lvl: f.level || (ix + 1)}); });
-		});
-		all.sort((a, b) => a._lvl - b._lvl);
+	/** @param [opts.subclassFeatures] the chosen subclass's features: class features that grant one ("Path Feature") then name and include it */
+	_renderFeaturesFull (col, featuresByLevel, curLevel, {subclassFeatures = null} = {}) {
+		const flatten = (byLevel) => {
+			const out = [];
+			(byLevel || []).forEach((lvArr, ix) => {
+				(lvArr || []).forEach(f => { if (f?.name && !f.isClassFeatureVariant) out.push({...f, _lvl: f.level || (ix + 1)}); });
+			});
+			return out.sort((a, b) => a._lvl - b._lvl);
+		};
+		const all = flatten(featuresByLevel);
+		const subAll = subclassFeatures ? flatten(subclassFeatures) : [];
 		const maxLv = all.length ? Math.max(...all.map(f => f._lvl)) : 20;
 		const renderInto = (target, f) => {
-			ee`<details style="margin:2px 0"><summary><b>L${f._lvl}:</b> ${f.name.qq()}</summary><div class="ve-pl-3 ve-small ve-mt-1">${renderEntries(f.entries)}</div></details>`.appendTo(target);
+			const granted = f.gainSubclassFeature ? subAll.filter(sf => sf._lvl === f._lvl) : [];
+			const grantedNames = granted.length ? ` <span class="ve-muted">→ ${granted.map(sf => sf.name.qq()).join(", ")}</span>` : "";
+			const grantedBody = granted.map(sf => `<div class="ve-mt-1"><b>${sf.name.qq()}</b>${renderEntries(sf.entries)}</div>`).join("");
+			ee`<details style="margin:2px 0"><summary><b>L${f._lvl}:</b> ${f.name.qq()}${grantedNames}</summary><div class="ve-pl-3 ve-small ve-mt-1">${renderEntries(f.entries)}${grantedBody}</div></details>`.appendTo(target);
 		};
 		const upTo = all.filter(f => f._lvl <= curLevel);
 		const higher = all.filter(f => f._lvl > curLevel);

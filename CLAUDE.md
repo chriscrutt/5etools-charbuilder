@@ -73,7 +73,9 @@ can't hold the marker).
 - Entity references are mostly `"name|source"` uids (`CW.uid`), but granted-spell picks store bare
   spell names and `profChoices` stores plain option names. Saves store choices, not computed stats.
 - Subclass sub-features are often nested in a wrapper feature: match on
-  `JSON.stringify(f.entries)`, not `f.name`.
+  `JSON.stringify(f.entries)`, not `f.name`. And in raw 5etools class data, every subclass feature after
+  the first is wrapped in an unnamed `{type:"entries", level, entries:[feature]}`; the builder unwraps
+  these at load (`_pLoadClasses`). Don't filter on `f.name` over raw `DataUtil.class` output.
 - In tests, always `page.setCacheEnabled(false)`, set the style with
   `VetoolsConfig.set("styleSwitcher","style","classic")` and **reload** (style is read at load).
 - `JqueryUtil.doToast` renders string content as text, so no HTML in toasts.
