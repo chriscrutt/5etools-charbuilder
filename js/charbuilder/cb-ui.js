@@ -1417,6 +1417,29 @@ export class CharBuilderUi {
 	/* ----- Step: Race ----- */
 	_renderStepRace (el) {
 		const st = this._state;
+
+		// Group key = the race family. Subraces/versions say so in their data; "Dragonborn (Gem)|FTD" is a top-level race
+		// with a parenthetical, so strip that.
+		const ownKey = (e) => (e._baseName || (e._versionBase_isVersion && e._versionBase_name) || e.name).replace(/\s*\(.*\)\s*$/, "");
+		// Monsters of the Multiverse reprinted subraces as standalone races ("Elf (Eladrin)|MTF" → "Eladrin|MPMM",
+		// "Gnome (Deep)|MTF" → "Deep Gnome|MPMM", "Gith (Githyanki)|MTF" → "Githyanki|MPMM"): follow `reprintedAs`
+		// back to the original's family. Uses all races, so it still works when "Hide older printings" hides the MTF ones.
+		const familyByReprint = new Map();
+		this._data.races.forEach(e => (e.reprintedAs || []).forEach(rep => {
+			const uid = `${typeof rep === "string" ? rep : rep?.uid || ""}`.toLowerCase();
+			if (uid && !familyByReprint.has(uid)) familyByReprint.set(uid, ownKey(e));
+		}));
+		const families = new Set(this._data.races.map(ownKey));
+		const raceKey = (e) => {
+			const own = ownKey(e);
+			if (e._baseName || e._versionBase_isVersion) return own;
+			const viaReprint = familyByReprint.get(CW.uid(e).toLowerCase());
+			if (viaReprint) return viaReprint;
+			// no predecessor ("Astral Elf"|AAG): a multi-word name ending in a family name joins that family
+			const last = e.name.split(" ").pop();
+			return e.name.includes(" ") && families.has(last) ? last : own;
+		};
+
 		this._renderChooser(el, {
 			subtitle: `Choose your character's ${this._raceWord().toLowerCase()}. Ability bonuses, speed, size, and traits come from here.`,
 			fnHeaderExtra: (wrp) => {
@@ -1425,14 +1448,18 @@ export class CharBuilderUi {
 			},
 			group: {
 				id: "race",
-				// "Dragonborn (Gem)|FTD" is a top-level race, not a subrace; strip the parenthetical so it groups with the other dragonborn
-				key: (e) => (e._baseName || (e._versionBase_isVersion && e._versionBase_name) || e.name).replace(/\s*\(.*\)\s*$/, ""),
+				key: raceKey,
 				// 5etools generates "versions" with a choice baked in (Dragonborn (Black), Half-Elf variant feature picks); fold them under their base
 				parentUid: (e) => e._versionBase_isVersion && e._versionBase_name ? `${e._versionBase_name}|${e._versionBase_source || e.source}` : null,
 				label: (e) => {
 					if (e._isBaseRace) return "Base race";
 					if (e._versionBase_isVersion) return ((e.name.match(/\(([^)]*)\)\s*$/) || [])[1] ?? e.name).split(";").pop().trim();
-					return e._subraceName || ((e.name.match(/\(([^)]*)\)\s*$/) || [])[1] ?? e.name);
+					if (e._subraceName) return e._subraceName;
+					const inParens = (e.name.match(/\(([^)]*)\)\s*$/) || [])[1];
+					if (inParens) return inParens;
+					// a standalone race that joined a family: "Sea Elf" under Elf reads "Sea", like the subraces beside it
+					const key = raceKey(e);
+					return key !== e.name && e.name.toLowerCase().endsWith(` ${key.toLowerCase()}`) ? e.name.slice(0, -(key.length + 1)) : e.name;
 				},
 				isBase: (e) => !!e._isBaseRace,
 			},

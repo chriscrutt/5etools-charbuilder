@@ -152,7 +152,9 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
 - **Race list** (`_renderStepRace` → `_renderChooser` with a `group` config): the ~300 race entries collapse into
   base-race groups. Subraces sit under a header, and 5etools' generated *versions* (a choice baked in:
   Dragonborn colors, half-elf variant features, Aasimar revelations; `_versionBase_*`) fold behind a
-  "▸ N" toggle on their parent. Search auto-expands matches, the selection's group opens by itself,
+  "▸ N" toggle on their parent. Standalone reprints join their family by following `reprintedAs`
+  back to the original ("Elf (Eladrin)|MTF" → "Eladrin|MPMM" goes under Elf; "Gnome (Deep)" → "Deep
+  Gnome" under Gnome), or by name when there's no predecessor ("Astral Elf" → Elf). Search auto-expands matches, the selection's group opens by itself,
   and a "Hide older printings" checkbox there flips `st.hideLegacy`.
 - **Background list** uses the same grouping. Backgrounds have no base/variant fields, so
   `_renderStepBackground` groups by naming convention: "Variant Criminal (Spy)" and "Baldur's Gate

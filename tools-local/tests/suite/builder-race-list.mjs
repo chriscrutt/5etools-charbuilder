@@ -51,6 +51,22 @@ const r = await page.evaluate(async () => {
 	R.nEntitiesLegacyHidden = st.filterVisible(dbg_cb.races).length;
 	search("aasimar");
 	R.aasimarSources = rows().filter(el => el.classList.contains("cb__pick")).map(el => el.querySelector(".cb__pick-src").textContent);
+	// Monsters of the Multiverse standalone reprints join their families (via reprintedAs, or the name for Astral Elf)
+	const families = (hideLegacy) => {
+		st.reset(); st.hideLegacy = hideLegacy; ui._chooserOpen = {}; goRace();
+		document.querySelectorAll(".cb__pick-group").forEach(g => g.click());
+		const out = {loose: []}; let cur = null;
+		rows().forEach(el => {
+			if (el.classList.contains("cb__pick-group")) { cur = el.firstElementChild.textContent.replace(/^[▸▾]s*/, "").trim(); out[cur] = []; return; }
+			const label = el.firstElementChild.textContent.trim(); const src = el.querySelector(".cb__pick-src")?.textContent;
+			if (el.classList.contains("cb__pick--d1")) out[cur].push(`${label}|${src}`); else if (!el.classList.contains("cb__pick--d2")) { out.loose.push(`${label}|${src}`); cur = null; }
+		});
+		return out;
+	};
+	for (const hl of [false, true]) {
+		const fam = families(hl);
+		R[`families_hideLegacy_${hl}`] = {Elf: fam.Elf, Gnome: fam.Gnome, Dwarf: fam.Dwarf, Gith: fam.Gith, strayLoose: fam.loose.filter(x => ["Deep Gnome", "Eladrin", "Duergar", "Sea Elf", "Shadar-Kai", "Githyanki", "Githzerai", "Astral Elf"].includes(x.split("|")[0]))};
+	}
 	st.hideLegacy = false; st.reset();
 	return R;
 });
@@ -69,6 +85,14 @@ chk("search 'hill' shows the Dwarf group with Hill", r.searchRows.some(x => x.st
 chk("search hides non-matching groups", !r.searchRows.some(x => /Dragonborn/.test(x)));
 chk("the selected race's group opens by itself", r.autoOpened);
 chk("checkbox turns on hide-legacy", r.hideLegacy === true && r.nEntitiesLegacyHidden < r.nEntities);
+for (const hl of [false, true]) {
+	const fam = r[`families_hideLegacy_${hl}`];
+	chk(`[hide older=${hl}] MPMM reprints aren't loose rows (${fam.strayLoose})`, fam.strayLoose.length === 0);
+	chk(`[hide older=${hl}] Elf has Eladrin, Sea, Shadar-Kai (MPMM) and Astral (AAG) (${fam.Elf})`, ["Eladrin|MPMM", "Sea|MPMM", "Shadar-Kai|MPMM", "Astral|AAG"].every(x => fam.Elf?.includes(x)));
+	chk(`[hide older=${hl}] Gnome has Deep (MPMM) (${fam.Gnome})`, fam.Gnome?.includes("Deep|MPMM"));
+	chk(`[hide older=${hl}] Dwarf has Duergar (MPMM) (${fam.Dwarf})`, fam.Dwarf?.includes("Duergar|MPMM"));
+	chk(`[hide older=${hl}] Gith has Githyanki and Githzerai (${fam.Gith})`, ["Githyanki|MPMM", "Githzerai|MPMM"].every(x => fam.Gith?.includes(x)));
+}
 chk(`older printings gone (Aasimar sources: ${r.aasimarSources})`, r.aasimarSources.length && !r.aasimarSources.includes("VGM"));
 
 console.log("\nFAILURES:", F.length ? F : "none");
