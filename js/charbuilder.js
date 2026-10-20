@@ -616,13 +616,30 @@ export class CharState {
 
 	/* ----- background feats (2024 origin feat, dragonmark, faction…) ----- */
 	// feats the background grants by a specific name (auto-applied)
+	// A background's `feats` array lists ALTERNATIVES: pick one entry (BMT's Ruined = Alert, Skilled or Tough).
+	// Almost all backgrounds have a single entry, whose feats are simply granted.
+	// When there are 2+ entries -> [{feat} | {category, count} | {any}], else null.
+	backgroundFeatAlternatives () {
+		const opts = (this.backgroundEnt?.feats || []).filter(o => o && typeof o === "object");
+		if (opts.length < 2) return null;
+		return opts.map(o => {
+			if (o.anyFromCategory) return {category: o.anyFromCategory.category, count: o.anyFromCategory.count || 1};
+			if (o.any) return {any: o.any};
+			const uids = Object.entries(o).filter(([, v]) => v === true).map(([k]) => k);
+			const feat = uids.length === 1 ? this._data.feats.find(f => CW.uid(f).toLowerCase() === `${uids[0]}`.toLowerCase()) : null;
+			return feat ? {feat} : {uids};
+		});
+	}
 	backgroundFixedFeats () {
+		if (this.backgroundFeatAlternatives()) return []; // a choice, not a grant
 		const out = [];
 		(this.backgroundEnt?.feats || []).forEach(grp => Object.entries(grp).forEach(([k, v]) => { if (v !== true) return; const feat = this._data.feats.find(f => CW.uid(f).toLowerCase() === `${k}`.toLowerCase()); if (feat) out.push(feat); }));
 		return out;
 	}
-	// a "choose any feat" entry on the background, if present -> {count, category}
+	// a feat the player picks for the background, if any -> {count, category} | {count, alternatives}; the pick is this.bgFeat
 	backgroundFeatChoice () {
+		const alternatives = this.backgroundFeatAlternatives();
+		if (alternatives) return {count: 1, alternatives};
 		for (const grp of (this.backgroundEnt?.feats || [])) { if (grp.any) return {count: grp.any}; if (grp.anyFromCategory) return {count: grp.anyFromCategory.count || 1, category: grp.anyFromCategory.category}; }
 		return null;
 	}
@@ -664,6 +681,9 @@ export class CharState {
 			cl.forEach(c => { const req = this.multiclassRequirement(c.cls); if (!req.ok) out.push({step: "class", severity: "warning", title: `${c.cls.name}`, message: `Multiclassing requires ${req.reqText} — not met (need ${req.missing.join("; ")}).`}); });
 		}
 		if (this.totalLevel > 20) out.push({step: "class", severity: "error", title: "Level cap", message: `Total level ${this.totalLevel} exceeds the maximum of 20.`});
+		// a background that offers a choice of feats, with nothing picked yet
+		const bgAlts = this.backgroundFeatAlternatives();
+		if (bgAlts && !this.bgFeat?.featUid && this.bgFeat?.altIx == null) out.push({step: "abilities", severity: "warning", title: "Background feat", message: `${this.backgroundEnt.name} grants one feat of your choice: ${bgAlts.map(a => a.feat?.name || (a.category ? "a feat from its list" : "any feat")).join(", ")}.`});
 		// feat prerequisites (ASI feats + racial feat + background feat — all chosen on the Abilities step)
 		this.featsTaken().forEach(ft => {
 			const feat = this._data.feats.find(f => CW.uid(f) === ft.featUid); if (!feat) return;
@@ -705,9 +725,9 @@ export class CharState {
 	_featFixedProfs (field) { const out = new Set(); this._allFeatInstances().forEach(({feat}) => (feat[field] || []).forEach(g => { if (g && typeof g === "object" && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v === true && !k.startsWith("any")) out.add(k.toLowerCase()); }); })); return out; }
 	featArmorProfs () { return this._featFixedProfs("armorProficiencies"); }
 	featSaveProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featSaveChoose || []).forEach(a => out.add(a))); return out; }
-	featSkillProfs () { const out = new Set(); this._allFeatInstances().forEach(({feat, choice}) => { (feat.skillProficiencies || []).forEach(g => { if (g && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v === true) out.add(k); }); }); (choice.featSkillChoose || []).forEach(s => out.add(s)); }); return out; }
-	featToolProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featToolChoose || []).forEach(t => out.add(`${t}`.toTitleCase()))); return out; }
-	featLangProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => (choice.featLangChoose || []).forEach(l => out.add(`${l}`.toTitleCase()))); return out; }
+	featSkillProfs () { const out = new Set(); this._allFeatInstances().forEach(({feat, choice}) => { (feat.skillProficiencies || []).forEach(g => { if (g && !g.choose) Object.entries(g).forEach(([k, v]) => { if (v === true) out.add(k); }); }); (choice.featSkillChoose || []).forEach(s => out.add(s)); (choice.featSkillToolChoose || []).forEach(v => { if (`${v}`.startsWith("skill:")) out.add(`${v}`.slice(6)); }); }); return out; }
+	featToolProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => { (choice.featToolChoose || []).forEach(t => out.add(`${t}`.toTitleCase())); (choice.featSkillToolChoose || []).forEach(v => { if (`${v}`.startsWith("tool:")) out.add(`${v}`.slice(5).toTitleCase()); }); }); return out; }
+	featLangProfs () { const out = new Set(); this._allFeatInstances().forEach(({choice}) => { (choice.featLangChoose || []).forEach(l => out.add(`${l}`.toTitleCase())); (choice.featSkillToolChoose || []).forEach(v => { if (`${v}`.startsWith("lang:")) out.add(`${v}`.slice(5).toTitleCase()); }); }); return out; }
 	featWeaponProfs () {
 		const cats = new Set(); const names = new Set();
 		this._allFeatInstances().forEach(({feat, choice}) => {

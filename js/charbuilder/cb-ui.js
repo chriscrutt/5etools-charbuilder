@@ -1895,7 +1895,34 @@ export class CharBuilderUi {
 		fixed.forEach(f => {
 			ee`<details class="ve-mt-1"><summary><b>${f.name.qq()}</b> <span class="ve-muted ve-small">(granted)</span></summary><div class="ve-pl-3 ve-small">${renderEntries(f.entries)}</div></details>`.appendTo(wrp);
 		});
-		if (choice && choice.category) {
+		if (choice?.alternatives) {
+			// "choose one of these" (BMT's Ruined: Alert, Skilled or Tough). The pick lives in bgFeat, so a feat
+			// with its own choices (Skilled's skills, Magic Initiate's class) gets its pickers below.
+			const rf = st.bgFeat;
+			const sel = ee`<select class="ve-form-control ve-input-xs" style="max-width:340px"><option value="">— choose one —</option></select>`;
+			choice.alternatives.forEach((alt, ix) => {
+				if (alt.feat) {
+					const uid = CW.uid(alt.feat);
+					const takenElsewhere = st.featsTaken().some(t => t.featUid === uid && t.key !== "bg");
+					ee`<option value="${uid.qq()}" ${takenElsewhere ? "disabled" : ""}>${alt.feat.name} (${alt.feat.source})${takenElsewhere ? " — taken" : ""}</option>`.appendTo(sel);
+				} else {
+					const what = alt.category ? `A ${alt.category.map(c => Parser.featCategoryToFull(c)).join("/")} feat` : alt.any ? "Any feat" : alt.uids.join(" + ");
+					ee`<option value="alt:${ix}">${what} (see the background's text)</option>`.appendTo(sel);
+				}
+			});
+			sel.val(rf.featUid || (rf.altIx != null ? `alt:${rf.altIx}` : ""));
+			sel.onn("change", () => {
+				const v = sel.val() || "";
+				if (v.startsWith("alt:")) { rf.featUid = null; rf.altIx = Number(v.slice(4)); } else { rf.featUid = v || null; rf.altIx = null; }
+				this._resetFeatChoiceArrays(rf); this._save(); this.render();
+			});
+			ee(wrp)`<label class="ve-flex-v-center ve-mt-1" style="gap:6px">Choose one ${sel}</label>`;
+			const feat = rf.featUid ? this._data.feats.find(f => CW.uid(f) === rf.featUid) : null;
+			if (feat) {
+				ee`<details class="ve-mt-1"><summary class="ve-small">${feat.name.qq()} details</summary><div class="ve-pl-3 ve-small">${renderEntries(feat.entries)}</div></details>`.appendTo(wrp);
+				this._renderFeatChoices(wrp, feat, rf);
+			}
+		} else if (choice && choice.category) {
 			// a category we can't populate from the feat list (e.g. Dark Gifts) — point to the background instead
 			ee(wrp)`<div class="ve-muted ve-small ve-mt-1">Also choose ${choice.count} option from this background (see its feature text above).</div>`;
 		} else if (choice) {
@@ -2077,7 +2104,7 @@ export class CharBuilderUi {
 		this._renderFeatChoices(body, feat, ch);
 	}
 
-	_resetFeatChoiceArrays (o) { ["featAbilChoose", "featSkillChoose", "featToolChoose", "featLangChoose", "featSaveChoose", "featWeaponChoose", "featExpertiseChoose"].forEach(k => { o[k] = []; }); o.featSpellGroup = 0; o.featSpellChoose = {}; }
+	_resetFeatChoiceArrays (o) { ["featAbilChoose", "featSkillChoose", "featToolChoose", "featLangChoose", "featSkillToolChoose", "featSaveChoose", "featWeaponChoose", "featExpertiseChoose"].forEach(k => { o[k] = []; }); o.featSpellGroup = 0; o.featSpellChoose = {}; }
 
 	// shared picker for a feat's choices (ability / save / skill / tool / language / weapon / expertise) + its description
 	_renderFeatChoices (wrp, feat, choice) {
@@ -2094,6 +2121,17 @@ export class CharBuilderUi {
 		});
 		(feat.savingThrowProficiencies || []).forEach(g => { if (!g.choose) return; choice.featSaveChoose = choice.featSaveChoose || []; chip(choice.featSaveChoose, g.choose.count || 1, g.choose.from, a => a, a => CW.ABIL_FULL[a], "<b>Save proficiency</b> — choose"); });
 		(feat.skillProficiencies || []).forEach(g => { if (!g.choose) return; choice.featSkillChoose = choice.featSkillChoose || []; chip(choice.featSkillChoose, g.choose.count || 1, g.choose.from, s => s, s => CW.skillName(s), "<b>Skill proficiency</b> — choose"); });
+		// one pool of "any skill / tool / language" (Skilled: any 3 skills or tools), stored as "skill:x" / "tool:x" / "lang:x"
+		(feat.skillToolLanguageProficiencies || []).forEach(g => (g?.choose || []).forEach(c => {
+			const from = c.from || []; const items = [];
+			if (from.includes("anySkill")) CW.skills().forEach(s => items.push(`skill:${s}`));
+			if (from.includes("anyTool")) st._toolOptions("ANY").forEach(t => items.push(`tool:${t}`));
+			if (from.includes("anyLanguage")) (Parser.LANGUAGES_ALL || []).forEach(l => items.push(`lang:${l}`));
+			if (!items.length) return;
+			choice.featSkillToolChoose = choice.featSkillToolChoose || [];
+			const lbl = (v) => { const [kind, ...rest] = v.split(":"); const n = rest.join(":"); return kind === "skill" ? CW.skillName(n) : `${`${n}`.toTitleCase()} (${kind === "tool" ? "tool" : "language"})`; };
+			chip(choice.featSkillToolChoose, c.count || 1, items, v => v, lbl, `<b>Proficiencies</b> (${[from.includes("anySkill") && "skills", from.includes("anyTool") && "tools", from.includes("anyLanguage") && "languages"].filter(Boolean).join(" or ")}) — choose`);
+		}));
 		(feat.toolProficiencies || []).forEach(g => { if (typeof g !== "object") return; choice.featToolChoose = choice.featToolChoose || []; let n = 0; let opts = null; if (g.choose?.from) { n = g.choose.count || 1; opts = g.choose.from.map(t => `${t}`); } else if (g.anyArtisansTool) { n = g.anyArtisansTool; opts = st._toolOptions("AT"); } else if (g.anyMusicalInstrument) { n = g.anyMusicalInstrument; opts = st._toolOptions("INS"); } else if (g.any || g.anyTool) { n = g.any || g.anyTool; opts = st._toolOptions("ANY"); } if (n) chip(choice.featToolChoose, n, opts, t => t, t => `${t}`.toTitleCase(), "<b>Tool proficiency</b> — choose"); });
 		(feat.languageProficiencies || []).forEach(g => { if (typeof g !== "object") return; choice.featLangChoose = choice.featLangChoose || []; const LALL = Parser.LANGUAGES_ALL || []; let n = 0; let opts = null; if (g.any || g.anyStandard) { n = g.any || g.anyStandard; opts = LALL; } else if (g.choose?.from) { n = g.choose.count || 1; opts = g.choose.from.map(l => `${l}`.toTitleCase()); } if (n) chip(choice.featLangChoose, n, opts, l => l, l => `${l}`.toTitleCase(), "<b>Language</b> — choose"); });
 		(feat.weaponProficiencies || []).forEach(g => { if (!g.choose) return; choice.featWeaponChoose = choice.featWeaponChoose || []; const cat = /martial/.test(g.choose.fromFilter || "") ? "martial" : (/simple/.test(g.choose.fromFilter || "") ? "simple" : null); const opts = g.choose.from ? g.choose.from.map(w => `${w}`.split("|")[0]) : st.weaponOptions({category: cat}); chip(choice.featWeaponChoose, g.choose.count || 1, opts, w => w, w => `${w}`.toTitleCase(), "<b>Weapon proficiency</b> — choose"); });
