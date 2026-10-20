@@ -153,8 +153,11 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   base-race groups. Subraces sit under a header, and 5etools' generated *versions* (a choice baked in:
   Dragonborn colors, half-elf variant features, Aasimar revelations; `_versionBase_*`) fold behind a
   "▸ N" toggle on their parent. Search auto-expands matches, the selection's group opens by itself,
-  and a "Hide older printings" checkbox there flips `st.hideLegacy`. Other choosers (backgrounds,
-  sidekick creatures) stay flat unless given a `group`.
+  and a "Hide older printings" checkbox there flips `st.hideLegacy`.
+- **Background list** uses the same grouping. Backgrounds have no base/variant fields, so
+  `_renderStepBackground` groups by naming convention: "Variant Criminal (Spy)" and "Baldur's Gate
+  Criminal" go under Criminal, and "X (Sailor)" goes under Sailor when Sailor exists. The sidekick
+  creature list stays flat.
 - **Toolbar**: Character/Sidekick toggle, Sources panel, Play/Edit Build, autosave status,
   Export, Import, Print, My Characters (roster).
 - **Play mode** (`_renderPlayMode`): HP bar with damage/heal/temp, death saves, hit dice, short and

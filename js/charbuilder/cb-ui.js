@@ -1713,9 +1713,29 @@ export class CharBuilderUi {
 
 	/* ----- Step: Background ----- */
 	_renderStepBackground (el) {
+		const entities = this._state.filterVisible(this._data.backgrounds);
+		const names = new Set(entities.map(e => e.name));
+		// Backgrounds carry no base/variant fields; group on the naming conventions instead:
+		// "Variant Criminal (Spy)" → Criminal, "Baldur's Gate Criminal" → Criminal, "Revelry Pirate (Sailor)" → Sailor.
+		const bgGroup = (e) => {
+			let m = /^Variant (.+?) \((.+)\)$/.exec(e.name);
+			if (m) return {key: m[1], label: `Variant: ${m[2]}`};
+			m = /^Baldur's Gate (.+)$/.exec(e.name);
+			if (m) return {key: m[1], label: "Baldur's Gate"};
+			m = /^(.+?) \((.+)\)$/.exec(e.name);
+			if (m && names.has(m[2])) return {key: m[2], label: m[1]};
+			return {key: e.name, label: e.name, isBase: true};
+		};
 		this._renderChooser(el, {
 			subtitle: "Choose a background. It grants skill proficiencies, languages/tools, and starting equipment.",
-			entities: this._state.filterVisible(this._data.backgrounds),
+			group: {
+				id: "background",
+				key: (e) => bgGroup(e).key,
+				label: (e) => bgGroup(e).label,
+				parentUid: () => null,
+				isBase: (e) => !!bgGroup(e).isBase,
+			},
+			entities,
 			getSel: () => this._state.backgroundUid,
 			setSel: (uid) => { this._state.backgroundUid = uid; this._state.bgAbilOption = 0; this._state.bgAbilChoices = []; this._state.bgAbilWeighted = []; this._state.bgFeat = {featUid: null, featAbilChoose: []}; this._state.clearProfChoicesForSource("bg"); },
 			renderDetail: (col, ent) => {
