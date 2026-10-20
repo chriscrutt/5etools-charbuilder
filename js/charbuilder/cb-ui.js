@@ -1740,21 +1740,49 @@ export class CharBuilderUi {
 
 	/* ----- Step: Background ----- */
 	_renderStepBackground (el) {
-		const entities = this._state.filterVisible(this._data.backgrounds);
-		const names = new Set(entities.map(e => e.name));
+		const st = this._state;
+		const visible = st.filterVisible(this._data.backgrounds);
+		// Descent into Avernus reprints the PHB backgrounds as "Baldur's Gate X". They're off by default; when switched on,
+		// each replaces its standard X (the variants, e.g. "Variant Criminal (Spy)", stay).
+		const RE_BG = /^Baldur's Gate (.+)$/;
+		const bgVersions = visible.filter(e => RE_BG.test(e.name));
+		const standardName = (e) => RE_BG.exec(e.name)?.[1];
+		const replaced = new Set(bgVersions.map(standardName));
+		const entities = st.useBaldursGateBackgrounds
+			? visible.filter(e => RE_BG.test(e.name) || !replaced.has(e.name))
+			: visible.filter(e => !RE_BG.test(e.name));
+		const names = new Set(visible.map(e => e.name));
+
+		const selectBackground = (uid) => { st.backgroundUid = uid; st.bgAbilOption = 0; st.bgAbilChoices = []; st.bgAbilWeighted = []; st.bgFeat = {featUid: null, featAbilChoose: []}; st.clearProfChoicesForSource("bg"); };
+
 		// Backgrounds carry no base/variant fields; group on the naming conventions instead:
 		// "Variant Criminal (Spy)" → Criminal, "Baldur's Gate Criminal" → Criminal, "Revelry Pirate (Sailor)" → Sailor.
 		const bgGroup = (e) => {
 			let m = /^Variant (.+?) \((.+)\)$/.exec(e.name);
 			if (m) return {key: m[1], label: `Variant: ${m[2]}`};
-			m = /^Baldur's Gate (.+)$/.exec(e.name);
-			if (m) return {key: m[1], label: "Baldur's Gate"};
+			m = RE_BG.exec(e.name);
+			if (m) return {key: m[1], label: "Baldur's Gate", isBase: true}; // only listed when it stands in for the standard one
 			m = /^(.+?) \((.+)\)$/.exec(e.name);
 			if (m && names.has(m[2])) return {key: m[2], label: m[1]};
 			return {key: e.name, label: e.name, isBase: true};
 		};
 		this._renderChooser(el, {
 			subtitle: "Choose a background. It grants skill proficiencies, languages/tools, and starting equipment.",
+			fnHeaderExtra: bgVersions.length ? (wrp) => {
+				const cb = ee`<input type="checkbox" ${st.useBaldursGateBackgrounds ? "checked" : ""}>`.onn("change", () => {
+					st.useBaldursGateBackgrounds = cb.checked;
+					// swap the current pick for its counterpart, if it has one
+					const cur = st.backgroundEnt;
+					if (cur) {
+						const counterpart = cb.checked
+							? (RE_BG.test(cur.name) ? null : bgVersions.find(e => standardName(e) === cur.name))
+							: (RE_BG.test(cur.name) ? (visible.find(e => e.name === standardName(cur) && e.source === "PHB") || visible.find(e => e.name === standardName(cur))) : null);
+						if (counterpart) selectBackground(CW.uid(counterpart));
+					}
+					this._save(); this.render();
+				});
+				ee(wrp)`<label class="ve-small ve-flex-v-center ve-mb-1" style="gap:6px;font-weight:normal" title="Baldur's Gate: Descent into Avernus has its own versions of the PHB backgrounds, with Baldur's Gate flavor and features. Turn this on to use them in place of the standard ones.">${cb} Use Baldur's Gate versions (Descent into Avernus) in place of the standard backgrounds</label>`;
+			} : null,
 			group: {
 				id: "background",
 				key: (e) => bgGroup(e).key,
@@ -1764,7 +1792,7 @@ export class CharBuilderUi {
 			},
 			entities,
 			getSel: () => this._state.backgroundUid,
-			setSel: (uid) => { this._state.backgroundUid = uid; this._state.bgAbilOption = 0; this._state.bgAbilChoices = []; this._state.bgAbilWeighted = []; this._state.bgFeat = {featUid: null, featAbilChoose: []}; this._state.clearProfChoicesForSource("bg"); },
+			setSel: selectBackground,
 			renderDetail: (col, ent) => {
 				let html;
 				try { html = Renderer.background.getCompactRenderedString(ent); } catch (e) { html = renderEntries(ent.entries); }

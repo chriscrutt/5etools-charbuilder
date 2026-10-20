@@ -158,7 +158,10 @@ elsewhere ([INTEGRATION-OPTIONS.md](INTEGRATION-OPTIONS.md)).
   and a "Hide older printings" checkbox there flips `st.hideLegacy`.
 - **Background list** uses the same grouping. Backgrounds have no base/variant fields, so
   `_renderStepBackground` groups by naming convention: "Variant Criminal (Spy)" and "Baldur's Gate
-  Criminal" go under Criminal, and "X (Sailor)" goes under Sailor when Sailor exists. The sidekick
+  Criminal" go under Criminal, and "X (Sailor)" goes under Sailor when Sailor exists. Descent into
+  Avernus's "Baldur's Gate X" backgrounds are hidden unless the step's "Use Baldur's Gate versions"
+  checkbox is on (`st.useBaldursGateBackgrounds`, kept across resets like `hideLegacy`). Then each
+  one replaces its standard X, and flipping the box swaps the current pick to its counterpart. The sidekick
   creature list stays flat.
 - **Toolbar**: Character/Sidekick toggle, Sources panel, Play/Edit Build, autosave status,
   Export, Import, Print, My Characters (roster).

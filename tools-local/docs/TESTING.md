@@ -58,7 +58,7 @@ tools-local/tests/
 | `builder-attunement-cleanup` | Attunement follows the inventory; stale ids don't block attuning. |
 | `builder-subclass-features` | Every subclass's higher-level features load (no unnamed wrappers left), show on the Class step, and the class's "Path Feature" lines name what they grant; they reach the review/play list and turn options. |
 | `builder-legacy-filter` | "Hide older printings" hides only things reprinted in a later 2014-era book: PHB subclasses reprinted in the hidden 2024 PHB stay, SCAG→XGE reprints go. |
-| `builder-background-list` | Background variants (Variant …, Baldur's Gate …, Wildemount faction versions) group under their base background. |
+| `builder-background-list` | Background variants (Variant …, Wildemount faction versions) group under their base background; the Baldur's Gate checkbox hides them by default, replaces the standard ones when on, swaps the current pick both ways, and survives a reset. |
 | `builder-background-feats` | A background offering a choice of feats (BMT's Ruined) grants none until you pick one; Skilled's skill/tool picks become proficiencies; Tough adds HP. |
 | `builder-race-list` | The grouped race list: collapsed groups, Dragonborn lineages and folded colors, search, auto-open on the selection, the "Hide older printings" checkbox. |
 | `builder-save-button`, `builder-roster` | Saving to My Characters: no duplicates, ids, summaries with a numeric AC, and VTT import of a saved character (the token HP bar is checked with a synthetic summary). |

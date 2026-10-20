@@ -108,9 +108,10 @@ export class CharState {
 	}
 
 	reset () {
-		const keepHidden = this.hiddenSources; const keepLegacy = this.hideLegacy; // preserve the content filter across a character reset
+		const keepHidden = this.hiddenSources; const keepLegacy = this.hideLegacy; const keepBg = this.useBaldursGateBackgrounds; // preserve the content filter across a character reset
 		this.hiddenSources = keepHidden || []; // source codes the user has hidden from the builder
 		this.hideLegacy = keepLegacy ?? false; // hide content superseded by a newer 2014-rules printing (VGM -> MPMM)
+		this.useBaldursGateBackgrounds = keepBg ?? false; // show "Baldur's Gate X" (BGDIA) backgrounds in place of the standard X
 		this.name = "";
 		this.raceUid = null;
 		this.classes = [{uid: null, level: 1, subclassUid: null}]; // [0] is the primary class
@@ -2266,6 +2267,7 @@ export class CharState {
 			name: this.name,
 			hiddenSources: this.hiddenSources,
 			hideLegacy: this.hideLegacy,
+			useBaldursGateBackgrounds: this.useBaldursGateBackgrounds,
 			raceUid: this.raceUid,
 			classes: this.classes,
 			backgroundUid: this.backgroundUid,
@@ -2331,6 +2333,7 @@ export class CharState {
 			name: j.name ?? "",
 			hiddenSources: j.hiddenSources ?? [],
 			hideLegacy: j.hideLegacy ?? false,
+			useBaldursGateBackgrounds: j.useBaldursGateBackgrounds ?? false,
 			raceUid: j.raceUid ?? null,
 			classes,
 			backgroundUid: j.backgroundUid ?? null,
